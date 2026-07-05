@@ -879,12 +879,18 @@ class CompilerPluginWiringTest {
                 fun TodoScreen() {
                     var draft by state { "" }
                     AddTodoButton()
+                    AddTodoButton()
                 }
 
                 @UiComponent
                 suspend fun AsyncTodo() {
                     var loaded by state { "ready" }
                     text(loaded)
+                }
+
+                @UiComponent
+                suspend fun AsyncShell() {
+                    AsyncTodo()
                 }
 
                 @ClientComponent
@@ -921,11 +927,15 @@ class CompilerPluginWiringTest {
         assertTrue(
             "var draft by state(slotId = io.heapy.kinetica.SlotId(moduleId = \"todo\", functionFqName = \"app.TodoScreen\", declarationOrdinal = 0, disambiguator = \"draft\")) { \"\" }" in transformation.text,
         )
-        assertTrue("emit(AddTodoButton())" in transformation.text)
+        assertTrue("keyed(\"app/TodoScreen#call#0\") { emit(AddTodoButton()) }" in transformation.text)
+        assertTrue("keyed(\"app/TodoScreen#call#1\") { emit(AddTodoButton()) }" in transformation.text)
         assertTrue("suspend fun io.heapy.kinetica.ComponentScope.AsyncTodo(): io.heapy.kinetica.Node =" in transformation.text)
         assertTrue("skippableSuspendNode(" in transformation.text)
         assertTrue("componentId = \"app.AsyncTodo\"" in transformation.text)
         assertTrue("renderSuspendNode {" in transformation.text)
+        assertTrue("suspend fun io.heapy.kinetica.ComponentScope.AsyncShell(): io.heapy.kinetica.Node =" in transformation.text)
+        assertTrue("componentId = \"app.AsyncShell\"" in transformation.text)
+        assertTrue("suspendKeyed(\"app/AsyncShell#call#0\") { emit(AsyncTodo()) }" in transformation.text)
         assertTrue("fun io.heapy.kinetica.ComponentScope.AddTodoButton(): io.heapy.kinetica.Node =" in transformation.text)
         assertTrue(
             "emit(staticNode(\"app/AddTodoButton#static#0\") { io.heapy.kinetica.TextNode(value = \"Add\") })" in transformation.text,
@@ -939,7 +949,7 @@ class CompilerPluginWiringTest {
             "emit(staticNode(\"app/QualifiedPanel#static#0\") { io.heapy.kinetica.TextNode(value = \"Qualified\") })" in transformation.text,
         )
         assertTrue("app.AddTodoButton()" in transformation.text)
-        assertTrue("emit(AddTodoButton())" in transformation.text)
+        assertTrue("keyed(\"app/QualifiedPanel#call#0\") { emit(AddTodoButton()) }" in transformation.text)
     }
 
     @Test
@@ -1053,7 +1063,7 @@ class CompilerPluginWiringTest {
         )
         assertTrue("text(\"Hello ${'$'}title\")" in transformation.text)
         assertTrue("MissingComponent()" in transformation.text)
-        assertTrue("emit(Child(title)) // child comment" in transformation.text)
+        assertTrue("keyed(\"app/Search#call#0\") { emit(Child(title)) } // child comment" in transformation.text)
         assertEquals(KineticaSourceTransformation("/repo/src/commonMain/kotlin/app/Plain.kt", "fun Plain() = Unit", changed = false), unchanged)
     }
 
@@ -1178,7 +1188,7 @@ class CompilerPluginWiringTest {
         assertTrue(transformed.changed)
         assertTrue("var broken by state(" in transformed.text)
         assertTrue("text(\"No hoist descriptor\")" in transformed.text)
-        assertTrue("emit(Child())" in transformed.text)
+        assertTrue("keyed(\"app/MalformedState#call#0\") { emit(Child()) }" in transformed.text)
     }
 
     @Test

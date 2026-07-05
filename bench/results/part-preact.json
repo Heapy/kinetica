@@ -1,0 +1,265 @@
+{
+  "meta": {
+    "date": "2026-07-05T11:44:16.536Z",
+    "machine": {
+      "cpu": "Apple M4 Max",
+      "arch": "arm64",
+      "platform": "darwin",
+      "memGb": 36
+    },
+    "chromium": "149.0.7827.55",
+    "warmup": 3,
+    "samples": 10,
+    "methodology": "Playwright trusted clicks; per-operation Chrome trace (devtools.timeline); duration = click EventDispatch start -> end of last Paint/Commit event; headless Chrome for Testing; no CPU throttling; local static server.",
+    "versions": {
+      "preact": "10.29.4"
+    }
+  },
+  "benchmarks": [
+    {
+      "id": "01_run1k",
+      "label": "create 1,000 rows"
+    },
+    {
+      "id": "02_replace1k",
+      "label": "replace all 1,000 rows"
+    },
+    {
+      "id": "03_update10th1k",
+      "label": "partial update (every 10th row)"
+    },
+    {
+      "id": "04_select1k",
+      "label": "select row"
+    },
+    {
+      "id": "05_swap1k",
+      "label": "swap two rows"
+    },
+    {
+      "id": "06_remove1k",
+      "label": "remove one row"
+    },
+    {
+      "id": "07_create10k",
+      "label": "create 10,000 rows"
+    },
+    {
+      "id": "08_append1k",
+      "label": "append 1,000 rows to 1,000"
+    },
+    {
+      "id": "09_clear1k",
+      "label": "clear 1,000 rows"
+    }
+  ],
+  "results": {
+    "preact": {
+      "01_run1k": {
+        "samples": [
+          37.38,
+          33.72,
+          34.25,
+          33.14,
+          33.16,
+          31.61,
+          32.59,
+          35.59,
+          36.2,
+          35.35
+        ],
+        "median": 33.99,
+        "mean": 34.3,
+        "stddev": 1.7,
+        "min": 31.61,
+        "max": 37.38,
+        "pageErrors": 0
+      },
+      "02_replace1k": {
+        "samples": [
+          38.4,
+          38.4,
+          40.93,
+          37.44,
+          37.66,
+          40.59,
+          37.08,
+          43.32,
+          41.61,
+          40.42
+        ],
+        "median": 39.41,
+        "mean": 39.58,
+        "stddev": 1.97,
+        "min": 37.08,
+        "max": 43.32,
+        "pageErrors": 0
+      },
+      "03_update10th1k": {
+        "samples": [
+          6.79,
+          6.69,
+          8.52,
+          8.41,
+          7.43,
+          8.26,
+          6.48,
+          7.94,
+          8.42,
+          7.89
+        ],
+        "median": 7.92,
+        "mean": 7.68,
+        "stddev": 0.74,
+        "min": 6.48,
+        "max": 8.52,
+        "pageErrors": 0
+      },
+      "04_select1k": {
+        "samples": [
+          5.29,
+          7,
+          7.3,
+          6.24,
+          6.71,
+          7.06,
+          7.09,
+          6.41,
+          8.26,
+          8.03
+        ],
+        "median": 7.03,
+        "mean": 6.94,
+        "stddev": 0.82,
+        "min": 5.29,
+        "max": 8.26,
+        "pageErrors": 0
+      },
+      "05_swap1k": {
+        "samples": [
+          7.53,
+          7.54,
+          6.61,
+          6.73,
+          6.79,
+          7.48,
+          4.89,
+          8.29,
+          7.86,
+          8.66
+        ],
+        "median": 7.5,
+        "mean": 7.24,
+        "stddev": 1,
+        "min": 4.89,
+        "max": 8.66,
+        "pageErrors": 0
+      },
+      "06_remove1k": {
+        "samples": [
+          6.91,
+          7.57,
+          7.87,
+          6.99,
+          6.37,
+          7.69,
+          6.95,
+          7.48,
+          7.01,
+          6.21
+        ],
+        "median": 7,
+        "mean": 7.11,
+        "stddev": 0.52,
+        "min": 6.21,
+        "max": 7.87,
+        "pageErrors": 0
+      },
+      "07_create10k": {
+        "samples": [
+          330.79,
+          321.74,
+          336.9,
+          328.49,
+          333.85,
+          327.67,
+          334.2,
+          326.65,
+          339.01,
+          322.06
+        ],
+        "median": 329.64,
+        "mean": 330.14,
+        "stddev": 5.59,
+        "min": 321.74,
+        "max": 339.01,
+        "pageErrors": 0
+      },
+      "08_append1k": {
+        "samples": [
+          37,
+          36.87,
+          35.63,
+          40.69,
+          39.47,
+          39.09,
+          35.16,
+          36.42,
+          35.22,
+          40.53
+        ],
+        "median": 36.94,
+        "mean": 37.61,
+        "stddev": 2.04,
+        "min": 35.16,
+        "max": 40.69,
+        "pageErrors": 0
+      },
+      "09_clear1k": {
+        "samples": [
+          6,
+          6.94,
+          6.1,
+          6.49,
+          8.04,
+          7.13,
+          6.28,
+          7.26,
+          7.01,
+          6.84
+        ],
+        "median": 6.89,
+        "mean": 6.81,
+        "stddev": 0.59,
+        "min": 6,
+        "max": 8.04,
+        "pageErrors": 0
+      }
+    }
+  },
+  "startup": {
+    "preact": {
+      "mountMs": [
+        20.9,
+        23.8,
+        32.1,
+        20.9,
+        26.4
+      ],
+      "median": 23.8,
+      "mean": 24.82,
+      "stddev": 4.18,
+      "min": 20.9,
+      "max": 32.1,
+      "jsBytes": 21527,
+      "gzipBytes": 8639,
+      "files": 1
+    }
+  },
+  "memory": {
+    "preact": {
+      "afterLoadMb": 1.27,
+      "after1kMb": 4.28
+    }
+  }
+}

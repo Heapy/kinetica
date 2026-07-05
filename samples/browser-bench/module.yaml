@@ -1,0 +1,10 @@
+product: js/app
+
+apply:
+  - ../../common.module-template.yaml
+
+dependencies:
+  - ../../kinetica-browser
+  - ../../kinetica-runtime
+
+description: "js-framework-benchmark style keyed table app for performance comparison."

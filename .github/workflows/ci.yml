@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build, test & verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-kinetica
+
+      # JVM tests for every module with a JVM-testable surface.
+      # (Android/native targets are out of CI scope for now: they need SDK/host toolchains.)
+      - name: JVM tests
+        run: |
+          set -euo pipefail
+          for module in kinetica-runtime kinetica-markdown kinetica-router kinetica-forms \
+                        kinetica-motion kinetica-persist kinetica-theme kinetica-data \
+                        kinetica-test kinetica-compiler server-components-shared \
+                        server-components todo; do
+            echo "=== $module"
+            ./kotlin test -m "$module" --platform jvm
+          done
+
+      - name: Build JS modules
+        run: |
+          set -euo pipefail
+          for module in kinetica-browser browser-tests browser-counter browser-todo \
+                        browser-bench docs-client server-components-client; do
+            echo "=== $module"
+            ./kotlin build -m "$module"
+          done
+
+      - name: Browser-runtime JS tests
+        run: node build/tasks/_kinetica-browser_linkJsTest/kinetica-browser_test.mjs
+
+      - name: Install Playwright
+        run: |
+          mkdir -p .tools/playwright && cd .tools/playwright
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund playwright
+          npx playwright install --with-deps chromium
+
+      - name: Browser verification (samples)
+        env:
+          PLAYWRIGHT_IMPORT: ${{ github.workspace }}/.tools/playwright/node_modules/playwright/index.mjs
+        run: |
+          set -euo pipefail
+          node -e 'import("./bench/driver/server.mjs").then(m => m.startServer(process.cwd(), 4173))' &
+          SERVER_PID=$!
+          sleep 1
+          node scripts/verify-browser.mjs
+          kill $SERVER_PID
+
+      - name: Docs site verification
+        env:
+          PLAYWRIGHT_IMPORT: ${{ github.workspace }}/.tools/playwright/node_modules/playwright/index.mjs
+        run: |
+          set -euo pipefail
+          ./kotlin package -m docs-site
+          PORT=8080 java -jar build/tasks/_docs-site_executableJarJvm/docs-site-jvm-executable.jar &
+          SITE_PID=$!
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:8080/healthz >/dev/null && break
+            sleep 1
+          done
+          DOCS_BASE_URL=http://127.0.0.1:8080 node docs/verify-docs.mjs
+          kill $SITE_PID

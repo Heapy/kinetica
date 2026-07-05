@@ -1,0 +1,45 @@
+name: Benchmarks
+
+# Manual only: benchmark numbers from shared CI runners are noisy and are NOT comparable
+# with the committed results (different machine/Chromium). Useful for relative A/B checks.
+on:
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: Measured samples per operation
+        default: "5"
+      frameworks:
+        description: Comma-separated frameworks (empty = all)
+        default: ""
+
+jobs:
+  bench:
+    name: js-framework-benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-kinetica
+
+      - name: Install bench dependencies
+        run: |
+          cd bench
+          npm install --no-audit --no-fund
+          npm install --no-audit --no-fund playwright
+          npx playwright install --with-deps chromium
+
+      - name: Run benchmarks
+        env:
+          PLAYWRIGHT_IMPORT: playwright
+        run: |
+          ARGS="--samples=${{ inputs.samples }}"
+          if [ -n "${{ inputs.frameworks }}" ]; then ARGS="$ARGS --frameworks=${{ inputs.frameworks }}"; fi
+          node bench/run-all.mjs $ARGS
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-report
+          path: |
+            bench/report/index.html
+            bench/results/results.json

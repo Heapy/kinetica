@@ -1,8 +1,11 @@
 modules:
+  - ./docs/docs-client
+  - ./docs/docs-site
   - ./kinetica-browser
   - ./kinetica-compiler
   - ./kinetica-data
   - ./kinetica-forms
+  - ./kinetica-markdown
   - ./kinetica-motion
   - ./kinetica-persist
   - ./kinetica-router
@@ -10,6 +13,7 @@ modules:
   - ./kinetica-test
   - ./kinetica-theme
   - ./samples/annotated
+  - ./samples/browser-bench
   - ./samples/browser-counter
   - ./samples/browser-tests
   - ./samples/browser-todo

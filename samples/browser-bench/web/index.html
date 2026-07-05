@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kinetica keyed benchmark</title>
+  <link rel="stylesheet" href="../../../bench/frameworks/shared/styles.css">
+  <script>
+    window.__mountMs = undefined;
+    (function () {
+      function check() {
+        if (document.querySelector("#run, [data-testid=run]")) {
+          window.__mountMs = performance.now();
+          return true;
+        }
+        return false;
+      }
+      if (!check()) {
+        var mo = new MutationObserver(function () { if (check()) mo.disconnect(); });
+        mo.observe(document.documentElement, { childList: true, subtree: true });
+      }
+    })();
+  </script>
+</head>
+<body>
+  <div id="main"></div>
+  <script type="module" src="../../../build/tasks/_browser-bench_linkJs/browser-bench.mjs"></script>
+</body>
+</html>

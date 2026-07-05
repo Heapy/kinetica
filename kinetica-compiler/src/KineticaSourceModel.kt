@@ -648,7 +648,7 @@ public class KineticaComponentSourceTransformer(
             .trimBlankEdges()
             .injectSlotIds(declaration)
             .hoistStaticTextNodes(declaration)
-            .emitStandaloneComponentCalls(componentSimpleNames)
+            .emitStandaloneComponentCalls(declaration, componentSimpleNames, suspendContext = isSuspend)
             .prependIndent(bodyIndent)
         val suspendPrefix = if (isSuspend) "suspend " else ""
         val renderCall = if (isSuspend) "renderSuspendNode" else "renderNode"
@@ -738,8 +738,13 @@ public class KineticaComponentSourceTransformer(
         }
     }
 
-    private fun String.emitStandaloneComponentCalls(componentSimpleNames: Set<String>): String =
-        lines().joinToString(separator = "\n") { line ->
+    private fun String.emitStandaloneComponentCalls(
+        declaration: ComponentDeclaration,
+        componentSimpleNames: Set<String>,
+        suspendContext: Boolean,
+    ): String {
+        var callOrdinal = 0
+        return lines().joinToString(separator = "\n") { line ->
             val match = STANDALONE_COMPONENT_CALL.matchEntire(line) ?: return@joinToString line
             val name = match.groups["name"]?.value ?: return@joinToString line
             if (name !in componentSimpleNames) {
@@ -748,8 +753,11 @@ public class KineticaComponentSourceTransformer(
             val indent = match.groups["indent"]?.value.orEmpty()
             val args = match.groups["args"]?.value.orEmpty()
             val comment = match.groups["comment"]?.value?.let { " $it" }.orEmpty()
-            "$indent" + "emit($name($args))$comment"
+            val instanceKey = declaration.componentCallInstanceKey(callOrdinal++)
+            val keyedCall = if (suspendContext) "suspendKeyed" else "keyed"
+            "$indent" + "$keyedCall(${instanceKey.kotlinStringLiteral()}) { emit($name($args)) }$comment"
         }
+    }
 
     private fun SlotDeclaration.toSlotIdSource(
         functionFqName: String,
@@ -764,6 +772,9 @@ public class KineticaComponentSourceTransformer(
 
     private fun ComponentDeclaration.staticHoistId(ordinal: Int): String =
         "${fqName.toClientId()}#static#$ordinal"
+
+    private fun ComponentDeclaration.componentCallInstanceKey(ordinal: Int): String =
+        "${fqName.toClientId()}#call#$ordinal"
 
     private fun String.toClientId(): String =
         replace('.', '/')

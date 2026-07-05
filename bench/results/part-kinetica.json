@@ -1,0 +1,265 @@
+{
+  "meta": {
+    "date": "2026-07-05T11:41:50.626Z",
+    "machine": {
+      "cpu": "Apple M4 Max",
+      "arch": "arm64",
+      "platform": "darwin",
+      "memGb": 36
+    },
+    "chromium": "149.0.7827.55",
+    "warmup": 3,
+    "samples": 10,
+    "methodology": "Playwright trusted clicks; per-operation Chrome trace (devtools.timeline); duration = click EventDispatch start -> end of last Paint/Commit event; headless Chrome for Testing; no CPU throttling; local static server.",
+    "versions": {
+      "kinetica": "dev"
+    }
+  },
+  "benchmarks": [
+    {
+      "id": "01_run1k",
+      "label": "create 1,000 rows"
+    },
+    {
+      "id": "02_replace1k",
+      "label": "replace all 1,000 rows"
+    },
+    {
+      "id": "03_update10th1k",
+      "label": "partial update (every 10th row)"
+    },
+    {
+      "id": "04_select1k",
+      "label": "select row"
+    },
+    {
+      "id": "05_swap1k",
+      "label": "swap two rows"
+    },
+    {
+      "id": "06_remove1k",
+      "label": "remove one row"
+    },
+    {
+      "id": "07_create10k",
+      "label": "create 10,000 rows"
+    },
+    {
+      "id": "08_append1k",
+      "label": "append 1,000 rows to 1,000"
+    },
+    {
+      "id": "09_clear1k",
+      "label": "clear 1,000 rows"
+    }
+  ],
+  "results": {
+    "kinetica": {
+      "01_run1k": {
+        "samples": [
+          53.05,
+          49.69,
+          49.44,
+          55.25,
+          47.38,
+          53.14,
+          52.64,
+          43.26,
+          49.41,
+          52.08
+        ],
+        "median": 50.89,
+        "mean": 50.53,
+        "stddev": 3.29,
+        "min": 43.26,
+        "max": 55.25,
+        "pageErrors": 0
+      },
+      "02_replace1k": {
+        "samples": [
+          54.8,
+          50.39,
+          55.45,
+          49.01,
+          52.84,
+          47.5,
+          55.85,
+          49.35,
+          53.62,
+          48.63
+        ],
+        "median": 51.62,
+        "mean": 51.74,
+        "stddev": 2.95,
+        "min": 47.5,
+        "max": 55.85,
+        "pageErrors": 0
+      },
+      "03_update10th1k": {
+        "samples": [
+          17.58,
+          17.78,
+          15.95,
+          16.24,
+          16.72,
+          15.72,
+          14.57,
+          16.71,
+          13.61,
+          13.91
+        ],
+        "median": 16.1,
+        "mean": 15.88,
+        "stddev": 1.37,
+        "min": 13.61,
+        "max": 17.78,
+        "pageErrors": 0
+      },
+      "04_select1k": {
+        "samples": [
+          10.81,
+          14.21,
+          14.08,
+          17.88,
+          14.72,
+          10.95,
+          14.21,
+          11.79,
+          10.73,
+          11.81
+        ],
+        "median": 12.94,
+        "mean": 13.12,
+        "stddev": 2.19,
+        "min": 10.73,
+        "max": 17.88,
+        "pageErrors": 0
+      },
+      "05_swap1k": {
+        "samples": [
+          16.62,
+          16.37,
+          18.26,
+          24.04,
+          13.35,
+          16.24,
+          18.34,
+          19.49,
+          19.42,
+          17.88
+        ],
+        "median": 18.07,
+        "mean": 18,
+        "stddev": 2.65,
+        "min": 13.35,
+        "max": 24.04,
+        "pageErrors": 0
+      },
+      "06_remove1k": {
+        "samples": [
+          18.13,
+          24.96,
+          18.03,
+          16.98,
+          18.67,
+          18.92,
+          18.17,
+          17.53,
+          17.37,
+          17.05
+        ],
+        "median": 18.08,
+        "mean": 18.58,
+        "stddev": 2.21,
+        "min": 16.98,
+        "max": 24.96,
+        "pageErrors": 0
+      },
+      "07_create10k": {
+        "samples": [
+          465.54,
+          443.68,
+          463.01,
+          449.42,
+          459.63,
+          447.11,
+          496.19,
+          475.95,
+          464.15,
+          445.96
+        ],
+        "median": 461.32,
+        "mean": 461.06,
+        "stddev": 15.33,
+        "min": 443.68,
+        "max": 496.19,
+        "pageErrors": 0
+      },
+      "08_append1k": {
+        "samples": [
+          60.52,
+          58.54,
+          61.1,
+          61.69,
+          59.07,
+          60.29,
+          85.61,
+          65.41,
+          57.65,
+          63.59
+        ],
+        "median": 60.81,
+        "mean": 63.35,
+        "stddev": 7.74,
+        "min": 57.65,
+        "max": 85.61,
+        "pageErrors": 0
+      },
+      "09_clear1k": {
+        "samples": [
+          6.57,
+          7.63,
+          7.52,
+          5.96,
+          6.8,
+          6.84,
+          7.96,
+          6.95,
+          6.3,
+          7.55
+        ],
+        "median": 6.9,
+        "mean": 7.01,
+        "stddev": 0.61,
+        "min": 5.96,
+        "max": 7.96,
+        "pageErrors": 0
+      }
+    }
+  },
+  "startup": {
+    "kinetica": {
+      "mountMs": [
+        76.5,
+        63.7,
+        74,
+        66,
+        73.5
+      ],
+      "median": 73.5,
+      "mean": 70.74,
+      "stddev": 4.97,
+      "min": 63.7,
+      "max": 76.5,
+      "jsBytes": 1007563,
+      "gzipBytes": 255319,
+      "files": 222
+    }
+  },
+  "memory": {
+    "kinetica": {
+      "afterLoadMb": 2.51,
+      "after1kMb": 10.41
+    }
+  }
+}

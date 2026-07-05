@@ -1,0 +1,11 @@
+product:
+  type: kmp/lib
+  platforms: [jvm, js]
+
+apply:
+  - ../common.module-template.yaml
+
+dependencies:
+  - ../kinetica-runtime
+
+description: "Markdown parser and renderer emitting Kinetica host nodes — powers the documentation site."

@@ -1,0 +1,10 @@
+product: js/app
+
+apply:
+  - ../../common.module-template.yaml
+
+dependencies:
+  - ../../kinetica-browser
+  - ../../kinetica-runtime
+
+description: "Client bundle for the documentation site: mounts live interactive examples into doc pages."

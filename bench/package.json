@@ -5,7 +5,8 @@
   "description": "js-framework-benchmark style comparison: kinetica vs react/preact/vue/svelte/vanilla",
   "scripts": {
     "build": "node build.mjs",
-    "bench": "node driver/bench.mjs"
+    "bench": "node driver/bench.mjs",
+    "all": "node run-all.mjs"
   },
   "dependencies": {
     "preact": "^10.27.0",

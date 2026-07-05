@@ -1,0 +1,265 @@
+{
+  "meta": {
+    "date": "2026-07-05T11:45:27.478Z",
+    "machine": {
+      "cpu": "Apple M4 Max",
+      "arch": "arm64",
+      "platform": "darwin",
+      "memGb": 36
+    },
+    "chromium": "149.0.7827.55",
+    "warmup": 3,
+    "samples": 10,
+    "methodology": "Playwright trusted clicks; per-operation Chrome trace (devtools.timeline); duration = click EventDispatch start -> end of last Paint/Commit event; headless Chrome for Testing; no CPU throttling; local static server.",
+    "versions": {
+      "vue": "3.5.39"
+    }
+  },
+  "benchmarks": [
+    {
+      "id": "01_run1k",
+      "label": "create 1,000 rows"
+    },
+    {
+      "id": "02_replace1k",
+      "label": "replace all 1,000 rows"
+    },
+    {
+      "id": "03_update10th1k",
+      "label": "partial update (every 10th row)"
+    },
+    {
+      "id": "04_select1k",
+      "label": "select row"
+    },
+    {
+      "id": "05_swap1k",
+      "label": "swap two rows"
+    },
+    {
+      "id": "06_remove1k",
+      "label": "remove one row"
+    },
+    {
+      "id": "07_create10k",
+      "label": "create 10,000 rows"
+    },
+    {
+      "id": "08_append1k",
+      "label": "append 1,000 rows to 1,000"
+    },
+    {
+      "id": "09_clear1k",
+      "label": "clear 1,000 rows"
+    }
+  ],
+  "results": {
+    "vue": {
+      "01_run1k": {
+        "samples": [
+          33.78,
+          33.6,
+          35.21,
+          35.99,
+          33.79,
+          34.16,
+          32.84,
+          31.45,
+          30.04,
+          32.53
+        ],
+        "median": 33.69,
+        "mean": 33.34,
+        "stddev": 1.64,
+        "min": 30.04,
+        "max": 35.99,
+        "pageErrors": 0
+      },
+      "02_replace1k": {
+        "samples": [
+          34.35,
+          32.74,
+          32.73,
+          35.65,
+          32.8,
+          34.71,
+          33.26,
+          32.15,
+          33.5,
+          34.5
+        ],
+        "median": 33.38,
+        "mean": 33.64,
+        "stddev": 1.05,
+        "min": 32.15,
+        "max": 35.65,
+        "pageErrors": 0
+      },
+      "03_update10th1k": {
+        "samples": [
+          6.66,
+          7.16,
+          8.24,
+          7.65,
+          8.55,
+          7.63,
+          7.5,
+          7.97,
+          7.05,
+          7.85
+        ],
+        "median": 7.64,
+        "mean": 7.63,
+        "stddev": 0.54,
+        "min": 6.66,
+        "max": 8.55,
+        "pageErrors": 0
+      },
+      "04_select1k": {
+        "samples": [
+          7.67,
+          7.03,
+          5.87,
+          7.17,
+          8.32,
+          6.44,
+          7.68,
+          7.54,
+          8.31,
+          7.76
+        ],
+        "median": 7.61,
+        "mean": 7.38,
+        "stddev": 0.74,
+        "min": 5.87,
+        "max": 8.32,
+        "pageErrors": 0
+      },
+      "05_swap1k": {
+        "samples": [
+          8.11,
+          6.8,
+          8.45,
+          6.26,
+          8.46,
+          7.68,
+          7.12,
+          10.45,
+          7.03,
+          6.15
+        ],
+        "median": 7.4,
+        "mean": 7.65,
+        "stddev": 1.22,
+        "min": 6.15,
+        "max": 10.45,
+        "pageErrors": 0
+      },
+      "06_remove1k": {
+        "samples": [
+          7.47,
+          7.11,
+          8.38,
+          8.87,
+          9.68,
+          7.19,
+          7.2,
+          7,
+          7.72,
+          8.38
+        ],
+        "median": 7.59,
+        "mean": 7.9,
+        "stddev": 0.85,
+        "min": 7,
+        "max": 9.68,
+        "pageErrors": 0
+      },
+      "07_create10k": {
+        "samples": [
+          300.43,
+          307.26,
+          290.96,
+          303.1,
+          360.82,
+          296.68,
+          301.66,
+          306.71,
+          304.02,
+          299.35
+        ],
+        "median": 302.38,
+        "mean": 307.1,
+        "stddev": 18.48,
+        "min": 290.96,
+        "max": 360.82,
+        "pageErrors": 0
+      },
+      "08_append1k": {
+        "samples": [
+          39.74,
+          39.26,
+          39.63,
+          40.97,
+          37.86,
+          39.09,
+          40.38,
+          35.2,
+          34.25,
+          35.94
+        ],
+        "median": 39.17,
+        "mean": 38.23,
+        "stddev": 2.2,
+        "min": 34.25,
+        "max": 40.97,
+        "pageErrors": 0
+      },
+      "09_clear1k": {
+        "samples": [
+          7.05,
+          7.95,
+          7.65,
+          6.68,
+          6.39,
+          7.56,
+          6.77,
+          7.59,
+          8.11,
+          7.19
+        ],
+        "median": 7.38,
+        "mean": 7.29,
+        "stddev": 0.54,
+        "min": 6.39,
+        "max": 8.11,
+        "pageErrors": 0
+      }
+    }
+  },
+  "startup": {
+    "vue": {
+      "mountMs": [
+        32,
+        30,
+        29.9,
+        33.1,
+        33.2
+      ],
+      "median": 32,
+      "mean": 31.64,
+      "stddev": 1.44,
+      "min": 29.9,
+      "max": 33.2,
+      "jsBytes": 177638,
+      "gzipBytes": 66645,
+      "files": 1
+    }
+  },
+  "memory": {
+    "vue": {
+      "afterLoadMb": 1.84,
+      "after1kMb": 4.41
+    }
+  }
+}

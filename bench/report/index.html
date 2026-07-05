@@ -1,0 +1,950 @@
+<title>Kinetica vs React · js-framework-benchmark</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root {
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --border: rgba(11, 11, 11, 0.1);
+  --accent: #2a78d6;
+  --c-kinetica: #2a78d6;
+  --c-react: #1baf7a;
+  --c-preact: #eda100;
+  --c-vue: #008300;
+  --c-svelte: #4a3aa7;
+  --c-vanilla: #e34948;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --border: rgba(255, 255, 255, 0.1);
+    --accent: #3987e5;
+  --c-kinetica: #3987e5;
+  --c-react: #199e70;
+  --c-preact: #c98500;
+  --c-vue: #008300;
+  --c-svelte: #9085e9;
+  --c-vanilla: #e66767;
+  }
+}
+:root[data-theme="dark"] {
+  --page: #0d0d0d;
+  --surface: #1a1a19;
+  --ink: #ffffff;
+  --ink-2: #c3c2b7;
+  --muted: #898781;
+  --grid: #2c2c2a;
+  --border: rgba(255, 255, 255, 0.1);
+  --accent: #3987e5;
+  --c-kinetica: #3987e5;
+  --c-react: #199e70;
+  --c-preact: #c98500;
+  --c-vue: #008300;
+  --c-svelte: #9085e9;
+  --c-vanilla: #e66767;
+}
+:root[data-theme="light"] {
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --border: rgba(11, 11, 11, 0.1);
+  --accent: #2a78d6;
+  --c-kinetica: #2a78d6;
+  --c-react: #1baf7a;
+  --c-preact: #eda100;
+  --c-vue: #008300;
+  --c-svelte: #4a3aa7;
+  --c-vanilla: #e34948;
+}
+  [data-fw="kinetica"] { --series: var(--c-kinetica); }
+  [data-fw="react"] { --series: var(--c-react); }
+  [data-fw="preact"] { --series: var(--c-preact); }
+  [data-fw="vue"] { --series: var(--c-vue); }
+  [data-fw="svelte"] { --series: var(--c-svelte); }
+  [data-fw="vanilla"] { --series: var(--c-vanilla); }
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.wrap { max-width: 1060px; margin: 0 auto; padding: 40px 20px 72px; }
+.eyebrow {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--accent); margin: 0 0 10px;
+}
+h1 { font-size: 30px; line-height: 1.15; margin: 0 0 6px; letter-spacing: -0.015em; text-wrap: balance; }
+.lede { color: var(--ink-2); max-width: 62ch; margin: 0 0 18px; }
+.meta-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; }
+.chip {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+  color: var(--ink-2); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px;
+}
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 18px 0 0; }
+.legend-item { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; color: var(--ink-2); }
+.legend-item .ver { color: var(--muted); font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+.swatch { width: 11px; height: 11px; border-radius: 3px; background: var(--series); }
+
+section { margin-top: 44px; }
+h2 { font-size: 20px; margin: 0 0 4px; letter-spacing: -0.01em; }
+.section-sub { color: var(--ink-2); margin: 0 0 18px; max-width: 70ch; }
+
+.chart {
+  margin: 0; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 16px 18px 14px;
+}
+.chart figcaption { margin-bottom: 12px; }
+.chart figcaption strong { font-size: 14.5px; font-weight: 600; }
+.chart figcaption .sub { display: block; color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.bars { display: grid; gap: 7px; }
+.bar-row { display: grid; grid-template-columns: 88px 1fr; align-items: center; gap: 10px; }
+.bar-name { font-size: 12.5px; color: var(--ink-2); text-align: right; }
+.bar-track { position: relative; display: flex; align-items: center; gap: 8px; min-height: 18px; }
+.bar {
+  height: 18px; background: var(--series);
+  border-radius: 0 4px 4px 0; min-width: 2px;
+  flex: none;
+}
+.bar-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+  color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.chart-note { color: var(--muted); font-size: 12.5px; margin: 10px 0 0; }
+
+.hero-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+.multiples { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.duo { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+
+.table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+table.results { border-collapse: collapse; width: 100%; min-width: 720px; }
+table.results th, table.results td { padding: 8px 10px; font-size: 13px; }
+table.results thead th {
+  text-align: center; font-weight: 600; border-bottom: 1px solid var(--grid);
+  padding-top: 12px;
+}
+table.results thead .swatch { display: inline-block; margin-right: 6px; vertical-align: -1px; }
+table.results tbody th {
+  text-align: left; font-weight: 500; color: var(--ink-2); white-space: nowrap;
+  border-bottom: 1px solid var(--grid);
+}
+td.cell {
+  text-align: center; border-bottom: 1px solid var(--grid);
+  background: var(--cell); font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #0b0b0b;
+}
+td.cell[data-dark="true"] { color: #ffffff; }
+td.cell .ms { display: block; font-size: 13px; font-weight: 600; }
+td.cell .factor { display: block; font-size: 11px; opacity: 0.75; }
+td.cell.geo .ms { font-size: 14px; }
+tr.geo-row th { border-bottom: none; font-weight: 600; color: var(--ink); }
+tr.geo-row td { border-bottom: none; }
+td.empty { color: var(--muted); }
+table.fix-table td.num {
+  text-align: right; border-bottom: 1px solid var(--grid);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums;
+}
+table.fix-table thead th { text-align: right; }
+table.fix-table td.delta { color: #006300; font-weight: 600; }
+:root[data-theme="dark"] table.fix-table td.delta { color: #0ca30c; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) table.fix-table td.delta { color: #0ca30c; } }
+
+.callout {
+  border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  background: var(--surface); border-radius: 8px; padding: 14px 18px; margin-top: 18px;
+}
+.callout h3 { margin: 0 0 6px; font-size: 15px; }
+.callout p { margin: 6px 0; color: var(--ink-2); font-size: 14px; max-width: 78ch; }
+.callout code, .method code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-radius: 4px; padding: 1px 5px;
+}
+.method { color: var(--ink-2); font-size: 14px; max-width: 78ch; }
+.method dt { font-weight: 600; color: var(--ink); margin-top: 12px; }
+.method dd { margin: 3px 0 0; }
+footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
+
+#tip {
+  position: fixed; pointer-events: none; z-index: 10; display: none;
+  max-width: 340px; padding: 8px 11px; font-size: 12.5px; line-height: 1.45;
+  background: var(--ink); color: var(--page);
+  border-radius: 6px; box-shadow: 0 6px 24px rgba(0,0,0,0.25);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .bar { transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1); }
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">js-framework-benchmark · keyed implementations</p>
+    <h1>Kinetica vs React, Preact, Vue, Svelte &amp; vanilla JS</h1>
+    <p class="lede">The classic krausest table benchmark — create, update, select, swap, remove and clear
+    1,000-row tables — reimplemented for <strong>Kinetica</strong> and run against the same apps in the
+    other frameworks, in one environment, on one machine, with one driver.</p>
+    <div class="meta-chips">
+      <span class="chip">Apple M4 Max</span>
+      <span class="chip">darwin arm64 · 36 GB</span>
+      <span class="chip">Chromium 149.0.7827.55 (headless)</span>
+      <span class="chip">2026-07-05</span>
+      <span class="chip">10 samples + 3 warmup / op</span>
+    </div>
+    <div class="legend"><span class="legend-item"><span class="swatch" data-fw="kinetica"></span>Kinetica<span class="ver"> dev</span></span><span class="legend-item"><span class="swatch" data-fw="react"></span>React<span class="ver"> 19.2.7</span></span><span class="legend-item"><span class="swatch" data-fw="preact"></span>Preact<span class="ver"> 10.29.4</span></span><span class="legend-item"><span class="swatch" data-fw="vue"></span>Vue<span class="ver"> 3.5.39</span></span><span class="legend-item"><span class="swatch" data-fw="svelte"></span>Svelte<span class="ver"> 5.56.4</span></span><span class="legend-item"><span class="swatch" data-fw="vanilla"></span>Vanilla JS<span class="ver"></span></span></div>
+  </header>
+
+  <section>
+    <h2>Overall</h2>
+    <p class="section-sub">One number per framework: how many times slower it is than the fastest
+    contender, averaged (geometric mean) over all 9 DOM operations. 1.00× would mean
+    fastest at everything.</p>
+    <div class="hero-grid">
+  <figure class="chart">
+    <figcaption><strong>Geometric mean slowdown</strong><span class="sub">across all measured operations, relative to the fastest framework per operation — lower is better</span></figcaption>
+    <div class="bars" data-unit="×">
+      <div class="bar-row" data-tip="Vanilla JS: 1.01× the per-operation fastest, geometric mean over 9 operations">
+        <span class="bar-name">Vanilla JS</span>
+        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:46.8%"></span>
+        <span class="bar-value">1.01×</span></span>
+      </div>
+      <div class="bar-row" data-tip="Svelte: 1.03× the per-operation fastest, geometric mean over 9 operations">
+        <span class="bar-name">Svelte</span>
+        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:47.5%"></span>
+        <span class="bar-value">1.03×</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vue: 1.10× the per-operation fastest, geometric mean over 9 operations">
+        <span class="bar-name">Vue</span>
+        <span class="bar-track"><span class="bar" data-fw="vue" style="width:51.1%"></span>
+        <span class="bar-value">1.10×</span></span>
+      </div>
+      <div class="bar-row" data-tip="Preact: 1.11× the per-operation fastest, geometric mean over 9 operations">
+        <span class="bar-name">Preact</span>
+        <span class="bar-track"><span class="bar" data-fw="preact" style="width:51.3%"></span>
+        <span class="bar-value">1.11×</span></span>
+      </div>
+      <div class="bar-row" data-tip="React: 1.33× the per-operation fastest, geometric mean over 9 operations">
+        <span class="bar-name">React</span>
+        <span class="bar-track"><span class="bar" data-fw="react" style="width:61.7%"></span>
+        <span class="bar-value">1.33×</span></span>
+      </div>
+      <div class="bar-row" data-tip="Kinetica: 1.86× the per-operation fastest, geometric mean over 9 operations">
+        <span class="bar-name">Kinetica</span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
+        <span class="bar-value">1.86×</span></span>
+      </div></div>
+    
+  </figure></div>
+  </section>
+
+  <section>
+    <h2>Duration by operation</h2>
+    <p class="section-sub">Median duration in milliseconds from the trusted click to the end of the last
+    paint, measured from Chrome traces. The small factor under each value is the slowdown relative to
+    the fastest framework in that row. Hover a cell for the full distribution.</p>
+    <div class="table-scroll">
+      <table class="results">
+        <thead>
+          <tr><th></th><th scope="col"><span class="swatch" data-fw="kinetica"></span>Kinetica</th><th scope="col"><span class="swatch" data-fw="react"></span>React</th><th scope="col"><span class="swatch" data-fw="preact"></span>Preact</th><th scope="col"><span class="swatch" data-fw="vue"></span>Vue</th><th scope="col"><span class="swatch" data-fw="svelte"></span>Svelte</th><th scope="col"><span class="swatch" data-fw="vanilla"></span>Vanilla JS</th></tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">create 1,000 rows</th><td class="cell" style="--cell:#5598e7" data-dark="false"
+        title="Kinetica · create 1,000 rows: median 50.9ms (mean 50.5 ± 3.3, min 43.3, max 55.3, n=10)">
+        <span class="ms">50.9</span><span class="factor">1.7×</span></td><td class="cell" style="--cell:#9ec5f4" data-dark="false"
+        title="React · create 1,000 rows: median 35.5ms (mean 35.6 ± 2.1, min 32.9, max 40.8, n=10)">
+        <span class="ms">35.5</span><span class="factor">1.2×</span></td><td class="cell" style="--cell:#b7d3f6" data-dark="false"
+        title="Preact · create 1,000 rows: median 34.0ms (mean 34.3 ± 1.7, min 31.6, max 37.4, n=10)">
+        <span class="ms">34.0</span><span class="factor">1.1×</span></td><td class="cell" style="--cell:#b7d3f6" data-dark="false"
+        title="Vue · create 1,000 rows: median 33.7ms (mean 33.3 ± 1.6, min 30.0, max 36.0, n=10)">
+        <span class="ms">33.7</span><span class="factor">1.1×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Svelte · create 1,000 rows: median 29.9ms (mean 30.5 ± 2.1, min 27.2, max 33.9, n=10)">
+        <span class="ms">29.9</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Vanilla JS · create 1,000 rows: median 30.1ms (mean 29.3 ± 2.0, min 26.3, max 31.7, n=10)">
+        <span class="ms">30.1</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">replace all 1,000 rows</th><td class="cell" style="--cell:#5598e7" data-dark="false"
+        title="Kinetica · replace all 1,000 rows: median 51.6ms (mean 51.7 ± 3.0, min 47.5, max 55.9, n=10)">
+        <span class="ms">51.6</span><span class="factor">1.7×</span></td><td class="cell" style="--cell:#9ec5f4" data-dark="false"
+        title="React · replace all 1,000 rows: median 39.1ms (mean 39.1 ± 1.4, min 36.5, max 41.1, n=10)">
+        <span class="ms">39.1</span><span class="factor">1.3×</span></td><td class="cell" style="--cell:#9ec5f4" data-dark="false"
+        title="Preact · replace all 1,000 rows: median 39.4ms (mean 39.6 ± 2.0, min 37.1, max 43.3, n=10)">
+        <span class="ms">39.4</span><span class="factor">1.3×</span></td><td class="cell" style="--cell:#b7d3f6" data-dark="false"
+        title="Vue · replace all 1,000 rows: median 33.4ms (mean 33.6 ± 1.1, min 32.2, max 35.7, n=10)">
+        <span class="ms">33.4</span><span class="factor">1.1×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Svelte · replace all 1,000 rows: median 32.6ms (mean 32.4 ± 1.0, min 31.2, max 33.6, n=10)">
+        <span class="ms">32.6</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Vanilla JS · replace all 1,000 rows: median 31.1ms (mean 31.3 ± 1.1, min 29.9, max 33.4, n=10)">
+        <span class="ms">31.1</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">partial update (every 10th row)</th><td class="cell" style="--cell:#2a78d6" data-dark="true"
+        title="Kinetica · partial update (every 10th row): median 16.1ms (mean 15.9 ± 1.4, min 13.6, max 17.8, n=10)">
+        <span class="ms">16.1</span><span class="factor">2.2×</span></td><td class="cell" style="--cell:#b7d3f6" data-dark="false"
+        title="React · partial update (every 10th row): median 8.0ms (mean 7.8 ± 0.5, min 7.1, max 8.6, n=10)">
+        <span class="ms">8.0</span><span class="factor">1.1×</span></td><td class="cell" style="--cell:#b7d3f6" data-dark="false"
+        title="Preact · partial update (every 10th row): median 7.9ms (mean 7.7 ± 0.7, min 6.5, max 8.5, n=10)">
+        <span class="ms">7.9</span><span class="factor">1.1×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Vue · partial update (every 10th row): median 7.6ms (mean 7.6 ± 0.5, min 6.7, max 8.6, n=10)">
+        <span class="ms">7.6</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Svelte · partial update (every 10th row): median 7.6ms (mean 7.4 ± 0.6, min 6.3, max 8.2, n=10)">
+        <span class="ms">7.6</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Vanilla JS · partial update (every 10th row): median 7.4ms (mean 7.5 ± 0.6, min 6.4, max 8.5, n=10)">
+        <span class="ms">7.4</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">select row</th><td class="cell" style="--cell:#3987e5" data-dark="true"
+        title="Kinetica · select row: median 12.9ms (mean 13.1 ± 2.2, min 10.7, max 17.9, n=10)">
+        <span class="ms">12.9</span><span class="factor">1.9×</span></td><td class="cell" style="--cell:#b7d3f6" data-dark="false"
+        title="React · select row: median 7.4ms (mean 7.2 ± 0.5, min 6.6, max 8.0, n=10)">
+        <span class="ms">7.4</span><span class="factor">1.1×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Preact · select row: median 7.0ms (mean 6.9 ± 0.8, min 5.3, max 8.3, n=10)">
+        <span class="ms">7.0</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#b7d3f6" data-dark="false"
+        title="Vue · select row: median 7.6ms (mean 7.4 ± 0.7, min 5.9, max 8.3, n=10)">
+        <span class="ms">7.6</span><span class="factor">1.1×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Svelte · select row: median 6.9ms (mean 6.9 ± 0.6, min 6.0, max 7.8, n=10)">
+        <span class="ms">6.9</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Vanilla JS · select row: median 7.0ms (mean 7.1 ± 0.6, min 6.0, max 8.3, n=10)">
+        <span class="ms">7.0</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">swap two rows</th><td class="cell" style="--cell:#256abf" data-dark="true"
+        title="Kinetica · swap two rows: median 18.1ms (mean 18.0 ± 2.7, min 13.4, max 24.0, n=10)">
+        <span class="ms">18.1</span><span class="factor">2.4×</span></td><td class="cell" style="--cell:#0d366b" data-dark="true"
+        title="React · swap two rows: median 28.3ms (mean 28.5 ± 0.9, min 27.4, max 30.4, n=10)">
+        <span class="ms">28.3</span><span class="factor">3.8×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Preact · swap two rows: median 7.5ms (mean 7.2 ± 1.0, min 4.9, max 8.7, n=10)">
+        <span class="ms">7.5</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Vue · swap two rows: median 7.4ms (mean 7.7 ± 1.2, min 6.2, max 10.5, n=10)">
+        <span class="ms">7.4</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Svelte · swap two rows: median 7.7ms (mean 7.7 ± 0.9, min 6.2, max 8.8, n=10)">
+        <span class="ms">7.7</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Vanilla JS · swap two rows: median 7.8ms (mean 7.3 ± 1.0, min 5.8, max 9.0, n=10)">
+        <span class="ms">7.8</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">remove one row</th><td class="cell" style="--cell:#256abf" data-dark="true"
+        title="Kinetica · remove one row: median 18.1ms (mean 18.6 ± 2.2, min 17.0, max 25.0, n=10)">
+        <span class="ms">18.1</span><span class="factor">2.6×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="React · remove one row: median 7.3ms (mean 7.5 ± 1.1, min 5.9, max 9.0, n=10)">
+        <span class="ms">7.3</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Preact · remove one row: median 7.0ms (mean 7.1 ± 0.5, min 6.2, max 7.9, n=10)">
+        <span class="ms">7.0</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#b7d3f6" data-dark="false"
+        title="Vue · remove one row: median 7.6ms (mean 7.9 ± 0.9, min 7.0, max 9.7, n=10)">
+        <span class="ms">7.6</span><span class="factor">1.1×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Svelte · remove one row: median 7.2ms (mean 7.1 ± 0.5, min 6.4, max 7.8, n=10)">
+        <span class="ms">7.2</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Vanilla JS · remove one row: median 7.2ms (mean 7.2 ± 0.6, min 6.3, max 8.7, n=10)">
+        <span class="ms">7.2</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">create 10,000 rows</th><td class="cell" style="--cell:#5598e7" data-dark="false"
+        title="Kinetica · create 10,000 rows: median 461.3ms (mean 461.1 ± 15.3, min 443.7, max 496.2, n=10)">
+        <span class="ms">461.3</span><span class="factor">1.7×</span></td><td class="cell" style="--cell:#6da7ec" data-dark="false"
+        title="React · create 10,000 rows: median 430.0ms (mean 474.8 ± 134.4, min 419.8, max 877.4, n=10)">
+        <span class="ms">430.0</span><span class="factor">1.6×</span></td><td class="cell" style="--cell:#9ec5f4" data-dark="false"
+        title="Preact · create 10,000 rows: median 329.6ms (mean 330.1 ± 5.6, min 321.7, max 339.0, n=10)">
+        <span class="ms">329.6</span><span class="factor">1.2×</span></td><td class="cell" style="--cell:#b7d3f6" data-dark="false"
+        title="Vue · create 10,000 rows: median 302.4ms (mean 307.1 ± 18.5, min 291.0, max 360.8, n=10)">
+        <span class="ms">302.4</span><span class="factor">1.1×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Svelte · create 10,000 rows: median 274.7ms (mean 277.9 ± 14.9, min 262.9, max 320.5, n=10)">
+        <span class="ms">274.7</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Vanilla JS · create 10,000 rows: median 266.4ms (mean 269.5 ± 9.7, min 258.0, max 290.6, n=10)">
+        <span class="ms">266.4</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">append 1,000 rows to 1,000</th><td class="cell" style="--cell:#3987e5" data-dark="true"
+        title="Kinetica · append 1,000 rows to 1,000: median 60.8ms (mean 63.4 ± 7.7, min 57.7, max 85.6, n=10)">
+        <span class="ms">60.8</span><span class="factor">2.0×</span></td><td class="cell" style="--cell:#b7d3f6" data-dark="false"
+        title="React · append 1,000 rows to 1,000: median 34.4ms (mean 34.4 ± 1.6, min 32.0, max 37.2, n=10)">
+        <span class="ms">34.4</span><span class="factor">1.1×</span></td><td class="cell" style="--cell:#9ec5f4" data-dark="false"
+        title="Preact · append 1,000 rows to 1,000: median 36.9ms (mean 37.6 ± 2.0, min 35.2, max 40.7, n=10)">
+        <span class="ms">36.9</span><span class="factor">1.2×</span></td><td class="cell" style="--cell:#9ec5f4" data-dark="false"
+        title="Vue · append 1,000 rows to 1,000: median 39.2ms (mean 38.2 ± 2.2, min 34.3, max 41.0, n=10)">
+        <span class="ms">39.2</span><span class="factor">1.3×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Svelte · append 1,000 rows to 1,000: median 31.0ms (mean 31.4 ± 1.2, min 29.5, max 34.2, n=10)">
+        <span class="ms">31.0</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Vanilla JS · append 1,000 rows to 1,000: median 30.6ms (mean 30.9 ± 2.4, min 27.6, max 34.9, n=10)">
+        <span class="ms">30.6</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">clear 1,000 rows</th><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Kinetica · clear 1,000 rows: median 6.9ms (mean 7.0 ± 0.6, min 6.0, max 8.0, n=10)">
+        <span class="ms">6.9</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="React · clear 1,000 rows: median 6.9ms (mean 7.1 ± 0.4, min 6.6, max 7.7, n=10)">
+        <span class="ms">6.9</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Preact · clear 1,000 rows: median 6.9ms (mean 6.8 ± 0.6, min 6.0, max 8.0, n=10)">
+        <span class="ms">6.9</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#b7d3f6" data-dark="false"
+        title="Vue · clear 1,000 rows: median 7.4ms (mean 7.3 ± 0.5, min 6.4, max 8.1, n=10)">
+        <span class="ms">7.4</span><span class="factor">1.1×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Svelte · clear 1,000 rows: median 6.9ms (mean 7.0 ± 0.6, min 6.2, max 8.0, n=10)">
+        <span class="ms">6.9</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+        title="Vanilla JS · clear 1,000 rows: median 6.6ms (mean 6.8 ± 0.7, min 6.1, max 8.0, n=10)">
+        <span class="ms">6.6</span><span class="factor">1.0×</span></td></tr>
+          <tr class="geo-row"><th scope="row">geometric mean of factors</th><td class="cell geo" style="--cell:#3987e5" data-dark="true"><span class="ms">1.86×</span></td><td class="cell geo" style="--cell:#86b6ef" data-dark="false"><span class="ms">1.33×</span></td><td class="cell geo" style="--cell:#b7d3f6" data-dark="false"><span class="ms">1.11×</span></td><td class="cell geo" style="--cell:#b7d3f6" data-dark="false"><span class="ms">1.10×</span></td><td class="cell geo" style="--cell:#cde2fb" data-dark="false"><span class="ms">1.03×</span></td><td class="cell geo" style="--cell:#cde2fb" data-dark="false"><span class="ms">1.01×</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  
+  <section>
+    <h2>One fix, measured</h2>
+    <p class="section-sub">Profiling traced 60–67% of all CPU to <code>KineticaRuntime.registerEvent</code>:
+    an O(n) linear scan of a never-evicted identity list, run once per handler per render — O(n²) per
+    operation and growing with app lifetime. Replacing the list with a hash map
+    (phase 0, part 1 of <code>perf-rewrite-design.md</code>) produced the numbers used throughout this
+    report. The remaining gap versus the keyed frameworks is the full-DOM rebuild, addressed by the
+    retained-renderer phase.</p>
+    <div class="table-scroll">
+      <table class="results fix-table">
+        <thead>
+          <tr><th></th><th scope="col">before (ms)</th><th scope="col">after (ms)</th><th scope="col">improvement</th></tr>
+        </thead>
+        <tbody><tr>
+        <th scope="row">create 1,000 rows</th>
+        <td class="num">252.0</td>
+        <td class="num">50.9</td>
+        <td class="num delta">5.0× faster</td>
+      </tr><tr>
+        <th scope="row">replace all 1,000 rows</th>
+        <td class="num">431.2</td>
+        <td class="num">51.6</td>
+        <td class="num delta">8.4× faster</td>
+      </tr><tr>
+        <th scope="row">partial update (every 10th row)</th>
+        <td class="num">251.4</td>
+        <td class="num">16.1</td>
+        <td class="num delta">15.6× faster</td>
+      </tr><tr>
+        <th scope="row">select row</th>
+        <td class="num">61.6</td>
+        <td class="num">12.9</td>
+        <td class="num delta">4.8× faster</td>
+      </tr><tr>
+        <th scope="row">swap two rows</th>
+        <td class="num">61.6</td>
+        <td class="num">18.1</td>
+        <td class="num delta">3.4× faster</td>
+      </tr><tr>
+        <th scope="row">remove one row</th>
+        <td class="num">473.7</td>
+        <td class="num">18.1</td>
+        <td class="num delta">26.2× faster</td>
+      </tr><tr>
+        <th scope="row">create 10,000 rows</th>
+        <td class="num">20,268.6</td>
+        <td class="num">461.3</td>
+        <td class="num delta">43.9× faster</td>
+      </tr><tr>
+        <th scope="row">append 1,000 rows to 1,000</th>
+        <td class="num">795.5</td>
+        <td class="num">60.8</td>
+        <td class="num delta">13.1× faster</td>
+      </tr><tr>
+        <th scope="row">clear 1,000 rows</th>
+        <td class="num">7.2</td>
+        <td class="num">6.9</td>
+        <td class="num delta">≈ same</td>
+      </tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Per operation</h2>
+    <p class="section-sub">Same data as the table, drawn to scale — each chart normalized to its own
+    slowest bar. Lower is better.</p>
+    <div class="multiples">
+  <figure class="chart">
+    <figcaption><strong>create 1,000 rows</strong></figcaption>
+    <div class="bars" data-unit="ms">
+      <div class="bar-row" data-tip="Kinetica: median 50.9ms · mean 50.5 ± 3.3 · range 43.3–55.3ms · 10 samples">
+        <span class="bar-name">Kinetica</span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
+        <span class="bar-value">50.9</span></span>
+      </div>
+      <div class="bar-row" data-tip="React: median 35.5ms · mean 35.6 ± 2.1 · range 32.9–40.8ms · 10 samples">
+        <span class="bar-name">React</span>
+        <span class="bar-track"><span class="bar" data-fw="react" style="width:60.0%"></span>
+        <span class="bar-value">35.5</span></span>
+      </div>
+      <div class="bar-row" data-tip="Preact: median 34.0ms · mean 34.3 ± 1.7 · range 31.6–37.4ms · 10 samples">
+        <span class="bar-name">Preact</span>
+        <span class="bar-track"><span class="bar" data-fw="preact" style="width:57.4%"></span>
+        <span class="bar-value">34.0</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vue: median 33.7ms · mean 33.3 ± 1.6 · range 30.0–36.0ms · 10 samples">
+        <span class="bar-name">Vue</span>
+        <span class="bar-track"><span class="bar" data-fw="vue" style="width:56.9%"></span>
+        <span class="bar-value">33.7</span></span>
+      </div>
+      <div class="bar-row" data-tip="Svelte: median 29.9ms · mean 30.5 ± 2.1 · range 27.2–33.9ms · 10 samples">
+        <span class="bar-name">Svelte</span>
+        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:50.4%"></span>
+        <span class="bar-value">29.9</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vanilla JS: median 30.1ms · mean 29.3 ± 2.0 · range 26.3–31.7ms · 10 samples">
+        <span class="bar-name">Vanilla JS</span>
+        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:50.8%"></span>
+        <span class="bar-value">30.1</span></span>
+      </div></div>
+    
+  </figure>
+  <figure class="chart">
+    <figcaption><strong>replace all 1,000 rows</strong></figcaption>
+    <div class="bars" data-unit="ms">
+      <div class="bar-row" data-tip="Kinetica: median 51.6ms · mean 51.7 ± 3.0 · range 47.5–55.9ms · 10 samples">
+        <span class="bar-name">Kinetica</span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
+        <span class="bar-value">51.6</span></span>
+      </div>
+      <div class="bar-row" data-tip="React: median 39.1ms · mean 39.1 ± 1.4 · range 36.5–41.1ms · 10 samples">
+        <span class="bar-name">React</span>
+        <span class="bar-track"><span class="bar" data-fw="react" style="width:65.2%"></span>
+        <span class="bar-value">39.1</span></span>
+      </div>
+      <div class="bar-row" data-tip="Preact: median 39.4ms · mean 39.6 ± 2.0 · range 37.1–43.3ms · 10 samples">
+        <span class="bar-name">Preact</span>
+        <span class="bar-track"><span class="bar" data-fw="preact" style="width:65.7%"></span>
+        <span class="bar-value">39.4</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vue: median 33.4ms · mean 33.6 ± 1.1 · range 32.2–35.7ms · 10 samples">
+        <span class="bar-name">Vue</span>
+        <span class="bar-track"><span class="bar" data-fw="vue" style="width:55.6%"></span>
+        <span class="bar-value">33.4</span></span>
+      </div>
+      <div class="bar-row" data-tip="Svelte: median 32.6ms · mean 32.4 ± 1.0 · range 31.2–33.6ms · 10 samples">
+        <span class="bar-name">Svelte</span>
+        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:54.2%"></span>
+        <span class="bar-value">32.6</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vanilla JS: median 31.1ms · mean 31.3 ± 1.1 · range 29.9–33.4ms · 10 samples">
+        <span class="bar-name">Vanilla JS</span>
+        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:51.8%"></span>
+        <span class="bar-value">31.1</span></span>
+      </div></div>
+    
+  </figure>
+  <figure class="chart">
+    <figcaption><strong>partial update (every 10th row)</strong></figcaption>
+    <div class="bars" data-unit="ms">
+      <div class="bar-row" data-tip="Kinetica: median 16.1ms · mean 15.9 ± 1.4 · range 13.6–17.8ms · 10 samples">
+        <span class="bar-name">Kinetica</span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
+        <span class="bar-value">16.1</span></span>
+      </div>
+      <div class="bar-row" data-tip="React: median 8.0ms · mean 7.8 ± 0.5 · range 7.1–8.6ms · 10 samples">
+        <span class="bar-name">React</span>
+        <span class="bar-track"><span class="bar" data-fw="react" style="width:42.7%"></span>
+        <span class="bar-value">8.0</span></span>
+      </div>
+      <div class="bar-row" data-tip="Preact: median 7.9ms · mean 7.7 ± 0.7 · range 6.5–8.5ms · 10 samples">
+        <span class="bar-name">Preact</span>
+        <span class="bar-track"><span class="bar" data-fw="preact" style="width:42.3%"></span>
+        <span class="bar-value">7.9</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vue: median 7.6ms · mean 7.6 ± 0.5 · range 6.7–8.6ms · 10 samples">
+        <span class="bar-name">Vue</span>
+        <span class="bar-track"><span class="bar" data-fw="vue" style="width:40.8%"></span>
+        <span class="bar-value">7.6</span></span>
+      </div>
+      <div class="bar-row" data-tip="Svelte: median 7.6ms · mean 7.4 ± 0.6 · range 6.3–8.2ms · 10 samples">
+        <span class="bar-name">Svelte</span>
+        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:40.5%"></span>
+        <span class="bar-value">7.6</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vanilla JS: median 7.4ms · mean 7.5 ± 0.6 · range 6.4–8.5ms · 10 samples">
+        <span class="bar-name">Vanilla JS</span>
+        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:39.3%"></span>
+        <span class="bar-value">7.4</span></span>
+      </div></div>
+    
+  </figure>
+  <figure class="chart">
+    <figcaption><strong>select row</strong></figcaption>
+    <div class="bars" data-unit="ms">
+      <div class="bar-row" data-tip="Kinetica: median 12.9ms · mean 13.1 ± 2.2 · range 10.7–17.9ms · 10 samples">
+        <span class="bar-name">Kinetica</span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
+        <span class="bar-value">12.9</span></span>
+      </div>
+      <div class="bar-row" data-tip="React: median 7.4ms · mean 7.2 ± 0.5 · range 6.6–8.0ms · 10 samples">
+        <span class="bar-name">React</span>
+        <span class="bar-track"><span class="bar" data-fw="react" style="width:48.8%"></span>
+        <span class="bar-value">7.4</span></span>
+      </div>
+      <div class="bar-row" data-tip="Preact: median 7.0ms · mean 6.9 ± 0.8 · range 5.3–8.3ms · 10 samples">
+        <span class="bar-name">Preact</span>
+        <span class="bar-track"><span class="bar" data-fw="preact" style="width:46.7%"></span>
+        <span class="bar-value">7.0</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vue: median 7.6ms · mean 7.4 ± 0.7 · range 5.9–8.3ms · 10 samples">
+        <span class="bar-name">Vue</span>
+        <span class="bar-track"><span class="bar" data-fw="vue" style="width:50.6%"></span>
+        <span class="bar-value">7.6</span></span>
+      </div>
+      <div class="bar-row" data-tip="Svelte: median 6.9ms · mean 6.9 ± 0.6 · range 6.0–7.8ms · 10 samples">
+        <span class="bar-name">Svelte</span>
+        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:46.0%"></span>
+        <span class="bar-value">6.9</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vanilla JS: median 7.0ms · mean 7.1 ± 0.6 · range 6.0–8.3ms · 10 samples">
+        <span class="bar-name">Vanilla JS</span>
+        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:46.7%"></span>
+        <span class="bar-value">7.0</span></span>
+      </div></div>
+    
+  </figure>
+  <figure class="chart">
+    <figcaption><strong>swap two rows</strong></figcaption>
+    <div class="bars" data-unit="ms">
+      <div class="bar-row" data-tip="Kinetica: median 18.1ms · mean 18.0 ± 2.7 · range 13.4–24.0ms · 10 samples">
+        <span class="bar-name">Kinetica</span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:54.8%"></span>
+        <span class="bar-value">18.1</span></span>
+      </div>
+      <div class="bar-row" data-tip="React: median 28.3ms · mean 28.5 ± 0.9 · range 27.4–30.4ms · 10 samples">
+        <span class="bar-name">React</span>
+        <span class="bar-track"><span class="bar" data-fw="react" style="width:86.0%"></span>
+        <span class="bar-value">28.3</span></span>
+      </div>
+      <div class="bar-row" data-tip="Preact: median 7.5ms · mean 7.2 ± 1.0 · range 4.9–8.7ms · 10 samples">
+        <span class="bar-name">Preact</span>
+        <span class="bar-track"><span class="bar" data-fw="preact" style="width:22.8%"></span>
+        <span class="bar-value">7.5</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vue: median 7.4ms · mean 7.7 ± 1.2 · range 6.2–10.5ms · 10 samples">
+        <span class="bar-name">Vue</span>
+        <span class="bar-track"><span class="bar" data-fw="vue" style="width:22.5%"></span>
+        <span class="bar-value">7.4</span></span>
+      </div>
+      <div class="bar-row" data-tip="Svelte: median 7.7ms · mean 7.7 ± 0.9 · range 6.2–8.8ms · 10 samples">
+        <span class="bar-name">Svelte</span>
+        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:23.3%"></span>
+        <span class="bar-value">7.7</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vanilla JS: median 7.8ms · mean 7.3 ± 1.0 · range 5.8–9.0ms · 10 samples">
+        <span class="bar-name">Vanilla JS</span>
+        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:23.5%"></span>
+        <span class="bar-value">7.8</span></span>
+      </div></div>
+    
+  </figure>
+  <figure class="chart">
+    <figcaption><strong>remove one row</strong></figcaption>
+    <div class="bars" data-unit="ms">
+      <div class="bar-row" data-tip="Kinetica: median 18.1ms · mean 18.6 ± 2.2 · range 17.0–25.0ms · 10 samples">
+        <span class="bar-name">Kinetica</span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
+        <span class="bar-value">18.1</span></span>
+      </div>
+      <div class="bar-row" data-tip="React: median 7.3ms · mean 7.5 ± 1.1 · range 5.9–9.0ms · 10 samples">
+        <span class="bar-name">React</span>
+        <span class="bar-track"><span class="bar" data-fw="react" style="width:34.9%"></span>
+        <span class="bar-value">7.3</span></span>
+      </div>
+      <div class="bar-row" data-tip="Preact: median 7.0ms · mean 7.1 ± 0.5 · range 6.2–7.9ms · 10 samples">
+        <span class="bar-name">Preact</span>
+        <span class="bar-track"><span class="bar" data-fw="preact" style="width:33.3%"></span>
+        <span class="bar-value">7.0</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vue: median 7.6ms · mean 7.9 ± 0.9 · range 7.0–9.7ms · 10 samples">
+        <span class="bar-name">Vue</span>
+        <span class="bar-track"><span class="bar" data-fw="vue" style="width:36.1%"></span>
+        <span class="bar-value">7.6</span></span>
+      </div>
+      <div class="bar-row" data-tip="Svelte: median 7.2ms · mean 7.1 ± 0.5 · range 6.4–7.8ms · 10 samples">
+        <span class="bar-name">Svelte</span>
+        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:34.1%"></span>
+        <span class="bar-value">7.2</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vanilla JS: median 7.2ms · mean 7.2 ± 0.6 · range 6.3–8.7ms · 10 samples">
+        <span class="bar-name">Vanilla JS</span>
+        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:34.3%"></span>
+        <span class="bar-value">7.2</span></span>
+      </div></div>
+    
+  </figure>
+  <figure class="chart">
+    <figcaption><strong>create 10,000 rows</strong></figcaption>
+    <div class="bars" data-unit="ms">
+      <div class="bar-row" data-tip="Kinetica: median 461.3ms · mean 461.1 ± 15.3 · range 443.7–496.2ms · 10 samples">
+        <span class="bar-name">Kinetica</span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
+        <span class="bar-value">461.3</span></span>
+      </div>
+      <div class="bar-row" data-tip="React: median 430.0ms · mean 474.8 ± 134.4 · range 419.8–877.4ms · 10 samples">
+        <span class="bar-name">React</span>
+        <span class="bar-track"><span class="bar" data-fw="react" style="width:80.2%"></span>
+        <span class="bar-value">430.0</span></span>
+      </div>
+      <div class="bar-row" data-tip="Preact: median 329.6ms · mean 330.1 ± 5.6 · range 321.7–339.0ms · 10 samples">
+        <span class="bar-name">Preact</span>
+        <span class="bar-track"><span class="bar" data-fw="preact" style="width:61.5%"></span>
+        <span class="bar-value">329.6</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vue: median 302.4ms · mean 307.1 ± 18.5 · range 291.0–360.8ms · 10 samples">
+        <span class="bar-name">Vue</span>
+        <span class="bar-track"><span class="bar" data-fw="vue" style="width:56.4%"></span>
+        <span class="bar-value">302.4</span></span>
+      </div>
+      <div class="bar-row" data-tip="Svelte: median 274.7ms · mean 277.9 ± 14.9 · range 262.9–320.5ms · 10 samples">
+        <span class="bar-name">Svelte</span>
+        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:51.2%"></span>
+        <span class="bar-value">274.7</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vanilla JS: median 266.4ms · mean 269.5 ± 9.7 · range 258.0–290.6ms · 10 samples">
+        <span class="bar-name">Vanilla JS</span>
+        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:49.7%"></span>
+        <span class="bar-value">266.4</span></span>
+      </div></div>
+    
+  </figure>
+  <figure class="chart">
+    <figcaption><strong>append 1,000 rows to 1,000</strong></figcaption>
+    <div class="bars" data-unit="ms">
+      <div class="bar-row" data-tip="Kinetica: median 60.8ms · mean 63.4 ± 7.7 · range 57.7–85.6ms · 10 samples">
+        <span class="bar-name">Kinetica</span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
+        <span class="bar-value">60.8</span></span>
+      </div>
+      <div class="bar-row" data-tip="React: median 34.4ms · mean 34.4 ± 1.6 · range 32.0–37.2ms · 10 samples">
+        <span class="bar-name">React</span>
+        <span class="bar-track"><span class="bar" data-fw="react" style="width:48.6%"></span>
+        <span class="bar-value">34.4</span></span>
+      </div>
+      <div class="bar-row" data-tip="Preact: median 36.9ms · mean 37.6 ± 2.0 · range 35.2–40.7ms · 10 samples">
+        <span class="bar-name">Preact</span>
+        <span class="bar-track"><span class="bar" data-fw="preact" style="width:52.2%"></span>
+        <span class="bar-value">36.9</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vue: median 39.2ms · mean 38.2 ± 2.2 · range 34.3–41.0ms · 10 samples">
+        <span class="bar-name">Vue</span>
+        <span class="bar-track"><span class="bar" data-fw="vue" style="width:55.4%"></span>
+        <span class="bar-value">39.2</span></span>
+      </div>
+      <div class="bar-row" data-tip="Svelte: median 31.0ms · mean 31.4 ± 1.2 · range 29.5–34.2ms · 10 samples">
+        <span class="bar-name">Svelte</span>
+        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:43.8%"></span>
+        <span class="bar-value">31.0</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vanilla JS: median 30.6ms · mean 30.9 ± 2.4 · range 27.6–34.9ms · 10 samples">
+        <span class="bar-name">Vanilla JS</span>
+        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:43.2%"></span>
+        <span class="bar-value">30.6</span></span>
+      </div></div>
+    
+  </figure>
+  <figure class="chart">
+    <figcaption><strong>clear 1,000 rows</strong></figcaption>
+    <div class="bars" data-unit="ms">
+      <div class="bar-row" data-tip="Kinetica: median 6.9ms · mean 7.0 ± 0.6 · range 6.0–8.0ms · 10 samples">
+        <span class="bar-name">Kinetica</span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:80.4%"></span>
+        <span class="bar-value">6.9</span></span>
+      </div>
+      <div class="bar-row" data-tip="React: median 6.9ms · mean 7.1 ± 0.4 · range 6.6–7.7ms · 10 samples">
+        <span class="bar-name">React</span>
+        <span class="bar-track"><span class="bar" data-fw="react" style="width:80.6%"></span>
+        <span class="bar-value">6.9</span></span>
+      </div>
+      <div class="bar-row" data-tip="Preact: median 6.9ms · mean 6.8 ± 0.6 · range 6.0–8.0ms · 10 samples">
+        <span class="bar-name">Preact</span>
+        <span class="bar-track"><span class="bar" data-fw="preact" style="width:80.3%"></span>
+        <span class="bar-value">6.9</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vue: median 7.4ms · mean 7.3 ± 0.5 · range 6.4–8.1ms · 10 samples">
+        <span class="bar-name">Vue</span>
+        <span class="bar-track"><span class="bar" data-fw="vue" style="width:86.0%"></span>
+        <span class="bar-value">7.4</span></span>
+      </div>
+      <div class="bar-row" data-tip="Svelte: median 6.9ms · mean 7.0 ± 0.6 · range 6.2–8.0ms · 10 samples">
+        <span class="bar-name">Svelte</span>
+        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:80.6%"></span>
+        <span class="bar-value">6.9</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vanilla JS: median 6.6ms · mean 6.8 ± 0.7 · range 6.1–8.0ms · 10 samples">
+        <span class="bar-name">Vanilla JS</span>
+        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:77.3%"></span>
+        <span class="bar-value">6.6</span></span>
+      </div></div>
+    
+  </figure></div>
+  </section>
+
+  <section>
+    <h2>Startup &amp; memory</h2>
+    <div class="duo">
+  <figure class="chart">
+    <figcaption><strong>JS payload (gzip)</strong><span class="sub">kilobytes of JavaScript shipped to render the app</span></figcaption>
+    <div class="bars" data-unit="KB">
+      <div class="bar-row" data-tip="Kinetica: 249 KB gzipped · 984 KB raw · 222 file(s)">
+        <span class="bar-name">Kinetica</span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
+        <span class="bar-value">249 KB</span></span>
+      </div>
+      <div class="bar-row" data-tip="React: 60 KB gzipped · 192 KB raw · 1 file(s)">
+        <span class="bar-name">React</span>
+        <span class="bar-track"><span class="bar" data-fw="react" style="width:20.7%"></span>
+        <span class="bar-value">60 KB</span></span>
+      </div>
+      <div class="bar-row" data-tip="Preact: 8 KB gzipped · 21 KB raw · 1 file(s)">
+        <span class="bar-name">Preact</span>
+        <span class="bar-track"><span class="bar" data-fw="preact" style="width:2.9%"></span>
+        <span class="bar-value">8 KB</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vue: 65 KB gzipped · 173 KB raw · 1 file(s)">
+        <span class="bar-name">Vue</span>
+        <span class="bar-track"><span class="bar" data-fw="vue" style="width:22.4%"></span>
+        <span class="bar-value">65 KB</span></span>
+      </div>
+      <div class="bar-row" data-tip="Svelte: 20 KB gzipped · 53 KB raw · 1 file(s)">
+        <span class="bar-name">Svelte</span>
+        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:7.0%"></span>
+        <span class="bar-value">20 KB</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vanilla JS: 1 KB gzipped · 3 KB raw · 1 file(s)">
+        <span class="bar-name">Vanilla JS</span>
+        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:0.8%"></span>
+        <span class="bar-value">1 KB</span></span>
+      </div></div>
+    
+  </figure>
+  <figure class="chart">
+    <figcaption><strong>Time to interactive</strong><span class="sub">navigation → toolbar rendered, local server, median of 5 cold loads</span></figcaption>
+    <div class="bars" data-unit="ms">
+      <div class="bar-row" data-tip="Kinetica: median 73.5ms over 5 cold loads (77, 64, 74, 66, 74)">
+        <span class="bar-name">Kinetica</span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
+        <span class="bar-value">73.5 ms</span></span>
+      </div>
+      <div class="bar-row" data-tip="React: median 39.1ms over 5 cold loads (39, 39, 39, 40, 40)">
+        <span class="bar-name">React</span>
+        <span class="bar-track"><span class="bar" data-fw="react" style="width:45.7%"></span>
+        <span class="bar-value">39.1 ms</span></span>
+      </div>
+      <div class="bar-row" data-tip="Preact: median 23.8ms over 5 cold loads (21, 24, 32, 21, 26)">
+        <span class="bar-name">Preact</span>
+        <span class="bar-track"><span class="bar" data-fw="preact" style="width:27.8%"></span>
+        <span class="bar-value">23.8 ms</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vue: median 32.0ms over 5 cold loads (32, 30, 30, 33, 33)">
+        <span class="bar-name">Vue</span>
+        <span class="bar-track"><span class="bar" data-fw="vue" style="width:37.4%"></span>
+        <span class="bar-value">32.0 ms</span></span>
+      </div>
+      <div class="bar-row" data-tip="Svelte: median 24.1ms over 5 cold loads (22, 24, 26, 24, 23)">
+        <span class="bar-name">Svelte</span>
+        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:28.2%"></span>
+        <span class="bar-value">24.1 ms</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vanilla JS: median 18.5ms over 5 cold loads (19, 18, 19, 18, 25)">
+        <span class="bar-name">Vanilla JS</span>
+        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:21.6%"></span>
+        <span class="bar-value">18.5 ms</span></span>
+      </div></div>
+    
+  </figure>
+  <figure class="chart">
+    <figcaption><strong>JS heap after creating 1,000 rows</strong><span class="sub">forced GC, then JSHeapUsedSize</span></figcaption>
+    <div class="bars" data-unit="MB">
+      <div class="bar-row" data-tip="Kinetica: 10.4 MB after 1k rows · 2.5 MB right after load">
+        <span class="bar-name">Kinetica</span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
+        <span class="bar-value">10.4 MB</span></span>
+      </div>
+      <div class="bar-row" data-tip="React: 4.4 MB after 1k rows · 1.6 MB right after load">
+        <span class="bar-name">React</span>
+        <span class="bar-track"><span class="bar" data-fw="react" style="width:36.3%"></span>
+        <span class="bar-value">4.4 MB</span></span>
+      </div>
+      <div class="bar-row" data-tip="Preact: 4.3 MB after 1k rows · 1.3 MB right after load">
+        <span class="bar-name">Preact</span>
+        <span class="bar-track"><span class="bar" data-fw="preact" style="width:35.4%"></span>
+        <span class="bar-value">4.3 MB</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vue: 4.4 MB after 1k rows · 1.8 MB right after load">
+        <span class="bar-name">Vue</span>
+        <span class="bar-track"><span class="bar" data-fw="vue" style="width:36.4%"></span>
+        <span class="bar-value">4.4 MB</span></span>
+      </div>
+      <div class="bar-row" data-tip="Svelte: 3.2 MB after 1k rows · 1.3 MB right after load">
+        <span class="bar-name">Svelte</span>
+        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:26.8%"></span>
+        <span class="bar-value">3.2 MB</span></span>
+      </div>
+      <div class="bar-row" data-tip="Vanilla JS: 1.9 MB after 1k rows · 1.2 MB right after load">
+        <span class="bar-name">Vanilla JS</span>
+        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:15.7%"></span>
+        <span class="bar-value">1.9 MB</span></span>
+      </div></div>
+    
+  </figure></div>
+    <div class="callout">
+      <h3>Why Kinetica ships 249 KB &amp; 222 files</h3>
+      <p>The Kotlin Toolchain's <code>js/app</code> product is a preview: it links the app as an
+      unminified multi-file ES-module graph (stdlib, coroutines, serialization included) with no
+      dead-code elimination or minifier yet. The JS competitors are esbuild production bundles.
+      Payload and time-to-interactive comparisons therefore measure the toolchain's current packaging,
+      not just the framework.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Reading the results</h2>
+    <div class="callout">
+      <h3>Kinetica's browser renderer rebuilds the whole DOM on every event</h3>
+      <p><code>BrowserKineticaApp.render()</code> tears down the root and recreates every element from
+      the fresh node tree on each dispatch — there is no keyed reconciliation on the client (the
+      runtime's <code>diffNodes</code> exists but is only used for server-component patches). That is
+      why <em>select row</em>, <em>partial update</em>, <em>swap</em> and <em>remove</em> cost roughly
+      the same as rebuilding 1,000 rows from scratch, while React/Preact/Vue/Svelte touch only the
+      changed nodes.</p>
+      <p>The upside of measuring it honestly: a keyed DOM patcher driven by the existing
+      <code>diffNodes</code> + <code>each(key=…)</code> machinery is the single highest-leverage
+      performance change available to the framework.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Methodology</h2>
+    <dl class="method">
+      <dt>Benchmark suite</dt>
+      <dd>The keyed scenario of <em>js-framework-benchmark</em> (krausest): the app is a table of rows
+      (id, label link that selects, remove icon); operations are create 1,000 / replace 1,000 /
+      partial-update every 10th / select / swap rows 2↔999 / remove one / create 10,000 / append 1,000 /
+      clear. Labels come from the benchmark's standard adjective-colour-noun generator.</dd>
+      <dt>Measurement</dt>
+      <dd>Playwright trusted clicks; per-operation Chrome trace (devtools.timeline); duration = click EventDispatch start -> end of last Paint/Commit event; headless Chrome for Testing; no CPU throttling; local static server. Each operation: 3 warmup runs, then
+      10 measured samples; the table reports medians. State is reset between samples
+      so every measured click does identical work.</dd>
+      <dt>Fairness</dt>
+      <dd>All apps render the same DOM structure (table/tr/td, same CSS file, no hover styles) from the
+      same page shell on the same local server. Kinetica differs only where its DSL requires it:
+      selectable labels and remove controls are <code>&lt;button&gt;</code> elements rather than
+      <code>&lt;a&gt;</code>, and it is mounted with <code>KineticaRuntime(debug = false)</code>.
+      React, Preact, Vue and Svelte are minified production builds (Vue includes its runtime template
+      compiler; op timings are unaffected). Vanilla JS is a direct-DOM baseline with event delegation.</dd>
+      <dt>Environment</dt>
+      <dd>Apple M4 Max, 36 GB RAM, darwin/arm64,
+      Chromium 149.0.7827.55 headless, no CPU throttling, one framework at a time.</dd>
+    </dl>
+  </section>
+
+  <footer>
+    Generated 2026-07-05 11:41 UTC ·
+    versions: Kinetica dev · React 19.2.7 · Preact 10.29.4 · Vue 3.5.39 · Svelte 5.56.4 · Vanilla JS n/a ·
+    raw data in <code>bench/results/results.json</code>
+  </footer>
+</div>
+
+<div id="tip" role="tooltip"></div>
+<script>
+(function () {
+  var tip = document.getElementById("tip");
+  document.addEventListener("mousemove", function (e) {
+    var row = e.target.closest ? e.target.closest("[data-tip]") : null;
+    if (row && row.getAttribute("data-tip")) {
+      tip.textContent = row.getAttribute("data-tip");
+      tip.style.display = "block";
+      var x = Math.min(e.clientX + 14, window.innerWidth - tip.offsetWidth - 8);
+      var y = Math.min(e.clientY + 14, window.innerHeight - tip.offsetHeight - 8);
+      tip.style.left = x + "px";
+      tip.style.top = y + "px";
+    } else {
+      tip.style.display = "none";
+    }
+  });
+})();
+</script>

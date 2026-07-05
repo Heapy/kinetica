@@ -35,6 +35,8 @@ public class ComponentScope public constructor(
     private val slots = mutableMapOf<String, Any?>()
     private val slotMetadata = mutableMapOf<String, SlotMetadata>()
     private val touchedSlots = mutableSetOf<String>()
+    private val hostEventIds = mutableMapOf<String, String>()
+    private val touchedHostEvents = mutableSetOf<String>()
     private val contexts = mutableMapOf<Context<*>, MutableList<Any?>>()
     private val exitGroups = mutableMapOf<String, ExitGroupState>()
     private val errorBoundaryStack = mutableListOf<ErrorBoundaryState>()
@@ -58,6 +60,7 @@ public class ComponentScope public constructor(
         effectCursor = 0
         resourceKeyCounts.clear()
         touchedSlots.clear()
+        touchedHostEvents.clear()
         layoutEffects.clear()
         postCommitEffects.clear()
         nodeStack.clear()
@@ -69,6 +72,7 @@ public class ComponentScope public constructor(
             .filter { it.transient && it.key !in touchedSlots }
             .map { it.key }
         expiredTransientSlots.forEach(::removeSlot)
+        evictUntouchedHostEvents()
         val children = nodeStack.single()
         return when (children.size) {
             0 -> FragmentNode()
@@ -112,7 +116,8 @@ public class ComponentScope public constructor(
         inputs: List<Any?> = emptyList(),
         factory: () -> Node,
     ): Node {
-        val cache = skippableNodes[componentId]
+        val cacheKey = scopedComponentCacheKey(componentId)
+        val cache = skippableNodes[cacheKey]
         val currentStateWriteVersion = stateWriteVersion.value
         if (
             cache != null &&
@@ -125,7 +130,7 @@ public class ComponentScope public constructor(
             return cache.node
         }
         val capture = captureSkippableDependencies(factory)
-        skippableNodes[componentId] = SkippableNodeCache(
+        skippableNodes[cacheKey] = SkippableNodeCache(
             inputs = inputs.toList(),
             stateWriteVersion = currentStateWriteVersion,
             node = capture.node,
@@ -139,7 +144,8 @@ public class ComponentScope public constructor(
         inputs: List<Any?> = emptyList(),
         factory: suspend () -> Node,
     ): Node {
-        val cache = skippableNodes[componentId]
+        val cacheKey = scopedComponentCacheKey(componentId)
+        val cache = skippableNodes[cacheKey]
         val currentStateWriteVersion = stateWriteVersion.value
         if (
             cache != null &&
@@ -152,7 +158,7 @@ public class ComponentScope public constructor(
             return cache.node
         }
         val capture = captureSkippableDependencies(factory)
-        skippableNodes[componentId] = SkippableNodeCache(
+        skippableNodes[cacheKey] = SkippableNodeCache(
             inputs = inputs.toList(),
             stateWriteVersion = currentStateWriteVersion,
             node = capture.node,
@@ -213,7 +219,24 @@ public class ComponentScope public constructor(
         }
     }
 
+    public fun keyed(key: Any, content: ComponentScope.() -> Unit) {
+        withKeyScope(key, content)
+    }
+
+    public suspend fun suspendKeyed(key: Any, content: suspend ComponentScope.() -> Unit) {
+        withSuspendKeyScope(key, content)
+    }
+
     internal fun withKeyScope(key: Any, content: ComponentScope.() -> Unit) {
+        keyScopeStack += key.toString()
+        try {
+            content()
+        } finally {
+            keyScopeStack.removeAt(keyScopeStack.lastIndex)
+        }
+    }
+
+    internal suspend fun withSuspendKeyScope(key: Any, content: suspend ComponentScope.() -> Unit) {
         keyScopeStack += key.toString()
         try {
             content()
@@ -225,6 +248,11 @@ public class ComponentScope public constructor(
     internal fun keyScopePrefix(extraKey: Any? = null): String {
         val keys = if (extraKey == null) keyScopeStack else keyScopeStack + extraKey.toString()
         return keys.joinToString(separator = "/")
+    }
+
+    private fun scopedComponentCacheKey(componentId: String): String {
+        val prefix = keyScopePrefix()
+        return if (prefix.isEmpty()) componentId else "$prefix/$componentId"
     }
 
     internal fun resourceCacheNamespace(scope: CacheScope): ResourceCacheNamespace =
@@ -316,6 +344,9 @@ public class ComponentScope public constructor(
     public fun dispose() {
         slots.keys.toList().forEach(::removeSlot)
         touchedSlots.clear()
+        hostEventIds.values.forEach(runtime::removeEvent)
+        hostEventIds.clear()
+        touchedHostEvents.clear()
         contexts.clear()
         exitGroups.values.forEach { state -> state.cancelTasks() }
         exitGroups.clear()
@@ -343,6 +374,31 @@ public class ComponentScope public constructor(
         val localKey = "event-${eventCursor++}"
         val prefix = keyScopePrefix()
         return if (prefix.isEmpty()) localKey else "$prefix/$localKey"
+    }
+
+    internal fun registerHostEvent(key: String, callback: (Any?) -> Unit): String {
+        touchedHostEvents += key
+        val existing = hostEventIds[key]
+        if (existing != null && runtime.updateEvent(existing, callback)) {
+            return existing
+        }
+        val id = runtime.registerEvent(callback)
+        hostEventIds[key] = id
+        return id
+    }
+
+    private fun evictUntouchedHostEvents() {
+        if (hostEventIds.size == touchedHostEvents.size) {
+            return
+        }
+        val iterator = hostEventIds.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next()
+            if (entry.key !in touchedHostEvents) {
+                runtime.removeEvent(entry.value)
+                iterator.remove()
+            }
+        }
     }
 
     internal fun nextEffectKey(): String {
@@ -545,11 +601,20 @@ public class ComponentScope public constructor(
     }
 }
 
+@Suppress("EXTENSION_SHADOWED_BY_MEMBER")
 public fun ComponentScope.keyed(
     key: Any,
     content: ComponentScope.() -> Unit,
 ) {
-    withKeyScope(key, content)
+    this.keyed(key, content)
+}
+
+@Suppress("EXTENSION_SHADOWED_BY_MEMBER")
+public suspend fun ComponentScope.suspendKeyed(
+    key: Any,
+    content: suspend ComponentScope.() -> Unit,
+) {
+    this.suspendKeyed(key, content)
 }
 
 public fun ComponentScope.disposeKeyScope(
@@ -632,13 +697,14 @@ public fun <T> ComponentScope.derived(
     // Back derived{} with a positional slot, exactly like state(): the DerivedCell is
     // allocated once and reused across renders, so its lazy cache and version counter
     // survive instead of restarting from zero on every render. The compute closure is
-    // captured on first allocation; because it reads through stable slot-backed cells,
-    // the memoized cell stays correct across renders while avoiding reallocation.
+    // refreshed because it may capture render-local inputs from the current invocation.
     val slotKey = nextSlotKey(null)
     registerSlot(SlotMetadata(slotKey, slotId = null, persistent = false, transient = false))
-    return slot(slotKey) {
+    val cell = slot(slotKey) {
         DerivedCell(policy, compute)
     }
+    cell.updateDefinition(policy, compute)
+    return cell
 }
 
 public class Context<T> internal constructor(

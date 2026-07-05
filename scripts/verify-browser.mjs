@@ -22,7 +22,7 @@ try {
 }
 
 async function verifyBrowserTests() {
-  const expectedBrowserSelfTests = 7;
+  const expectedBrowserSelfTests = 9;
   const page = await newPage("browser-tests");
   await page.goto(`${baseUrl}/samples/browser-tests/web/index.html`, { waitUntil: "networkidle" });
   await page.waitForFunction(

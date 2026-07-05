@@ -136,4 +136,4 @@ public fun ComponentScope.checkbox(
 }
 
 private fun ComponentScope.registerHostEvent(callback: (Any?) -> Unit): String =
-    runtime.registerEvent(identity = nextEventKey(), callback = callback)
+    registerHostEvent(key = nextEventKey(), callback = callback)

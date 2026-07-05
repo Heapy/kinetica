@@ -30,7 +30,6 @@ public class KineticaRuntime(
     private var nextEventId = 0L
     private var nextFrameValueId = 0L
     private val events = mutableMapOf<String, (Any?) -> Unit>()
-    private val eventIdentities = mutableListOf<EventRegistration>()
     private val frameValues = mutableMapOf<String, FrameValue>()
     private val entries = JournalBuffer<JournalEntry>(journalCapacity)
     private val warnings = JournalBuffer<RuntimeWarning>(journalCapacity)
@@ -151,24 +150,26 @@ public class KineticaRuntime(
         }
     }
 
-    internal fun registerEvent(
-        identity: Any? = null,
-        callback: (Any?) -> Unit,
-    ): String = synchronized(runtimeLock) {
-        if (identity != null) {
-            val existing = eventIdentities.firstOrNull { it.identity == identity }
-            if (existing != null) {
-                events[existing.eventId] = callback
-                return@synchronized existing.eventId
-            }
-        }
+    internal fun registerEvent(callback: (Any?) -> Unit): String = synchronized(runtimeLock) {
         val id = "event-${nextEventId++}"
         events[id] = callback
-        if (identity != null) {
-            eventIdentities += EventRegistration(identity, id)
-        }
         id
     }
+
+    internal fun updateEvent(eventId: String, callback: (Any?) -> Unit): Boolean =
+        synchronized(runtimeLock) {
+            if (!events.containsKey(eventId)) {
+                return@synchronized false
+            }
+            events[eventId] = callback
+            true
+        }
+
+    internal fun removeEvent(eventId: String) {
+        synchronized(runtimeLock) { events.remove(eventId) }
+    }
+
+    internal fun registeredEventCount(): Int = synchronized(runtimeLock) { events.size }
 
     internal fun createFrameValue(initial: Float): FrameValue = synchronized(runtimeLock) {
         val value = FrameValue("frame-${nextFrameValueId++}", initial)
@@ -327,11 +328,6 @@ public data class RenderResult(
     val journal: List<JournalEntry>,
     val invalidated: Boolean,
     val warnings: List<RuntimeWarning> = emptyList(),
-)
-
-private data class EventRegistration(
-    val identity: Any,
-    val eventId: String,
 )
 
 internal class RuntimeTaskHandle(

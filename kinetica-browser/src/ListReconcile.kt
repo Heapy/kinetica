@@ -1,0 +1,39 @@
+package io.heapy.kinetica.browser
+
+/**
+ * Indices (into [values]) of one longest strictly-increasing subsequence.
+ * Negative entries mean "no previous position" (freshly mounted nodes) and are skipped —
+ * they can never be part of the stable sequence.
+ *
+ * Used by keyed child reconciliation: children whose old positions form the LIS stay in
+ * place; everything else is moved. O(n log n).
+ */
+internal fun longestIncreasingSubsequenceIndices(values: IntArray): IntArray {
+    if (values.isEmpty()) return IntArray(0)
+    val tails = IntArray(values.size)
+    val previous = IntArray(values.size) { -1 }
+    var length = 0
+    for (index in values.indices) {
+        val value = values[index]
+        if (value < 0) continue
+        var low = 0
+        var high = length
+        while (low < high) {
+            val mid = (low + high) / 2
+            if (values[tails[mid]] < value) low = mid + 1 else high = mid
+        }
+        if (low > 0) {
+            previous[index] = tails[low - 1]
+        }
+        tails[low] = index
+        if (low == length) length++
+    }
+    if (length == 0) return IntArray(0)
+    val result = IntArray(length)
+    var cursor = tails[length - 1]
+    for (position in length - 1 downTo 0) {
+        result[position] = cursor
+        cursor = previous[cursor]
+    }
+    return result
+}

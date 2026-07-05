@@ -304,8 +304,8 @@ internal class MutableCellImpl<T>(
 }
 
 internal class DerivedCell<T>(
-    private val policy: EqualityPolicy<T>,
-    private val compute: () -> T,
+    private var policy: EqualityPolicy<T>,
+    private var compute: () -> T,
 ) : Cell<T>, ObservableCell<T>, ReactiveNode {
     private val lock = SynchronizedObject()
 
@@ -362,6 +362,15 @@ internal class DerivedCell<T>(
     private var dirty = true
     private var cached: T? = null
     private var versionCounter = 0L
+
+    internal fun updateDefinition(
+        policy: EqualityPolicy<T>,
+        compute: () -> T,
+    ) = synchronized(lock) {
+        this.policy = policy
+        this.compute = compute
+        dirty = true
+    }
 
     override val version: Long
         get() = synchronized(lock) {

@@ -1,0 +1,38 @@
+name: Setup Kinetica toolchain
+description: JDK, Node, Kotlin Toolchain CLI (SDKMAN) and project-local caches for building this repo.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: "21"
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+
+    - name: Cache Kotlin Toolchain CLI
+      uses: actions/cache@v4
+      with:
+        path: ~/.sdkman/candidates/kotlintoolchain
+        key: kotlintoolchain-${{ hashFiles('kotlin') }}
+
+    - name: Cache project toolchain state
+      uses: actions/cache@v4
+      with:
+        path: .kotlin
+        key: kinetica-kotlin-${{ runner.os }}-${{ hashFiles('kotlin', 'project.yaml', 'common.module-template.yaml', '**/module.yaml') }}
+        restore-keys: |
+          kinetica-kotlin-${{ runner.os }}-
+
+    - name: Install Kotlin Toolchain CLI
+      shell: bash
+      run: |
+        if [ ! -x "$HOME/.sdkman/candidates/kotlintoolchain/current/bin/kotlin" ]; then
+          curl -s "https://get.sdkman.io?rcupdate=false" | bash
+          source "$HOME/.sdkman/bin/sdkman-init.sh"
+          sdk install kotlintoolchain 0.11.0
+        fi
+        echo "$HOME/.sdkman/candidates/kotlintoolchain/current/bin" >> "$GITHUB_PATH"

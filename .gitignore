@@ -1,10 +1,26 @@
-.kotlin/
-.npm-cache/
-.playwright-browsers/
-.tools/
+# Reference checkouts (separate .git, huge — not part of this project)
+/react/
+/inferno/
+/babel-plugin-inferno/
+
+# Build outputs and toolchain caches
 build/
 **/build/
-# Nested reference checkout (has its own .git, ~1GB) and IDE/deps noise.
-react/
+.kotlin/
+
+# Local tooling (vendored per machine, provisioned in CI)
+.tools/
+.playwright-browsers/
+.npm-cache/
+
+# IDE / OS
 .idea/
+.DS_Store
+
+# JS
 **/node_modules/
+*.log
+
+# Generated / staging
+/bench/dist/
+/docs/.docker-stage/

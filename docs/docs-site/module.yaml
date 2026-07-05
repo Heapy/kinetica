@@ -1,0 +1,15 @@
+product: jvm/app
+
+apply:
+  - ../../common.module-template.yaml
+
+dependencies:
+  - ../../kinetica-runtime
+  - ../../kinetica-markdown
+  - ../../samples/server-components-shared
+
+settings:
+  jvm:
+    mainClass: docs.site.MainKt
+
+description: "Kinetica documentation site — markdown content server-rendered by the framework itself."

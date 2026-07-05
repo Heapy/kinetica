@@ -420,6 +420,12 @@ class RuntimeSmokeTest {
             defaultSuspendSkip,
             scope.skippableSuspendNode("app.DefaultSuspendSkip") { TextNode("ignored") },
         )
+        val suspendKeyedNode = scope.renderSuspendNode {
+            suspendKeyed("suspend-key") {
+                text("Suspend keyed")
+            }
+        }
+        assertEquals("Suspend keyed", suspendKeyedNode.findText().value)
 
         val slotId = SlotId("runtime", "Defaults", 0, "manual")
         scope.writeSlot(slotId, "stored")
@@ -699,6 +705,53 @@ class RuntimeSmokeTest {
         assertEquals(firstEventId, secondEventId)
         assertEquals(secondEventId, thirdEventId)
         assertEquals("Count: 2", third.findText().value)
+    }
+
+    @Test
+    fun hostEventRegistryEvictsHandlersThatStopRendering() {
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+        var clicks = 0
+
+        fun render(rows: List<Int>): HostNode =
+            runtime.render(scope) {
+                column {
+                    each(rows, key = { it }) { row ->
+                        button(onClick = { clicks += 1 }) {
+                            text("Row $row")
+                        }
+                    }
+                }
+            }.tree as HostNode
+
+        fun collectClickEventIds(node: Node): List<String> = when (node) {
+            is HostNode -> node.props.filterKeys { it == "event:onClick" }.values.toList() +
+                node.children.flatMap(::collectClickEventIds)
+            is FragmentNode -> node.children.flatMap(::collectClickEventIds)
+            else -> emptyList()
+        }
+
+        render(listOf(1, 2, 3))
+        assertEquals(3, runtime.registeredEventCount())
+
+        // replacing every keyed row must not grow the registry
+        render(listOf(4, 5, 6))
+        assertEquals(3, runtime.registeredEventCount())
+
+        val tree = render(listOf(7, 8, 9))
+        val removedId = collectClickEventIds(tree).last()
+
+        // shrinking the list evicts the dropped rows' handlers
+        render(listOf(7))
+        assertEquals(1, runtime.registeredEventCount())
+
+        // dispatching an evicted id is a graceful no-op
+        runtime.dispatch(removedId)
+        assertEquals(0, clicks)
+
+        // disposing the scope releases everything it registered
+        scope.dispose()
+        assertEquals(0, runtime.registeredEventCount())
     }
 
     @Test
@@ -3120,6 +3173,67 @@ class RuntimeSmokeTest {
 
         val restored = render(showPersistent = true, showTransient = true)
         assertEquals(listOf("Count: 1", "Hover: warm"), restored.findTexts().map { it.value })
+    }
+
+    @Test
+    fun compiledSiblingComponentInstancesDoNotShareSlotIdState() {
+        val countSlot = SlotId("app", "app.Counter", 0, "count")
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+
+        fun ComponentScope.CompiledCounter(label: String): Node =
+            renderNode {
+                var count by state(slotId = countSlot) { 0 }
+                button(onClick = event { count += 1 }) {
+                    text("$label:$count")
+                }
+            }
+
+        fun render(): Node = runtime.render(scope) {
+            column {
+                keyed("app/Parent#call#0") {
+                    emit(CompiledCounter("A"))
+                }
+                keyed("app/Parent#call#1") {
+                    emit(CompiledCounter("B"))
+                }
+            }
+        }.tree
+
+        val first = render()
+        assertEquals(listOf("A:0", "B:0"), first.findTexts().map { it.value })
+
+        runtime.dispatch(first.findHostsByTag("button").first().props.getValue("event:onClick"))
+
+        assertEquals(listOf("A:1", "B:0"), render().findTexts().map { it.value })
+    }
+
+    @Test
+    fun compiledSiblingComponentInstancesDoNotShareSkippableCache() {
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+        var renders = 0
+
+        fun ComponentScope.CompiledBadge(): Node =
+            skippableNode(componentId = "app.Badge", inputs = emptyList()) {
+                TextNode("Badge:${++renders}")
+            }
+
+        fun render(): List<String> = runtime.render(scope) {
+            column {
+                keyed("app/Parent#call#0") {
+                    emit(CompiledBadge())
+                }
+                keyed("app/Parent#call#1") {
+                    emit(CompiledBadge())
+                }
+            }
+        }.tree.findTexts().map { it.value }
+
+        assertEquals(listOf("Badge:1", "Badge:2"), render())
+        assertEquals(2, renders)
+        assertEquals(listOf("Badge:1", "Badge:2"), render())
+        assertEquals(2, renders)
     }
 
     @Test

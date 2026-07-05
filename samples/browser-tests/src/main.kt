@@ -65,7 +65,7 @@ fun ComponentScope.BrowserTestApp() {
             each(orderedItems, key = { it }) { item ->
                 textInput(
                     value = item,
-                    onInput = event<String> { reverseItems = true },
+                    onInput = event<String> { reverseItems = !reverseItems },
                     semantics = Semantics(role = Role.TextInput, testTag = "item-$item", focusable = true),
                     key = item,
                 )
@@ -133,6 +133,28 @@ fun main() {
         check(active?.getAttribute("data-testid") == "item-a") {
             "Expected item-a to keep focus, got ${active?.getAttribute("data-testid")}"
         }
+    }
+    runBrowserTest(results, "patch preserves DOM element identity across renders") {
+        val button = app.elementByTestTag("commit")
+        button.asDynamic().__identityMarker = 42
+        app.inputTestTag("draft", "identity")
+        app.clickTestTag("commit")
+        check("Committed: identity" in app.innerHtml())
+        val after = app.elementByTestTag("commit")
+        check(after.asDynamic().__identityMarker == 42) { "commit button was recreated instead of patched" }
+    }
+    runBrowserTest(results, "keyed reorder moves existing elements instead of recreating") {
+        val a = app.elementByTestTag("item-a")
+        val b = app.elementByTestTag("item-b")
+        a.asDynamic().__identityMarker = "a"
+        b.asDynamic().__identityMarker = "b"
+        app.inputTestTag("item-a", "toggle-order")
+
+        val movedA = app.elementByTestTag("item-a")
+        val movedB = app.elementByTestTag("item-b")
+        check(movedA.asDynamic().__identityMarker == "a") { "item-a was recreated instead of moved" }
+        check(movedB.asDynamic().__identityMarker == "b") { "item-b was recreated instead of moved" }
+        check(movedA.nextElementSibling == movedB) { "expected order a,b after toggling the reversed list" }
     }
     runBrowserAsyncTest(results, "awaitIdle restores focused input after async render") {
         val root = document.createElement("div")
