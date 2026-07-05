@@ -1,0 +1,11 @@
+product:
+  type: kmp/lib
+  platforms: [js]
+
+apply:
+  - ../common.module-template.yaml
+
+dependencies:
+  - ../kinetica-runtime: exported
+
+description: "Browser DOM renderer and browser UI test helpers for Kinetica applications."

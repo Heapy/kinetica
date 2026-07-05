@@ -1,0 +1,10 @@
+.kotlin/
+.npm-cache/
+.playwright-browsers/
+.tools/
+build/
+**/build/
+# Nested reference checkout (has its own .git, ~1GB) and IDE/deps noise.
+react/
+.idea/
+**/node_modules/

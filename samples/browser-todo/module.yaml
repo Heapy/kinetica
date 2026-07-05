@@ -1,0 +1,10 @@
+product: js/app
+
+apply:
+  - ../../common.module-template.yaml
+
+dependencies:
+  - ../../kinetica-browser
+  - ../../kinetica-runtime
+
+description: "Runnable browser todo sample mounted with the Kinetica DOM renderer."

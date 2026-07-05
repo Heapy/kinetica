@@ -1,0 +1,11 @@
+product:
+  type: kmp/lib
+  platforms: [jvm, android, js, wasmJs, macosArm64]
+
+apply:
+  - ../common.module-template.yaml
+
+dependencies:
+  - ../kinetica-runtime: exported
+
+description: "First-party data helpers over resource, action, retry, and optimistic invalidation contracts."

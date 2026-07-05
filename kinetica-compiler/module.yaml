@@ -1,0 +1,27 @@
+product: jvm/lib
+
+repositories:
+  - id: mavenLocal
+    url: mavenLocal
+    publish: true
+
+settings:
+  kotlin:
+    version: 2.4.0
+    languageVersion: 2.4
+    apiVersion: 2.4
+    optIns:
+      - org.jetbrains.kotlin.compiler.plugin.ExperimentalCompilerApi
+  publishing:
+    enabled: true
+    group: io.heapy.kinetica
+    artifactId: kinetica-compiler
+    version: 0.1.0
+
+dependencies:
+  - org.jetbrains.kotlin:kotlin-compiler-embeddable:2.4.0: compile-only
+
+test-dependencies:
+  - org.jetbrains.kotlin:kotlin-compiler-embeddable:2.4.0
+
+description: "Kinetica compiler-plugin contract module for K2 responsibilities and generated metadata."

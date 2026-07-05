@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+# Metadata read by the Kotlin Toolchain CLI when validating project-local wrappers.
+kotlin_cli_version=0.11.0
+kotlin_cli_sha256=ff872a5bf42ad1a8fac90ccca6ac38a4d4a6aafefc39167860f66a77b1653d74
+
+if ! command -v kotlin >/dev/null 2>&1; then
+  echo "Kotlin Toolchain CLI is required. Install it with SDKMAN: sdk install kotlintoolchain" >&2
+  exit 127
+fi
+
+export KOTLIN_CLI_BOOTSTRAP_CACHE_DIR="${KOTLIN_CLI_BOOTSTRAP_CACHE_DIR:-$ROOT_DIR/.kotlin/bootstrap}"
+export KOTLIN_CLI_NO_WELCOME_BANNER="${KOTLIN_CLI_NO_WELCOME_BANNER:-1}"
+export KONAN_DATA_DIR="${KONAN_DATA_DIR:-$ROOT_DIR/.kotlin/konan}"
+mkdir -p "$ROOT_DIR/.kotlin/home"
+mkdir -p "$KONAN_DATA_DIR"
+KOTLIN_CLI_JAVA_OPTIONS="${KOTLIN_CLI_JAVA_OPTIONS:-}"
+export KOTLIN_CLI_JAVA_OPTIONS="$KOTLIN_CLI_JAVA_OPTIONS -Duser.home=$ROOT_DIR/.kotlin/home"
+
+exec kotlin --shared-cache-dir "$ROOT_DIR/.kotlin/shared" "$@"

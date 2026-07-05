@@ -1,0 +1,10 @@
+product: js/app
+
+apply:
+  - ../../common.module-template.yaml
+
+dependencies:
+  - ../../kinetica-browser
+  - ../../kinetica-runtime
+
+description: "Browser-executed smoke tests for Kinetica DOM rendering and event dispatch."

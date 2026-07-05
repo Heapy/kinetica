@@ -1,0 +1,14 @@
+product: jvm/app
+
+apply:
+  - ../../common.module-template.yaml
+
+dependencies:
+  - ../../kinetica-runtime
+  - ../server-components-shared
+
+settings:
+  jvm:
+    mainClass: app.servercomponents.MainKt
+
+description: "Server-components sample showing safe HTML, hydration plans, render chunks, and typed server actions."

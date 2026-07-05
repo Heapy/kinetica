@@ -1,0 +1,11 @@
+product: js/app
+
+apply:
+  - ../../common.module-template.yaml
+
+dependencies:
+  - ../../kinetica-browser
+  - ../../kinetica-runtime
+  - ../server-components-shared
+
+description: "Kotlin/JS client hydrator for the server-components end-to-end demo."

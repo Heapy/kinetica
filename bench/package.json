@@ -1,0 +1,21 @@
+{
+  "name": "kinetica-bench",
+  "private": true,
+  "type": "module",
+  "description": "js-framework-benchmark style comparison: kinetica vs react/preact/vue/svelte/vanilla",
+  "scripts": {
+    "build": "node build.mjs",
+    "bench": "node driver/bench.mjs"
+  },
+  "dependencies": {
+    "preact": "^10.27.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "svelte": "^5.35.0",
+    "vue": "^3.5.17"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.5",
+    "esbuild-svelte": "^0.9.3"
+  }
+}

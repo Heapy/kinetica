@@ -1,0 +1,25 @@
+product: jvm/app
+
+apply:
+  - ../../common.module-template.yaml
+
+repositories:
+  - mavenLocal
+
+dependencies:
+  - ../../kinetica-runtime
+  - ../../kinetica-test
+
+settings:
+  jvm:
+    mainClass: app.annotated.MainKt
+  kotlin:
+      compilerPlugins:
+        - id: io.heapy.kinetica.compiler
+          dependency: io.heapy.kinetica:kinetica-compiler:0.1.0
+          options:
+            moduleId: annotated
+            serverSourceSet: serverMain
+            clientSourceSet: clientMain
+
+description: "Annotated component smoke sample compiled through the Kinetica compiler plugin."

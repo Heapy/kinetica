@@ -1,0 +1,19 @@
+:root {
+  font-family: system-ui, -apple-system, sans-serif;
+  color: #1a1d21;
+}
+body { margin: 0; padding: 16px; }
+.jumbotron { padding: 12px; margin-bottom: 12px; background: #eef1f5; border-radius: 6px; }
+.jumbotron h1 { font-size: 20px; margin: 0 0 8px; }
+.toolbar button {
+  margin: 0 6px 6px 0; padding: 6px 12px; font: inherit;
+  border: 1px solid #99a3b3; border-radius: 4px; background: #fff; cursor: pointer;
+}
+table.test-data { width: 100%; border-collapse: collapse; }
+table.test-data td { padding: 4px 8px; border-bottom: 1px solid #e3e7ee; text-align: left; }
+table.test-data tr.danger { background: #f8d0d4; }
+.col-id { width: 10%; }
+.col-label { width: 40%; }
+.col-remove { width: 10%; }
+a { color: #1258c4; text-decoration: none; cursor: pointer; }
+.remove-icon::before { content: "\2716"; color: #a33; }

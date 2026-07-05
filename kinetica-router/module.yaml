@@ -1,0 +1,12 @@
+product:
+  type: kmp/lib
+  platforms: [jvm, android, js, wasmJs, macosArm64]
+
+apply:
+  - ../common.module-template.yaml
+
+dependencies:
+  - ../kinetica-runtime: exported
+  - org.jetbrains.kotlinx:atomicfu:0.26.1
+
+description: "First-party routing helpers over BackStack, RouteCodec, and exit lifecycle contracts."

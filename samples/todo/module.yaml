@@ -1,0 +1,14 @@
+product: jvm/app
+
+apply:
+  - ../../common.module-template.yaml
+
+dependencies:
+  - ../../kinetica-runtime
+  - ../../kinetica-test
+
+settings:
+  jvm:
+    mainClass: app.todo.MainKt
+
+description: "Runnable headless todo sample built against the Kinetica runtime."
