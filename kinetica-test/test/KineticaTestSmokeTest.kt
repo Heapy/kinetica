@@ -13,6 +13,7 @@ import io.heapy.kinetica.event
 import io.heapy.kinetica.loadingBoundary
 import io.heapy.kinetica.resource
 import io.heapy.kinetica.state
+import io.heapy.kinetica.store
 import io.heapy.kinetica.text
 import io.heapy.kinetica.textInput
 import kotlinx.coroutines.CompletableDeferred
@@ -239,6 +240,48 @@ class KineticaTestSmokeTest {
             withTimeout(2_000) {
                 disposed.await()
             }
+        }
+    }
+
+    @Test
+    fun headlessRootDisposeStopsSharedStoreInvalidationsFromRevivingRoot() = runTest {
+        val shared = store("before")
+        val root = KineticaTest.render {
+            text("Shared: ${shared.value}")
+        }
+
+        root.dispose()
+        shared.value = "after"
+
+        withContext(Dispatchers.Default) {
+            withTimeout(2_000) {
+                root.awaitIdle()
+            }
+        }
+
+        assertFailsWith<IllegalStateException> {
+            root.tree()
+        }
+    }
+
+    @Test
+    fun suspendRootDisposeStopsSharedStoreInvalidationsFromRevivingRoot() = runTest {
+        val shared = store("before")
+        val root = KineticaTest.renderSuspend {
+            text("Shared: ${shared.value}")
+        }
+
+        root.dispose()
+        shared.value = "after"
+
+        withContext(Dispatchers.Default) {
+            withTimeout(2_000) {
+                root.awaitIdle()
+            }
+        }
+
+        assertFailsWith<IllegalStateException> {
+            root.tree()
         }
     }
 

@@ -11,6 +11,7 @@ import io.heapy.kinetica.event
 import io.heapy.kinetica.host
 import io.heapy.kinetica.launchEffect
 import io.heapy.kinetica.state
+import io.heapy.kinetica.store
 import io.heapy.kinetica.text
 import io.heapy.kinetica.textInput
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -178,6 +179,28 @@ fun main() {
             check(active.selectionEnd == 2)
         } finally {
             asyncApp.dispose()
+            root.remove()
+        }
+    }
+    runBrowserAsyncTest(results, "dispose stops shared store invalidations from remounting app") {
+        val root = document.createElement("div")
+        document.querySelector("main")?.appendChild(root)
+        val shared = store("before")
+        val disposedApp = mountKineticaApp(root) {
+            text("Shared: ${shared.value}")
+        }
+        try {
+            check("Shared: before" in disposedApp.innerHtml())
+            disposedApp.dispose()
+            shared.value = "after"
+
+            disposedApp.awaitIdle()
+
+            check(root.innerHTML.isEmpty()) {
+                "Disposed app remounted after a shared store write: ${root.innerHTML}"
+            }
+        } finally {
+            disposedApp.dispose()
             root.remove()
         }
     }

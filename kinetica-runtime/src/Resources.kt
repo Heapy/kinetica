@@ -42,6 +42,7 @@ private class ResourceEntry<T> {
     var state: ResourceState<T> = ResourceState.Idle
     var generation: Long = 0
     var updatedAtMillis: Long = 0
+    var taskHandle: RuntimeTaskHandle? = null
 }
 
 private data class ResourceFlight<T>(
@@ -49,6 +50,17 @@ private data class ResourceFlight<T>(
     val generation: Long,
     val startedByCaller: Boolean,
 )
+
+private data class ResourceFlightCancellation(
+    val taskHandle: RuntimeTaskHandle?,
+    val deferred: CompletableDeferred<*>?,
+    val error: CancellationException,
+) {
+    fun cancel() {
+        taskHandle?.cancel()
+        deferred?.completeExceptionally(error)
+    }
+}
 
 private fun interface ResourceInvalidationListener {
     fun invalidate()
@@ -161,7 +173,10 @@ private object ResourceRegistry {
             }
             typed.state = ResourceState.Ready(value)
             typed.updatedAtMillis = nowMillis
-            typed.deferred
+            typed.taskHandle = null
+            val deferred = typed.deferred
+            typed.deferred = null
+            deferred
         }
         deferred?.complete(value)
         return true
@@ -181,7 +196,10 @@ private object ResourceRegistry {
             }
             entry.state = ResourceState.Failed(error)
             entry.updatedAtMillis = nowMillis
-            entry.deferred
+            entry.taskHandle = null
+            val deferred = entry.deferred
+            entry.deferred = null
+            deferred
         }
         deferred?.completeExceptionally(error)
         return true
@@ -198,30 +216,58 @@ private object ResourceRegistry {
             if (entry.generation != generation) {
                 return false
             }
+            entry.taskHandle = null
+            val deferred = entry.deferred
+            entry.deferred = null
             entries.remove(namespace to key)
-            entry.deferred
+            deferred
         }
         deferred?.completeExceptionally(error)
         return true
+    }
+
+    fun attachTask(
+        namespace: ResourceCacheNamespace,
+        key: ResourceKey,
+        generation: Long,
+        taskHandle: RuntimeTaskHandle,
+    ): Boolean = synchronized(lock) {
+        val entry = entries[namespace to key] ?: return@synchronized false
+        if (entry.generation != generation || entry.state !is ResourceState.Loading) {
+            return@synchronized false
+        }
+        entry.taskHandle = taskHandle
+        true
     }
 
     fun registerInvalidationListener(
         namespace: ResourceCacheNamespace,
         key: ResourceKey,
         listener: ResourceInvalidationListener,
-    ): Disposable = synchronized(lock) {
-        val listenersForKey = listeners.getOrPut(namespace to key) { mutableSetOf() }
-        listenersForKey += listener
-        Disposable {
-            synchronized(lock) {
+    ): Disposable {
+        val listenersForKey = synchronized(lock) {
+            listeners.getOrPut(namespace to key) { mutableSetOf() }.also { listenersForKey ->
+                listenersForKey += listener
+            }
+        }
+        return Disposable {
+            val cancellation = synchronized(lock) {
                 listenersForKey -= listener
                 if (listenersForKey.isEmpty()) {
                     listeners.remove(namespace to key)
                     if (namespace.scope != CacheScope.App) {
                         entries.remove(namespace to key)
+                            ?.cancelInFlight(
+                                CancellationException("Resource load was cancelled because its cache scope was disposed: $key"),
+                            )
+                    } else {
+                        null
                     }
+                } else {
+                    null
                 }
             }
+            cancellation?.cancel()
         }
     }
 
@@ -250,6 +296,16 @@ private object ResourceRegistry {
     @Suppress("UNCHECKED_CAST")
     private fun <T> entry(namespace: ResourceCacheNamespace, key: ResourceKey): ResourceEntry<T> =
         entries.getOrPut(namespace to key) { ResourceEntry<Any?>() } as ResourceEntry<T>
+
+    private fun <T> ResourceEntry<T>.cancelInFlight(error: CancellationException): ResourceFlightCancellation? {
+        if (state !is ResourceState.Loading) {
+            return null
+        }
+        val cancellation = ResourceFlightCancellation(taskHandle, deferred, error)
+        taskHandle = null
+        deferred = null
+        return cancellation
+    }
 
     private fun ResourceEntry<*>.isExpired(
         namespace: ResourceCacheNamespace,
@@ -351,7 +407,7 @@ private class ResourceImpl<K : ResourceKey, T>(
         }
 
         runtime.record(JournalKind.ResourceLoad, "resource load", mapOf("key" to key.toString()))
-        runtime.launchTrackedTask {
+        val taskHandle = runtime.launchTrackedTask {
             try {
                 val value = loader(key)
                 if (ResourceRegistry.complete(
@@ -397,6 +453,9 @@ private class ResourceImpl<K : ResourceKey, T>(
                     runtime.invalidate("resource resume")
                 }
             }
+        }
+        if (!ResourceRegistry.attachTask(namespace, key, flight.generation, taskHandle)) {
+            taskHandle.cancel()
         }
     }
 }

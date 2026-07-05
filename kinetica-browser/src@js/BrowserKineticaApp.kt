@@ -95,6 +95,7 @@ public class BrowserKineticaApp(
         clientRefCount = 0
         currentTree = null
         scope.dispose()
+        runtime.dispose()
     }
 
     private fun render(restoredFocus: BrowserFocus?) {

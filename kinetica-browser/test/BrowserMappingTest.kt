@@ -27,11 +27,20 @@ class BrowserMappingTest {
 
     @Test
     fun filtersUnsafeBrowserAttributeValues() {
+        assertTrue(isPublicBrowserAttribute("class", "danger"))
+        assertTrue(isPublicBrowserAttribute("data-id", "42"))
+        assertTrue(isPublicBrowserAttribute("aria-hidden", "true"))
+        assertFalse(isPublicBrowserAttribute("enabled", "true"))
+        assertFalse(isPublicBrowserAttribute("checked", "true"))
+        assertFalse(isPublicBrowserAttribute("value", "draft"))
+        assertFalse(isPublicBrowserAttribute("direction", "Rtl"))
         assertTrue(isPublicBrowserAttribute("href", "https://example.test/cart"))
         assertTrue(isPublicBrowserAttribute("href", "/cart/checkout"))
         assertFalse(isPublicBrowserAttribute("href", "javascript:alert(1)"))
         assertFalse(isPublicBrowserAttribute("formaction", " data:text/html,<script>alert(1)</script>"))
         assertFalse(isPublicBrowserAttribute("srcdoc", "<script>alert(1)</script>"))
+        assertFalse(isPublicBrowserAttribute("event:onClick", "event-0"))
+        assertFalse(isPublicBrowserAttribute("frame:translateX", "frame-0"))
         assertFalse(isPublicBrowserAttribute("onclick", "alert(1)"))
     }
 

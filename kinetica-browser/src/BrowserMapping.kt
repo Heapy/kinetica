@@ -42,6 +42,27 @@ internal fun browserInputTypeSupportsTextSelection(type: String?): Boolean =
     }
 
 private fun isPublicBrowserAttributeName(name: String): Boolean =
+    publicAttributeNameCache[name]?.let { cached ->
+        cached
+    } ?: isUncachedPublicBrowserAttributeName(name).also { public ->
+        if (publicAttributeNameCache.size < PUBLIC_ATTRIBUTE_NAME_CACHE_MAX_SIZE) {
+            publicAttributeNameCache[name] = public
+        }
+    }
+
+private const val PUBLIC_ATTRIBUTE_NAME_CACHE_MAX_SIZE = 128
+
+private val publicAttributeNameCache = mutableMapOf(
+    "aria-hidden" to true,
+    "class" to true,
+    "data-id" to true,
+    "checked" to false,
+    "direction" to false,
+    "enabled" to false,
+    "value" to false,
+)
+
+private fun isUncachedPublicBrowserAttributeName(name: String): Boolean =
     isSafeBrowserName(name) &&
         name != "enabled" &&
         name != "checked" &&

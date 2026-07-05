@@ -208,6 +208,7 @@ internal class HeadlessSuspendTestRoot(
     override fun dispose() {
         currentTree = null
         scope.dispose()
+        runtime.dispose()
     }
 
     internal suspend fun dispatch(node: Node, eventName: String, payload: Any?) {
@@ -265,6 +266,7 @@ internal class HeadlessTestRoot(
     override fun dispose() {
         currentTree = null
         scope.dispose()
+        runtime.dispose()
     }
 
     internal fun dispatch(node: Node, eventName: String, payload: Any?) {

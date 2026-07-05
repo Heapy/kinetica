@@ -1720,6 +1720,60 @@ class RuntimeSmokeTest {
     }
 
     @Test
+    fun componentScopedResourceLoadIsCancelledWhenSlotIsDisposed() = runTest {
+        data class LongRunningComponentKey(val id: Int) : ResourceKey
+
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+        val key = LongRunningComponentKey(runtime.hashCode() + scope.hashCode())
+        val started = CompletableDeferred<Unit>()
+        val cancelled = CompletableDeferred<Unit>()
+        val never = CompletableDeferred<String>()
+        var visible = true
+
+        fun render(): Node = runtime.render(scope) {
+            if (visible) {
+                loadingBoundary(fallback = { text("Loading") }) {
+                    val value = resource(key, scope = CacheScope.Component) {
+                        started.complete(Unit)
+                        try {
+                            never.await()
+                        } catch (error: CancellationException) {
+                            cancelled.complete(Unit)
+                            throw error
+                        }
+                    }.read()
+                    text(value)
+                }
+            } else {
+                text("Closed")
+            }
+        }.tree
+
+        try {
+            assertEquals("Loading", render().findText().value)
+            withContext(Dispatchers.Default) {
+                withTimeout(2_000) {
+                    started.await()
+                }
+            }
+
+            visible = false
+            assertEquals("Closed", render().findText().value)
+
+            withContext(Dispatchers.Default) {
+                withTimeout(2_000) {
+                    runtime.awaitIdle()
+                    cancelled.await()
+                }
+            }
+        } finally {
+            scope.dispose()
+            runtime.dispose()
+        }
+    }
+
+    @Test
     fun resourceCacheEvictionMatchesScopeLifetime() = runTest {
         data class TemporaryScopedKey(val scope: String, val id: Int) : ResourceKey
 
