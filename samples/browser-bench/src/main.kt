@@ -2,6 +2,7 @@ package app.browser.bench
 
 import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.KineticaRuntime
+import io.heapy.kinetica.MutableCell
 import io.heapy.kinetica.Role
 import io.heapy.kinetica.Semantics
 import io.heapy.kinetica.browser.mountKineticaApp
@@ -48,19 +49,38 @@ private fun ComponentScope.toolbarButton(tag: String, label: String, onClick: ()
     }
 }
 
+// Selection is a per-row boolean cell so selecting a row touches exactly two rows'
+// dependencies (the newly and previously selected) and every other row stays memoized.
+// The holder is stable state that is only mutated from event handlers, never read during
+// render, so flipping the selection does not invalidate the app subtree itself.
+private class SelectionHolder {
+    var selected: MutableCell<Boolean>? = null
+
+    fun select(cell: MutableCell<Boolean>) {
+        selected?.value = false
+        cell.value = true
+        selected = cell
+    }
+
+    fun clear() {
+        selected?.value = false
+        selected = null
+    }
+}
+
 fun ComponentScope.BenchApp() {
     var rows by state(key = "rows") { emptyList<RowData>() }
-    var selected by state(key = "selected") { 0 }
+    val selection = state(key = "selection") { SelectionHolder() }.value
 
-    val run = event { rows = buildData(1_000); selected = 0 }
-    val runLots = event { rows = buildData(10_000); selected = 0 }
+    val run = event { rows = buildData(1_000); selection.clear() }
+    val runLots = event { rows = buildData(10_000); selection.clear() }
     val add = event { rows = rows + buildData(1_000) }
     val update = event {
         rows = rows.mapIndexed { index, row ->
             if (index % 10 == 0) row.copy(label = row.label + " !!!") else row
         }
     }
-    val clear = event { rows = emptyList(); selected = 0 }
+    val clear = event { rows = emptyList(); selection.clear() }
     val swapRows = event {
         if (rows.size > 998) {
             val next = rows.toMutableList()
@@ -86,13 +106,14 @@ fun ComponentScope.BenchApp() {
         host("table", props = mapOf("class" to "test-data")) {
             host("tbody") {
                 each(rows, key = { it.id }) { row ->
-                    val danger = if (row.id == selected) "danger" else ""
+                    val isSelected = state(key = "selected") { false }
+                    val danger = if (isSelected.value) "danger" else ""
                     host("tr", props = mapOf("class" to danger, "data-id" to row.id.toString()), key = row.id) {
                         host("td", props = mapOf("class" to "col-id")) {
                             text(row.id.toString(), semantics = null)
                         }
                         host("td", props = mapOf("class" to "col-label")) {
-                            button(onClick = event { selected = row.id }, semantics = null) {
+                            button(onClick = event { selection.select(isSelected) }, semantics = null) {
                                 text(row.label, semantics = null)
                             }
                         }

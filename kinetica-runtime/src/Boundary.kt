@@ -21,6 +21,9 @@ public fun ComponentScope.errorBoundary(
     fallback: ComponentScope.(Throwable, ErrorInfo, BoundaryRetry) -> Unit,
     content: ComponentScope.() -> Unit,
 ) {
+    // Boundary state (captured error, retry) lives outside the tracked cell graph, so a
+    // memoized each row containing a boundary could replay a stale fallback after retry().
+    markEachCapturesUnsafe()
     val slotKey = nextSlotKey(null)
     registerSlot(SlotMetadata(slotKey, slotId = null, persistent = false, transient = false))
     val state = slot(slotKey) { ErrorBoundaryState(boundaryId = "boundary:$slotKey") }

@@ -1,6 +1,6 @@
 # Kinetica renderer performance — rewrite design
 
-Status: in progress · 2026-07-05 · **P0 and P1 landed and measured — geomean 15.2× → 1.93×, see §8. Next: P2 memoization.**
+Status: in progress · 2026-07-05 · **P0, P1 and P2 landed and measured — geomean 15.2× → 1.42×, see §8. Next: P3 packaging.**
 Evidence: `bench/results/results.json`, report `bench/report/index.html`
 (https://claude.ai/code/artifact/6d768a3a-100d-476d-a5a9-989627f2d15d), CPU profiles below.
 
@@ -357,6 +357,25 @@ stay green).
   path) removes; P2 should also claw back the create-op regression via allocation hygiene.
 - **P2 — memoization**: `each` per-key Node cache + compiler `skippableNode` on the client path;
   allocation hygiene from a fresh profile. Gate: the table above.
+
+  **Status 2026-07-05 — P2 landed** (`ComponentScope.renderEach`): each row caches
+  `(item, produced Nodes, cell deps + versions, context reads, host-event keys, cursor deltas)`
+  per callsite; a hit re-emits the SAME Node references (P1's `===` fast path skips the
+  subtree), re-touches the row's host-event keys so eviction spares its handlers, reserves the
+  slot/event cursor positions so sibling rebuilds keep stable keys, and re-records deps so
+  render subscriptions survive. Rows using effects, resources, boundaries, exit groups,
+  `provide`, render-time writes, nested list constructs, or `skippableNode` hits are detected
+  and rebuilt every render; `memoize = false` opts out for other ambient reads. The bench app
+  switched selection to a per-row boolean cell (holder mutated only in handlers), so select
+  touches exactly two rows' deps. Verified: 14 new runtime tests (identity, per-row
+  invalidation, event survival incl. a mixed-eviction regression, slot-key stability under
+  skips, context invalidation, nested each, external-cell subscription survival), full CI
+  matrix, `verify-browser.mjs`.
+  Measured (median ms): select 12.9→**7.0** (vanilla 7.0 — at the paint floor, ahead of React
+  7.4), partial update 16.1→**9.0**, swap 18.1→**9.2**, remove 18.1→**9.1**, append 60.8→**52.0**;
+  creates flat within noise (create-1k 50.9→53.5 ± 5.5, create-10k 461→474 ± 14), clear
+  6.9→8.1 (pays one cache-eviction sweep). **Geomean 1.93× → 1.42×** — the ≤2× gate holds with
+  margin; remaining gap is create-op Node construction and toolchain packaging (P3).
 - **P3 — packaging** (any time after P0): bundle script, bundled bench variant, report update.
 
 Sequencing rationale: P0 is independent and de-risks the numbers; P1 is where the architecture

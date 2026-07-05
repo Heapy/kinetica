@@ -42,6 +42,9 @@ public class ComponentScope public constructor(
     private val errorBoundaryStack = mutableListOf<ErrorBoundaryState>()
     private val staticNodes = mutableMapOf<String, Node>()
     private val skippableNodes = mutableMapOf<String, SkippableNodeCache>()
+    private val eachCaches = mutableMapOf<String, EachCallsiteCache>()
+    private val eachOrdinals = mutableMapOf<String, Int>()
+    private val eachCaptures = mutableListOf<EachRowCapture>()
     private val exitGroupStack = mutableListOf<ExitGroupState>()
     private val keyScopeStack = mutableListOf<String>()
     private val stateWriteVersion = atomic(0L)
@@ -58,6 +61,8 @@ public class ComponentScope public constructor(
         slotCursor = 0
         eventCursor = 0
         effectCursor = 0
+        eachOrdinals.clear()
+        eachCaptures.clear()
         resourceKeyCounts.clear()
         touchedSlots.clear()
         touchedHostEvents.clear()
@@ -94,10 +99,12 @@ public class ComponentScope public constructor(
     }
 
     internal fun scheduleLayoutEffect(block: () -> Unit) {
+        markEachCapturesUnsafe()
         layoutEffects += block
     }
 
     internal fun schedulePostCommitEffect(block: () -> Unit) {
+        markEachCapturesUnsafe()
         postCommitEffects += block
     }
 
@@ -125,6 +132,9 @@ public class ComponentScope public constructor(
             cache.stateWriteVersion == currentStateWriteVersion &&
             cache.dependenciesUnchanged()
         ) {
+            // The skipped factory does not re-touch its host events, so an enclosing each
+            // row cannot capture the row's full event set — it must rebuild every render.
+            markEachCapturesUnsafe()
             cache.recordDependencies()
             runtime.record(JournalKind.Skipped, "component skipped", mapOf("componentId" to componentId))
             return cache.node
@@ -153,6 +163,8 @@ public class ComponentScope public constructor(
             cache.stateWriteVersion == currentStateWriteVersion &&
             cache.dependenciesUnchanged()
         ) {
+            // See skippableNode: a skipped factory hides its host events from row captures.
+            markEachCapturesUnsafe()
             cache.recordDependencies()
             runtime.record(JournalKind.Skipped, "component skipped", mapOf("componentId" to componentId))
             return cache.node
@@ -203,6 +215,7 @@ public class ComponentScope public constructor(
 
     internal fun exitGroupState(key: String): ExitGroupState =
         exitGroups.getOrPut(key) { ExitGroupState(key) }
+            .also { markEachCapturesUnsafe() }
 
     internal fun currentExitGroup(): ExitGroupState? =
         exitGroupStack.lastOrNull()
@@ -211,6 +224,7 @@ public class ComponentScope public constructor(
         errorBoundaryStack.lastOrNull()
 
     internal fun <T> withErrorBoundary(state: ErrorBoundaryState, content: ComponentScope.() -> T): T {
+        markEachCapturesUnsafe()
         errorBoundaryStack += state
         try {
             return content()
@@ -266,6 +280,7 @@ public class ComponentScope public constructor(
         }
 
     internal fun clearKeyScope(key: Any, keepPersistentSlots: Boolean) {
+        markEachCapturesUnsafe()
         val prefix = keyScopePrefix(key)
         val prefixWithSeparator = "$prefix/"
         val removable = slots.keys.filter { slotKey ->
@@ -338,8 +353,10 @@ public class ComponentScope public constructor(
         }
     }
 
-    public fun isLeaving(key: Any): Boolean =
-        exitGroups[key.toString()]?.phase == ExitPhase.Leaving
+    public fun isLeaving(key: Any): Boolean {
+        markEachCapturesUnsafe()
+        return exitGroups[key.toString()]?.phase == ExitPhase.Leaving
+    }
 
     public fun dispose() {
         slots.keys.toList().forEach(::removeSlot)
@@ -353,6 +370,9 @@ public class ComponentScope public constructor(
         errorBoundaryStack.clear()
         staticNodes.clear()
         skippableNodes.clear()
+        eachCaches.clear()
+        eachOrdinals.clear()
+        eachCaptures.clear()
         exitGroupStack.clear()
         keyScopeStack.clear()
         layoutEffects.clear()
@@ -378,6 +398,9 @@ public class ComponentScope public constructor(
 
     internal fun registerHostEvent(key: String, callback: (Any?) -> Unit): String {
         touchedHostEvents += key
+        for (capture in eachCaptures) {
+            capture.recordEventKey(key)
+        }
         val existing = hostEventIds[key]
         if (existing != null && runtime.updateEvent(existing, callback)) {
             return existing
@@ -410,6 +433,9 @@ public class ComponentScope public constructor(
     }
 
     internal fun nextResourceKey(baseKey: String): String {
+        // Resource states change outside the tracked cell graph (async loads, TTLs),
+        // so a row that reads resources cannot be validated by cell versions alone.
+        markEachCapturesUnsafe()
         val prefix = keyScopePrefix()
         val namespacedKey = if (prefix.isEmpty()) baseKey else "$prefix/$baseKey"
         val count = resourceKeyCounts.getOrElse(namespacedKey) { 0 }
@@ -425,6 +451,11 @@ public class ComponentScope public constructor(
     }
 
     internal fun registerSlot(metadata: SlotMetadata) {
+        if (metadata.transient) {
+            // Transient slots (effects, suspend subtrees, transient state) expire when a
+            // render does not touch them — a skipped row would silently cancel them.
+            markEachCapturesUnsafe()
+        }
         slotMetadata[metadata.key] = metadata
     }
 
@@ -485,6 +516,9 @@ public class ComponentScope public constructor(
     }
 
     internal fun recordStateWrite() {
+        // A cell write while a row is being captured means the row renders with side
+        // effects; replaying its cached nodes would skip the write.
+        markEachCapturesUnsafe()
         stateWriteVersion.incrementAndGet()
     }
 
@@ -529,6 +563,9 @@ public class ComponentScope public constructor(
         )
 
     internal fun <T> withContextValue(context: Context<T>, value: T, content: ComponentScope.() -> Unit) {
+        // Context reads recorded by a row capture are validated against the AMBIENT stack
+        // on later renders; a provide inside the row itself would make them incomparable.
+        markEachCapturesUnsafe()
         val stack = contexts.getOrPut(context) { mutableListOf() }
         stack += value
         try {
@@ -543,7 +580,14 @@ public class ComponentScope public constructor(
 
     internal fun <T> readContext(context: Context<T>): T {
         @Suppress("UNCHECKED_CAST")
-        return contexts[context]?.lastOrNull() as T? ?: context.default
+        val value = contexts[context]?.lastOrNull() as T? ?: context.default
+        if (eachCaptures.isNotEmpty()) {
+            val read = EachContextRead(context, value)
+            for (capture in eachCaptures) {
+                capture.recordContextRead(read)
+            }
+        }
+        return value
     }
 
     private fun List<Node>.toNode(): Node =
@@ -579,6 +623,229 @@ public class ComponentScope public constructor(
         )
         dependencies.forEach(ReadTracking::record)
         return SkippableCapture(node, dependencies.associateWith { dependency -> dependency.version })
+    }
+
+    // --- each row memoization (P2) ---
+
+    internal fun <T> renderEach(
+        items: Iterable<T>,
+        key: (T) -> Any,
+        memoize: Boolean,
+        content: ComponentScope.(T) -> Unit,
+    ) {
+        // A nested list construct keeps per-render bookkeeping (row eviction, ordinal
+        // cursors) that must run every render, so it disqualifies enclosing row captures;
+        // its own rows still memoize independently.
+        markEachCapturesUnsafe()
+        val keyedItems = keyedLastWins(items, key)
+        if (!memoize) {
+            keyedItems.forEach { keyed ->
+                withKeyScope(keyed.key) {
+                    content(keyed.item)
+                }
+            }
+            return
+        }
+        val callsite = eachCallsite()
+        var reused = 0
+        keyedItems.forEach { keyed ->
+            val rowKey = keyed.key.toString()
+            callsite.seenKeys += rowKey
+            withKeyScope(keyed.key) {
+                if (emitCachedEachRow(callsite, rowKey, keyed.item)) {
+                    reused += 1
+                } else {
+                    captureEachRow(callsite, rowKey, keyed.item, content)
+                }
+            }
+        }
+        evictRemovedEachRows(callsite)
+        if (reused > 0) {
+            runtime.record(
+                JournalKind.Skipped,
+                "each rows reused",
+                mapOf("reused" to reused.toString(), "total" to keyedItems.size.toString()),
+            )
+        }
+    }
+
+    internal fun markEachCapturesUnsafe() {
+        for (capture in eachCaptures) {
+            capture.memoizable = false
+        }
+    }
+
+    private fun eachCallsite(): EachCallsiteCache {
+        val prefix = keyScopePrefix()
+        val ordinal = eachOrdinals.getOrElse(prefix) { 0 }
+        eachOrdinals[prefix] = ordinal + 1
+        return eachCaches.getOrPut("$prefix#$ordinal") { EachCallsiteCache() }.also { callsite ->
+            callsite.seenKeys.clear()
+        }
+    }
+
+    private fun emitCachedEachRow(callsite: EachCallsiteCache, rowKey: String, item: Any?): Boolean {
+        val cache = callsite.rows[rowKey] ?: return false
+        if (
+            cache.item != item ||
+            // A cached node references host-event ids; if any were evicted (the row's last
+            // committed render did not touch them, e.g. after an aborted render), the row
+            // must rebuild so its handlers re-register.
+            !cache.touchedEventKeys.all(hostEventIds::containsKey) ||
+            !cache.dependenciesUnchanged() ||
+            !contextReadsUnchanged(cache.contextReads)
+        ) {
+            return false
+        }
+        // Reserve the positional cursors the skipped content would have consumed so
+        // sibling rows that DO rebuild derive the same slot/event keys as a full render.
+        slotCursor += cache.slotCursorDelta
+        eventCursor += cache.eventCursorDelta
+        for (eventKey in cache.touchedEventKeys) {
+            touchedHostEvents += eventKey
+            for (capture in eachCaptures) {
+                capture.recordEventKey(eventKey)
+            }
+        }
+        // Keep the row's cells visible to the render-level dependency collector: without
+        // this, render subscriptions to externally stored cells would be dropped and a
+        // later write to them would no longer invalidate the runtime.
+        cache.recordDependencies()
+        nodeStack.last() += cache.nodes
+        return true
+    }
+
+    private fun <T> captureEachRow(
+        callsite: EachCallsiteCache,
+        rowKey: String,
+        item: T,
+        content: ComponentScope.(T) -> Unit,
+    ) {
+        val capture = EachRowCapture()
+        val slotCursorBefore = slotCursor
+        val eventCursorBefore = eventCursor
+        val dependencies = linkedSetOf<ObservableCell<*>>()
+        eachCaptures += capture
+        val nodes = try {
+            ReadTracking.collect(
+                observer = { cell ->
+                    if (cell is ObservableCell<*>) {
+                        dependencies += cell
+                    }
+                },
+            ) {
+                collect { content(item) }
+            }
+        } finally {
+            eachCaptures.removeAt(eachCaptures.lastIndex)
+        }
+        nodeStack.last() += nodes
+        dependencies.forEach(ReadTracking::record)
+        if (capture.memoizable) {
+            callsite.rows[rowKey] = EachRowCache(
+                item = item,
+                nodes = nodes,
+                dependencies = dependencies.associateWith { dependency -> dependency.version },
+                contextReads = capture.contextReads ?: emptyList(),
+                touchedEventKeys = capture.touchedEventKeys ?: emptyList(),
+                slotCursorDelta = slotCursor - slotCursorBefore,
+                eventCursorDelta = eventCursor - eventCursorBefore,
+            )
+        } else {
+            // The row may have been cached in an earlier render and only now turned
+            // non-memoizable (e.g. a conditional effect); a stale entry must not revive.
+            callsite.rows.remove(rowKey)
+        }
+    }
+
+    private fun contextReadsUnchanged(reads: List<EachContextRead>): Boolean =
+        reads.all { read ->
+            val current = contexts[read.context]?.lastOrNull() ?: read.context.default
+            current == read.value
+        }
+
+    private fun evictRemovedEachRows(callsite: EachCallsiteCache) {
+        if (callsite.rows.isNotEmpty()) {
+            val removedScopePrefixes = mutableListOf<String>()
+            val iterator = callsite.rows.keys.iterator()
+            while (iterator.hasNext()) {
+                val rowKey = iterator.next()
+                if (rowKey !in callsite.seenKeys) {
+                    iterator.remove()
+                    removedScopePrefixes += keyScopePrefix(rowKey)
+                }
+            }
+            evictEachCallsitesUnder(removedScopePrefixes)
+        }
+        callsite.seenKeys.clear()
+    }
+
+    /**
+     * Callsite caches of list constructs NESTED inside a removed row would never be
+     * evicted by their own each() (it stops running with the row), so the enclosing
+     * each drops every callsite whose id lives under a removed row's key scope.
+     */
+    private fun evictEachCallsitesUnder(scopePrefixes: List<String>) {
+        if (scopePrefixes.isEmpty() || eachCaches.isEmpty()) {
+            return
+        }
+        val iterator = eachCaches.keys.iterator()
+        while (iterator.hasNext()) {
+            val callsiteId = iterator.next()
+            val orphaned = scopePrefixes.any { prefix ->
+                callsiteId.length > prefix.length &&
+                    callsiteId.startsWith(prefix) &&
+                    (callsiteId[prefix.length] == '/' || callsiteId[prefix.length] == '#')
+            }
+            if (orphaned) {
+                iterator.remove()
+            }
+        }
+    }
+
+    private class EachContextRead(
+        val context: Context<*>,
+        val value: Any?,
+    )
+
+    private class EachRowCapture {
+        // Lazily allocated: most rows read no contexts, and rows without handlers
+        // register no events — the create path should not pay for empty lists.
+        var touchedEventKeys: MutableList<String>? = null
+        var contextReads: MutableList<EachContextRead>? = null
+        var memoizable = true
+
+        fun recordEventKey(key: String) {
+            val keys = touchedEventKeys ?: mutableListOf<String>().also { touchedEventKeys = it }
+            keys += key
+        }
+
+        fun recordContextRead(read: EachContextRead) {
+            val reads = contextReads ?: mutableListOf<EachContextRead>().also { contextReads = it }
+            reads += read
+        }
+    }
+
+    private class EachRowCache(
+        val item: Any?,
+        val nodes: List<Node>,
+        val dependencies: Map<ObservableCell<*>, Long>,
+        val contextReads: List<EachContextRead>,
+        val touchedEventKeys: List<String>,
+        val slotCursorDelta: Int,
+        val eventCursorDelta: Int,
+    ) {
+        fun dependenciesUnchanged(): Boolean =
+            dependencies.all { (dependency, version) -> dependency.version == version }
+
+        fun recordDependencies() {
+            dependencies.keys.forEach(ReadTracking::record)
+        }
+    }
+
+    private class EachCallsiteCache {
+        val rows = HashMap<String, EachRowCache>()
+        val seenKeys = HashSet<String>()
     }
 
     private data class SkippableCapture(
@@ -720,16 +987,25 @@ public fun <T> ComponentScope.provide(context: Context<T>, value: T, content: Co
 
 public fun <T> ComponentScope.read(context: Context<T>): T = readContext(context)
 
+/**
+ * Renders [items] as a keyed list. Each row's output is memoized per key: when the item is
+ * `==` to the previous render's, every cell the row read reports an unchanged version, and
+ * every context value it read is `==` unchanged, the row emits the SAME [Node] references —
+ * so the retained renderer skips the whole subtree with one identity comparison.
+ *
+ * The contract is that [content] is a pure function of the item, the cells it reads, and
+ * the context values it reads. Rows that read other ambient state during the render
+ * (time, randomness, mutable singletons) must pass `memoize = false`. Rows that use
+ * effects, resources, boundaries, exit groups, `provide`, or nested list constructs are
+ * detected and rebuilt every render automatically.
+ */
 public fun <T> ComponentScope.each(
     items: Iterable<T>,
     key: (T) -> Any,
+    memoize: Boolean = true,
     content: ComponentScope.(T) -> Unit,
 ) {
-    keyedLastWins(items, key).forEach { keyed ->
-        withKeyScope(keyed.key) {
-            content(keyed.item)
-        }
-    }
+    renderEach(items, key, memoize, content)
 }
 
 public interface LazyItems<out T> : Iterable<T> {
@@ -790,6 +1066,9 @@ public fun <T> ComponentScope.lazyEach(
     placeholder: ComponentScope.(T) -> Unit = {},
     content: ComponentScope.(T) -> Unit,
 ) {
+    // Like each(): retention bookkeeping must run every render, so an enclosing each row
+    // cannot cache a subtree containing this construct.
+    markEachCapturesUnsafe()
     val snapshot = keyedLastWins(items, key)
     val visibleRange = state.visibleRange(snapshot.size)
     val visibleKeys = mutableSetOf<Any>()
