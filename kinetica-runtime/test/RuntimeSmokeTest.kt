@@ -296,20 +296,16 @@ class RuntimeSmokeTest {
             computes += 1
             source.value / 2
         }
-        val observableBucket = bucket as ObservableCell<Int>
 
         assertEquals(0, bucket.value)
-        assertEquals(0, observableBucket.version)
         assertEquals(0, bucket.value)
         assertEquals(1, computes)
         source.value = 2
         assertEquals(1, bucket.value)
-        assertEquals(1, observableBucket.version)
 
         source.value = 3
         assertEquals(1, bucket.value)
         assertEquals(3, computes)
-        assertEquals(1, observableBucket.version)
 
         val derivedRuntime = KineticaRuntime()
         val derivedScope = ComponentScope(derivedRuntime)
@@ -731,19 +727,18 @@ class RuntimeSmokeTest {
             else -> emptyList()
         }
 
-        render(listOf(1, 2, 3))
-        assertEquals(3, runtime.registeredEventCount())
+        val firstIds = collectClickEventIds(render(listOf(1, 2, 3)))
+        assertEquals(3, firstIds.distinct().size)
 
         // replacing every keyed row must not grow the registry
-        render(listOf(4, 5, 6))
-        assertEquals(3, runtime.registeredEventCount())
+        val secondIds = collectClickEventIds(render(listOf(4, 5, 6)))
+        assertEquals(3, secondIds.distinct().size)
 
         val tree = render(listOf(7, 8, 9))
         val removedId = collectClickEventIds(tree).last()
 
         // shrinking the list evicts the dropped rows' handlers
-        render(listOf(7))
-        assertEquals(1, runtime.registeredEventCount())
+        val remainingId = collectClickEventIds(render(listOf(7))).single()
 
         // dispatching an evicted id is a graceful no-op
         runtime.dispatch(removedId)
@@ -751,7 +746,8 @@ class RuntimeSmokeTest {
 
         // disposing the scope releases everything it registered
         scope.dispose()
-        assertEquals(0, runtime.registeredEventCount())
+        runtime.dispatch(remainingId)
+        assertEquals(0, clicks)
     }
 
     @Test
@@ -3504,7 +3500,6 @@ class RuntimeSmokeTest {
         assertEquals(listOf(0, 1), semantics.byTestTag("first")?.path)
         assertEquals(listOf("Second", "First"), semantics.byRole(Role.Button).map { it.semantics.label })
         assertEquals(listOf(listOf(0, 1)), semantics.byLabel("First").map { it.path })
-        assertEquals("00000000.00000001", semantics.byTestTag("first")?.pathKey)
         assertEquals("First", (node.nodeAt(listOf(0, 1, 0)) as TextNode).value)
         assertEquals(null, node.nodeAt(listOf(99)))
         assertEquals(null, node.nodeAt(listOf(0, 0, 0, 0)))

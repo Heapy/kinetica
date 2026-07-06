@@ -99,7 +99,7 @@ class PersistSmokeTest {
             persistentSlot(countSlot, Int.serializer()),
         )
         assertTrue(draftBinding.policy.equivalent("draft", "draft"))
-        assertFalse(referentialBinding.policy.equivalent(String(charArrayOf('d')), String(charArrayOf('d'))))
+        assertFalse(referentialBinding.policy.equivalent(charArrayOf('d').concatToString(), charArrayOf('d').concatToString()))
 
         val firstRuntime = KineticaRuntime()
         val firstScope = ComponentScope(firstRuntime)
