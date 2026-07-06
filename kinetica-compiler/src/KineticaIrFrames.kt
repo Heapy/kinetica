@@ -599,7 +599,9 @@ internal class KineticaFrameTransformer(
 
     private fun addTableField(functionFqName: String, numbering: RegionNumbering): IrField {
         val field = pluginContext.irFactory.buildField {
-            name = Name.identifier("kineticaFrame\$${tableFieldCount++}")
+            // Kotlin/JS klib signatures for top-level privates are package-scoped, so the
+            // name must be unique across files of one package, not just within the file.
+            name = Name.identifier("kineticaFrame\$${file.fileUniqueTag()}\$${tableFieldCount++}")
             type = symbols.frameTableType
             isFinal = true
             isStatic = true
@@ -653,6 +655,14 @@ private fun IrSimpleFunction.isUiComponent(): Boolean =
     annotations.any { it.type.classOrNull?.owner?.kotlinFqName == UI_COMPONENT_FQ }
 
 private fun FqName.parentOrNull(): FqName? = if (isRoot) null else parent()
+
+/** Stable per-file tag for package-unique generated names (JS klib signatures). */
+internal fun IrFile.fileUniqueTag(): String {
+    val base = fileEntry.name.substringAfterLast('/').substringBeforeLast('.')
+        .replace(Regex("[^A-Za-z0-9]"), "_")
+    val hash = fileEntry.name.hashCode().toUInt().toString(16)
+    return "$base\$$hash"
+}
 
 private fun IrCall.argumentByName(name: String): IrExpression? {
     val parameter = symbol.owner.parameters.firstOrNull {

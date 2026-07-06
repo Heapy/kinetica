@@ -254,7 +254,8 @@ internal class KineticaHoistTransformer(
         initializer: (DeclarationIrBuilder) -> IrExpression,
     ): IrField {
         val field = pluginContext.irFactory.buildField {
-            name = Name.identifier("$prefix\$${internedProps.size + hoistedHosts.size}")
+            // Package-unique, not just file-unique: JS klib signatures are package-scoped.
+            name = Name.identifier("$prefix\$${file.fileUniqueTag()}\$${internedProps.size + hoistedHosts.size}")
             this.type = type
             isFinal = true
             isStatic = true
