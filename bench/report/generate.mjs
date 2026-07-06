@@ -440,11 +440,10 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
     <div class="duo">${weightChart}${startupChart}${memoryChart}</div>
     <div class="callout">
       <h3>Why Kinetica ships ${data.startup?.kinetica ? fmt(data.startup.kinetica.gzipBytes / 1024, 0) : "—"} KB &amp; ${data.startup?.kinetica ? data.startup.kinetica.files : "—"} files</h3>
-      <p>The Kotlin Toolchain's <code>js/app</code> product is a preview: it links the app as an
-      unminified multi-file ES-module graph (stdlib, coroutines, serialization included) with no
-      dead-code elimination or minifier yet. The JS competitors are esbuild production bundles.
-      Payload and time-to-interactive comparisons therefore measure the toolchain's current packaging,
-      not just the framework.</p>
+      <p>Kinetica is now measured from the benchmark's esbuild production bundle over the Kotlin/JS
+      linked output, so the browser loads one minified module instead of the toolchain preview's
+      unminified multi-file graph. Remaining payload is mostly the Kotlin runtime surface that the
+      browser renderer imports, plus benchmark app code.</p>
     </div>
   </section>
 

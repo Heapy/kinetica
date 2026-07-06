@@ -5,31 +5,31 @@ baseline using a local reimplementation of the **js-framework-benchmark** (kraus
 suite: identical table apps, one machine, one Chromium, one Playwright/Chrome-trace driver.
 Duration = trusted click → end of last paint.
 
-## Where Kinetica stands (2026-07-05, M4 Max, Chromium 149)
+## Where Kinetica stands (2026-07-06, M4 Max, Chromium 149)
 
 Median milliseconds; geometric-mean slowdown vs the per-operation fastest framework. All six
 frameworks measured back to back in one run:
 
 | Operation | Kinetica | React | Preact | Vue | Svelte | Vanilla |
 |---|---|---|---|---|---|---|
-| create 1,000 rows | 43.5 | 33.4 | 37.0 | 31.9 | 32.2 | 30.1 |
-| replace all 1,000 rows | 43.5 | 37.5 | 41.2 | 32.8 | 34.8 | 33.9 |
-| partial update (every 10th row) | 9.9 | 7.5 | 7.2 | 8.4 | 8.0 | 7.8 |
-| select row | 7.8 | 6.8 | 7.2 | 7.5 | 8.3 | 7.0 |
-| swap two rows | 8.3 | 32.2 | 7.0 | 8.6 | 7.6 | 7.6 |
-| remove one row | 8.9 | 7.2 | 7.4 | 8.7 | 7.4 | 7.0 |
-| create 10,000 rows | 301 | 313 | 249 | 225 | 211 | 204 |
-| append 1,000 rows to 1,000 | 45.8 | 35.1 | 39.2 | 36.6 | 34.6 | 34.5 |
-| clear 1,000 rows | 7.4 | 6.5 | 7.1 | 7.0 | 7.1 | 6.4 |
-| **geometric mean** | **1.29×** | 1.29× | 1.11× | 1.11× | 1.08× | 1.02× |
+| create 1,000 rows | 38.4 | 32.1 | 29.4 | 32.9 | 30.9 | 30.7 |
+| replace all 1,000 rows | 37.5 | 37.7 | 31.8 | 33.6 | 32.5 | 30.0 |
+| partial update (every 10th row) | 8.1 | 7.4 | 7.7 | 7.7 | 7.5 | 7.0 |
+| select row | 7.8 | 7.2 | 7.1 | 7.2 | 7.4 | 7.3 |
+| swap two rows | 8.8 | 29.2 | 7.7 | 7.9 | 8.1 | 7.6 |
+| remove one row | 9.4 | 6.9 | 7.9 | 8.1 | 7.3 | 7.1 |
+| create 10,000 rows | 314 | 317 | 265 | 230 | 213 | 203 |
+| append 1,000 rows to 1,000 | 40.8 | 31.8 | 36.2 | 31.9 | 29.8 | 31.1 |
+| clear 1,000 rows | 7.2 | 7.0 | 6.8 | 6.8 | 6.8 | 6.8 |
+| **geometric mean** | **1.25×** | 1.29× | 1.09× | 1.09× | 1.05× | 1.02× |
 
-**Kinetica's geometric mean is tied with React's.** It is ahead of React on swap-rows
-(LIS-planned moves vs React's reconciler) and create-10k, and its partial operations —
+**Kinetica's geometric mean is now ahead of React's in this run.** It is ahead of React on
+swap-rows (LIS-planned moves vs React's reconciler) and create-10k, and its partial operations —
 select, swap, remove, update, clear — run within ~1–2 ms of the vanilla-JS paint floor.
 
 ## How it got there
 
-The July 2026 rewrite moved the geometric mean from **15.2× to 1.29×** in five measured steps:
+The July 2026 rewrite moved the geometric mean from **15.2× to 1.25×** in six measured steps:
 
 1. **Event registry fix (15.2× → 3.0×).** Profiling showed 60–67% of all CPU in an O(n)
    identity scan run per handler per render — O(n²) per operation and leaking. A hash map with
@@ -47,6 +47,10 @@ The July 2026 rewrite moved the geometric mean from **15.2× to 1.29×** in five
    map/hash work: props for host nodes are now flat arrays (`propsOf`) instead of hash maps,
    `host()` stops copying the props map, and slot/event key derivation reuses an incrementally
    maintained key-scope prefix. Create-10k dropped from 474 ms to 301 ms — past React.
+6. **Browser fast-paths + benchmark bundling (1.29× → 1.25×).** The browser renderer avoids
+   repeated tag/attribute classification work, and the benchmark now loads Kinetica through a
+   post-link esbuild production bundle instead of the Kotlin Toolchain preview multi-file graph.
+   Startup dropped from 54.3 ms and 223 JS files to 20.7 ms and one JS file.
 
 The full root-cause analysis, phase gates and measurement methodology live in
 `perf-rewrite-design.md` at the repository root.
@@ -58,10 +62,9 @@ The full root-cause analysis, phase gates and measurement methodology live in
   `skippableNode`) short-circuit the diff in O(1), so a partial update builds only the
   changed rows' Nodes.
 - `clear`-style teardowns and paint-bound operations run at the vanilla-JS floor already.
-- Payload today reflects the Kotlin Toolchain's preview `js/app` packaging (unminified
-  multi-file ESM, ~250 KB gzipped vs React's 60 KB); an esbuild post-link step is the planned
-  mitigation until the toolchain ships DCE/minification. This is also most of the remaining
-  startup-time gap (49 ms vs React's 27 ms).
+- The benchmark payload uses a post-link esbuild bundle over Kotlin/JS output while the Kotlin
+  Toolchain `js/app` product is still a preview. Kinetica now starts in 20.7 ms with one
+  75 KB gzip JS file in the benchmark, versus React's 26.2 ms and 60 KB gzip.
 
 ## Reproducing
 

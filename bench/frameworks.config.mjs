@@ -20,7 +20,7 @@ export const frameworks = [
     buttons: "testid",
     rowControl: "button",
     version: "dev",
-    build: { cmd: "./kotlin", args: ["build", "-m", "browser-bench"] },
+    build: { cmd: process.execPath, args: ["bench/build-kinetica.mjs"] },
   },
   {
     name: "react",

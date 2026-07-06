@@ -39,6 +39,7 @@ CPU-heavy on the machine during a run, and don't run two `run-all`/`bench.mjs` a
 frameworks.config.mjs   ← REGISTRY: every benchmarked framework (order = chart color slot)
 run-all.mjs             ← orchestrator: builds → sequential benches → merge → report
 build.mjs               ← esbuild bundling for the JS frameworks (has its own `targets` list)
+build-kinetica.mjs      ← Kotlin/JS link + esbuild production bundle for Kinetica
 frameworks/<name>/      ← one app implementation per JS framework
 frameworks/shared/      ← data.mjs (label generator), styles.css (shared page CSS)
 driver/bench.mjs        ← the measuring driver (Playwright + Chrome tracing)
@@ -51,9 +52,11 @@ report/generate.mjs     ← results.json → report/index.html (self-contained p
 ```
 
 The Kinetica app lives outside this directory: `../samples/browser-bench/` (module
-`browser-bench`, built with `../kotlin build -m browser-bench`, page at
-`../samples/browser-bench/web/index.html`). Its performance work is planned in
-`../perf-rewrite-design.md`.
+`browser-bench`, built through `build-kinetica.mjs`, page at
+`../samples/browser-bench/web/index.html`). The script first runs `../kotlin build -m
+browser-bench`, then bundles/minifies the linked Kotlin/JS graph into
+`../build/tasks/_browser-bench_bundle/browser-bench.bundle.mjs`. Renderer performance work is
+planned in `../perf-rewrite-design.md`.
 
 ## What is measured
 
@@ -142,20 +145,23 @@ the repo root, include the `__mountMs` snippet in its HTML (copy from
 - **Port 4573** (`BENCH_PORT` to override); the static server serves the whole repo root.
 - Numbers are only comparable **within one machine + one Chromium**. After changing either,
   re-run ALL frameworks, and treat `results/part-*-before.json` snapshots as stale history.
-- Kinetica's payload/TTI figures measure the Kotlin Toolchain's preview packaging (unminified
-  multi-file output), not the framework — the report says so in its callout.
+- Kinetica's payload/TTI figures use the benchmark's esbuild production bundle over the Kotlin
+  Toolchain linked JS output. If you bypass `build-kinetica.mjs` and load
+  `_browser-bench_linkJs/browser-bench.mjs` directly, startup will regress to the unminified
+  multi-file preview output.
 - `results.json`/`report/index.html` are generated; edit `report/generate.mjs`, not the page.
 
 ## Interpreting results
 
 - The page's headline is **geometric-mean slowdown** vs the per-operation fastest framework;
   the table shades cells by that factor. Medians everywhere; hover cells/bars for distributions.
-- Reference points from the 2026-07-05 full run (M4 Max, Chromium 149): vanilla 1.02×,
-  Svelte 1.08×, Preact/Vue 1.11×, React 1.29×, **Kinetica 1.29×** — tied with React after the
-  P0–P2 renderer rewrite plus allocation hygiene (15.2× before it; the pre-rewrite snapshot is
-  kept in `part-kinetica-before.json` and shown as before/after on the page).
+- Reference points from the 2026-07-06 full run (M4 Max, Chromium 149): vanilla 1.02×,
+  Svelte 1.05×, Preact/Vue 1.09×, **Kinetica 1.25×**, React 1.29× — Kinetica is ahead of React
+  after the P0–P2 renderer rewrite, allocation hygiene, browser fast-paths and benchmark
+  bundling (15.2× before the rewrite; the pre-rewrite snapshot is kept in
+  `part-kinetica-before.json` and shown as before/after on the page).
 - Kinetica context: partial ops sit at the paint floor via keyed row memoization; the remaining
-  gap is create-op Node construction and the preview toolchain's packaging (P3). History, phase
+  gap is create-op Node construction and the benchmark's Kotlin runtime payload. History, phase
   gates and root-cause analysis: `../perf-rewrite-design.md`. When touching Kinetica code, run
   its own tests too (`../kotlin test -m kinetica-runtime --platform jvm`,
   `node ../build/tasks/_kinetica-browser_linkJsTest/kinetica-browser_test.mjs` after
