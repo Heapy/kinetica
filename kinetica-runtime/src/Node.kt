@@ -87,7 +87,7 @@ public data class TemplateNode(
 public data class TextNode(
     val value: String,
     val strikethrough: Boolean = false,
-    override val semantics: Semantics? = Semantics(role = Role.Text),
+    override val semantics: Semantics? = DefaultTextSemantics,
 ) : Node
 
 @Serializable

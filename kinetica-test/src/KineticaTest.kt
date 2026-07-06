@@ -10,6 +10,7 @@ import io.heapy.kinetica.Node
 import io.heapy.kinetica.Role
 import io.heapy.kinetica.Semantics
 import io.heapy.kinetica.TextNode
+import io.heapy.kinetica.effectiveSemantics
 import io.heapy.kinetica.materialize
 import io.heapy.kinetica.toSafeHtml
 import kotlinx.serialization.encodeToString
@@ -95,7 +96,7 @@ public fun hasRole(role: Role): SemanticsMatcher =
     SemanticsMatcher { it.semantics?.role == role }
 
 public fun hasLabel(label: String): SemanticsMatcher =
-    SemanticsMatcher { it.semantics?.label == label }
+    SemanticsMatcher { it.effectiveSemantics()?.label == label }
 
 public fun hasText(value: String): SemanticsMatcher =
     SemanticsMatcher { node -> node is TextNode && node.value == value }

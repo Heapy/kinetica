@@ -90,7 +90,7 @@ public fun ComponentScope.row(
 public fun ComponentScope.text(
     value: String,
     strikethrough: Boolean = false,
-    semantics: Semantics? = Semantics(role = Role.Text),
+    semantics: Semantics? = DefaultTextSemantics,
 ) {
     emit(TextNode(value, strikethrough, semantics))
 }

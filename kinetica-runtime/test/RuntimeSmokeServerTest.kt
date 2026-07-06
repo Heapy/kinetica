@@ -509,7 +509,7 @@ class RuntimeSmokeServerTest {
             hello.materialize(),
         )
         assertEquals("""<span class="cold" data-kinetica-key="greeting">Hello</span>""", hello.toSafeHtml())
-        assertEquals("Hello", hello.semanticsTree().byRole(Role.Text).single().semantics.label)
+        assertEquals(null, hello.semanticsTree().byRole(Role.Text).single().semantics.label)
         assertEquals(
             listOf(
                 NodeDiff(
@@ -1084,7 +1084,7 @@ class RuntimeSmokeServerTest {
             ),
         ).semanticsTree()
         assertEquals(listOf("Label", "Derived label"), terminalSemantics.byRole(Role.Text).map { it.text })
-        assertEquals(listOf(listOf(1)), terminalSemantics.byLabel("Derived label").map { it.path })
+        assertEquals(emptyList(), terminalSemantics.byLabel("Derived label").map { it.path })
         assertEquals(listOf(2), terminalSemantics.byTestTag("island")?.path)
 
         val focus = FocusManager(semantics)
@@ -1102,6 +1102,23 @@ class RuntimeSmokeServerTest {
         assertEquals("Replaced", (renderer.handle(handle.id)?.node as TextNode).value)
         renderer.dispose(handle)
         assertEquals(null, renderer.handle(handle.id))
+    }
+
+    @Test
+    fun textNodeDefaultSemanticsDerivesLabel() {
+        val semantics = TextNode("x").semanticsTree()
+
+        assertEquals("x", semantics.byRole(Role.Text).single().semantics.label)
+        assertEquals(listOf(emptyList<Int>()), semantics.byLabel("x").map { it.path })
+    }
+
+    @Test
+    fun explicitTextSemanticsDoesNotDeriveLabelInSemanticsTree() {
+        val semantics = TextNode("Save", semantics = Semantics(role = Role.Text)).semanticsTree()
+
+        assertEquals(listOf("Save"), semantics.byRole(Role.Text).map { it.text })
+        assertEquals(listOf(null), semantics.byRole(Role.Text).map { it.semantics.label })
+        assertEquals(emptyList(), semantics.byLabel("Save").map { it.path })
     }
 
     @Test
