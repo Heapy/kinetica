@@ -41,8 +41,9 @@ Status: K0–K3 implemented · 2026-07-06 · owner: kinetica-compiler
   `SkippableEachCompositionTest`; the smoke test's old "any state write re-renders" assertion
   was updated to the precise contract.
 - **K4/K5** — not started.
-Companion to `perf-rewrite-design.md` (renderer, P0–P3 done, geomean 1.25×): every number in
-that story was measured **without** the plugin. This plan makes the compiler contribute, safely.
+Companion to `perf-rewrite-design.md` (renderer, P0–P3 done, current 13-op geomean 1.35×):
+every number in that story was measured **without** the plugin. This plan makes the compiler
+contribute, safely.
 
 ## 1. Where we are
 
@@ -72,7 +73,7 @@ Measured targets the plugin can attack (from the extended bench suite, 2026-07-0
 
 | bottleneck | evidence | transform |
 |---|---|---|
-| create-op Node allocation + GC | 258ms GC of 414ms create-10k (GC report section) | static host-subtree hoisting, const-props interning |
+| create-op Node allocation + GC | 118.6ms GC of 291.4ms create-10k (GC report section) | static host-subtree hoisting, const-props interning |
 | re-render overhead on unchanged data | tree `t4_noopRender`; every render re-walks composition | auto-skipping |
 | runtime key derivation per render | keyScopePrefix work (P2 hygiene halved it, rest remains) | compile-time slot/event ids |
 | keyed-diff prep | `shouldReconcileKeyed` builds 2 HashSets per patch | shape flags |

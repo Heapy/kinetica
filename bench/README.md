@@ -271,15 +271,16 @@ the repo root, include the `__mountMs` snippet in its HTML (copy from
 - The page's headline is **geometric-mean slowdown** vs the per-operation fastest framework;
   the table shades cells by that factor. Medians everywhere; hover cells/bars for distributions
   (op cells include GC time in the hover).
-- Reference points from the 2026-07-06 full run (M4 Max, Chromium 149, 9-op suite): vanilla
-  1.02×, Svelte 1.05×, Preact/Vue 1.09×, **Kinetica 1.25×**, React 1.29× — Kinetica is ahead of
-  React after the P0–P2 renderer rewrite, allocation hygiene, browser fast-paths and benchmark
-  bundling (15.2× before the rewrite; the pre-rewrite snapshot is kept in
-  `part-kinetica-before.json` and shown as before/after on the page). The geomean changes
-  meaning as ops 10–13 join the suite — re-run all frameworks before comparing.
-- Kinetica context: partial ops sit at the paint floor via keyed row memoization; the remaining
-  gap is create-op Node construction + GC pressure (see the GC section of the report) and the
-  benchmark's Kotlin runtime payload. History, phase gates and root-cause analysis:
+- Reference points from the 2026-07-06 full run (M4 Max, Chromium 149, 13-op suite): Svelte
+  1.02×, vanilla 1.04×, Preact 1.11×, Vue 1.23×, React 1.27×, **Kinetica 1.35×**. Kinetica is
+  ahead of React on create-10k (291 ms vs 316 ms), startup (20.1 ms vs 27.3 ms), and the 1k-row
+  swap case (8.5 ms vs 22.4 ms), but the 10k partial ops now drive the overall gap. On the
+  historical 9-op view only, Kinetica is 1.32× vs React 1.28×. Re-run all frameworks before
+  comparing headline geomeans across suite changes.
+- Kinetica context: 1k partial ops sit at the paint floor via keyed row memoization; the remaining
+  browser gap is large-table partial work (ops 10–13), create-op Node construction + GC pressure
+  (see the GC section of the report), and the benchmark's Kotlin runtime payload. History, phase
+  gates and root-cause analysis:
   `../perf-rewrite-design.md`. When touching Kinetica code, run its own tests too
   (`../kotlin test -m kinetica-runtime --platform jvm`,
   `node ../build/tasks/_kinetica-browser_linkJsTest/kinetica-browser_test.mjs` after
