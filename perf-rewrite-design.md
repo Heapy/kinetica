@@ -20,20 +20,22 @@ slot metadata and host events; the cursor machinery (CursorMark boundary neutral
 slot/event cursor deltas in row/skippable caches) is deleted, and the slot-collision bug
 class died at compile time (FIR checker enforces the authoring rules). Each-row memoization
 and component skipping now cache on the row/component frame (inputs + cell versions +
-context reads). Re-benched 2026-07-06 after the migration: 13-op geomean **1.109×** vs
-React (was 1.20× before the rewrite, 1.27× after the string-suffix hardening) — swap1k
-0.38×, select1k 0.94×, swap10k 0.92×; the 10k partial ops (select 1.71×, remove 1.68×,
-update 1.49×) remain item 2 below. Weight 83KB gz unchanged; local startup median 32.3ms
-(CI baseline was 22.6ms — remeasure on CI before reading anything into it).
+context reads). Re-benched 2026-07-07 on Chrome 130 at default sampling (10 samples,
+vanilla drift vs the stored parts ≤2% median, so cross-part comparison holds): 13-op
+geomean **0.969×** vs React — the suite is ahead of React overall for the first time (was
+1.20× before the rewrite, 1.27× after the string-suffix hardening). swap1k 0.36×, swap10k
+0.78×, replace1k and create10k 0.90×; still above React: remove10k 1.48×, update10th10k
+1.26× (item 2 below — select10k is at 1.09×, essentially the paint floor). Weight 85KB gz,
+startup median 24.5ms.
 
 ## 2. 10k-table partial operations
 
-The last remaining bench gap, already named the next target before the hardening regression:
-select-10k 9.6ms, swap-10k 44.6ms, remove-10k 66.6ms, update-every-10th-10k 51.0ms. The scaling
-suite still flags swap at **n^0.84** against the near-flat 0.6 threshold. Partial ops on 10k
-rows pay the O(rows) reference-walk diff, LIS over large child arrays, and the row-cache sweep
-even when 2 rows changed. Re-profile after item 1; candidates: dirty-row short lists from cell
-subscriptions instead of full-tree walks, LIS skip when moves are adjacent transpositions.
+The last remaining bench gap, narrowed by the frame-ordinal rewrite (item 1): remove-10k
+59.8ms (1.48× React) and update-every-10th-10k 43.3ms (1.26×) are still above React, while
+select-10k (8.7ms, 1.09×) and swap-10k (42.1ms, 0.78×) have effectively closed. Partial ops
+on 10k rows pay the O(rows) reference-walk diff and LIS over large child arrays even when 2
+rows changed. Candidates: dirty-row short lists from cell subscriptions instead of
+full-tree walks, LIS skip when moves are adjacent transpositions.
 
 ## 3. Unify the two diffs; serializable patch ops; journal `DomPatch`
 
