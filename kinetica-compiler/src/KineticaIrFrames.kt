@@ -173,6 +173,8 @@ private val REGION_CONTENT_PARAMS = mapOf(
 private val REGION_STATE_SLOTS = setOf("errorBoundary", "loadingBoundary", "suspendSubtree")
 
 private val UI_COMPONENT_FQ = FqName("io.heapy.kinetica.UiComponent")
+private val KOTLIN_PKG = FqName("kotlin")
+private val SINGLE_RUN_SCOPE_FUNCTIONS = setOf("let", "run", "with", "apply", "also")
 private val COMPONENT_SCOPE_FQ = FqName("io.heapy.kinetica.ComponentScope")
 private val KINETICA_PKG = FqName("io.heapy.kinetica")
 
@@ -255,7 +257,7 @@ internal class KineticaFrameTransformer(
                 return transformRegion(expression, name)
             }
 
-            expression.transformChildrenVoid(this)
+            transformArgumentsSelectively(expression, inKinetica, parent)
 
             if (inKinetica && name in SLOT_DSL_TRANSIENT) {
                 return transformSlotCall(expression, name)
@@ -416,6 +418,26 @@ internal class KineticaFrameTransformer(
         /** Lambdas passed to `@UiComponent`-annotated function-type parameters are regions. */
         private fun wrapAnnotatedContentArguments(expression: IrCall) {
             wrapAnnotatedContentArgumentsOf(expression, shared)
+        }
+
+        /**
+         * Static ordinals are only sound for code that runs at most once per render of its
+         * frame. Lambdas passed to arbitrary functions (List(n) { … }, repeat, map) can run
+         * any number of times, so the walker descends only into lambdas whose single-run
+         * contract is known: Kinetica DSL content and the kotlin scope functions. Everything
+         * else keeps the legacy positional path (its cursors advance per invocation).
+         */
+        private fun transformArgumentsSelectively(expression: IrCall, inKinetica: Boolean, parent: FqName?) {
+            val descendIntoLambdas = inKinetica || parent == KOTLIN_PKG &&
+                expression.symbol.owner.name.asString() in SINGLE_RUN_SCOPE_FUNCTIONS
+            val callee = expression.symbol.owner
+            for (parameter in callee.parameters) {
+                val argument = expression.arguments[parameter.indexInParameters] ?: continue
+                if (argument is IrFunctionExpression && !descendIntoLambdas) {
+                    continue
+                }
+                expression.arguments[parameter.indexInParameters] = argument.transform(this, null)
+            }
         }
 
         private fun wrapFreshRegion(lambdaExpression: IrFunctionExpression) {

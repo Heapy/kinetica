@@ -200,6 +200,46 @@ class KineticaIrFrameCompileTest {
     }
 
     @Test
+    fun multiRunLambdasKeepPerInvocationSlots() {
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.derived
+                    import io.heapy.kinetica.text
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Fan() {
+                        // List's init lambda runs three times: a static ordinal would alias
+                        // all iterations into one slot. Multi-run lambdas must stay on the
+                        // per-invocation legacy cursors.
+                        val cells = List(3) { index -> derived { index } }
+                        text("sum:" + cells.sumOf { it.value })
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Fan() }.tree
+                """,
+            ),
+        ).use { compiled ->
+            val render = compiled.loadClass("app.MainKt").getDeclaredMethod(
+                "render",
+                KineticaRuntime::class.java,
+                ComponentScope::class.java,
+            )
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val tree = (render.invoke(null, runtime, scope) as Node).toDebugString()
+            assertTrue("sum:3" in tree, "each iteration must get its own slot (0+1+2): $tree")
+        }
+    }
+
+    @Test
     fun unstagedComponentCallThrowsMissingPlugin() {
         harness.compile(
             mapOf(
