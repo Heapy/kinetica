@@ -72,22 +72,33 @@ import org.jetbrains.kotlin.name.SpecialNames
  */
 public class KineticaIrGenerationExtension(
     private val messageCollector: MessageCollector,
+    private val pluginConfiguration: KineticaCompilerPluginConfiguration,
 ) : IrGenerationExtension {
     override fun generate(moduleFragment: IrModuleFragment, pluginContext: IrPluginContext) {
         val symbols = KineticaIrSymbols.resolve(pluginContext) ?: return
         val hoistSymbols = KineticaHoistSymbols.resolve(pluginContext)
         val templateSymbols = KineticaTemplateSymbols.resolve(pluginContext)
+        val frameSymbols = KineticaFrameSymbols.resolve(pluginContext)
         val stability = KineticaStability()
         moduleFragment.files.forEach { file ->
             val hoister = hoistSymbols?.let { KineticaHoistTransformer(file, pluginContext, it) }
             val templater = templateSymbols?.let { KineticaTemplateTransformer(file, pluginContext, it) }
+            val framer = frameSymbols?.let {
+                KineticaFrameTransformer(file, pluginContext, it, pluginConfiguration.moduleId, ::report)
+            }
             // snapshot: hoisting appends file-level fields while we iterate declarations
             file.declarations.filterIsInstance<IrSimpleFunction>().forEach { function ->
                 if (function.isUiComponentWithScopeReceiver()) {
                     templater?.transform(function)
                     hoister?.transform(function)
+                    // The skippable wrap runs first so the frame prologue ends up OUTSIDE
+                    // emit(skippableNode(...)): a skip hit still enters the component frame
+                    // and consumes the staged child ordinal.
+                    transformComponent(function, symbols, stability, pluginContext)
+                    framer?.transform(function)
+                } else {
+                    framer?.transformEntryPoints(function)
                 }
-                transformComponent(function, symbols, stability, pluginContext)
             }
             if (templater != null && templater.templatesEmitted > 0) {
                 report("${file.fileEntry.name}: emitted ${templater.templatesEmitted} template definitions.")

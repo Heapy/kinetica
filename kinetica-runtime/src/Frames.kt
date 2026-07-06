@@ -104,6 +104,24 @@ internal class Frame(
         keptGeneration = generation
     }
 
+    /**
+     * Marks everything this frame holds as alive for [generation] without re-rendering:
+     * a memoized skip replayed the subtree's output, so its slots, events, and child
+     * frames must survive the commit checks exactly as if the body had run.
+     */
+    internal fun markContentsKept(generation: Int) {
+        for (ordinal in slots.indices) {
+            if (slots[ordinal] != null) slotTouch[ordinal] = generation
+        }
+        events?.let { groups ->
+            val touch = eventTouch!!
+            for (ordinal in groups.indices) {
+                if (groups[ordinal] != null) touch[ordinal] = generation
+            }
+        }
+        forEachChildFrame { it.markKept(generation) }
+    }
+
     // --- Slots ---
 
     internal fun <T> slot(ordinal: Int, generation: Int, transient: Boolean, initial: () -> T): T {

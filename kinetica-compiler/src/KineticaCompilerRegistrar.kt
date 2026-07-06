@@ -37,6 +37,7 @@ public fun CompilerPluginRegistrar.ExtensionStorage.registerKineticaCompilerExte
         IrGenerationExtension.registerExtension(
             KineticaIrGenerationExtension(
                 configuration.get(CommonConfigurationKeys.MESSAGE_COLLECTOR_KEY, MessageCollector.NONE),
+                pluginConfiguration,
             ),
         )
     }

@@ -316,6 +316,8 @@ public class ComponentScope public constructor(
      * enclosing row captures), and cell/context reads stay visible to outer collectors.
      */
     private fun emitSkippableHit(cache: SkippableNodeCache, componentId: String) {
+        // Frame-backed contents of the skipped subtree must stay alive across commit checks.
+        currentFrame.markContentsKept(slotGeneration)
         slotCursor += cache.slotCursorDelta
         eventCursor += cache.eventCursorDelta
         for (eventEntry in cache.touchedEvents) {
@@ -413,12 +415,18 @@ public class ComponentScope public constructor(
         withSuspendKeyScope(key, content)
     }
 
-    /** Frame-native `keyed`; called by compiler-generated code with a static child [ordinal]. */
+    /**
+     * Frame-native `keyed`; called by compiler-generated code with a static child [ordinal].
+     * The legacy key scope is still pushed so string-keyed caches (skippable, static nodes)
+     * stay disambiguated per key while both storage models coexist.
+     */
     public fun keyedRegion(ordinal: Int, key: Any, content: ComponentScope.() -> Unit) {
         enterKeyedChildFrame(ordinal, key)
+        pushKeyScope(key.toString())
         try {
             content()
         } finally {
+            popKeyScope()
             exitFrame()
         }
     }
@@ -426,9 +434,11 @@ public class ComponentScope public constructor(
     /** Frame-native `suspendKeyed`; called by compiler-generated code. */
     public suspend fun suspendKeyedRegion(ordinal: Int, key: Any, content: suspend ComponentScope.() -> Unit) {
         enterKeyedChildFrame(ordinal, key)
+        pushKeyScope(key.toString())
         try {
             content()
         } finally {
+            popKeyScope()
             exitFrame()
         }
     }
@@ -1428,9 +1438,11 @@ public fun <T> ComponentScope.eachRegion(
     snapshot.forEach { keyed ->
         seen += keyed.key
         enterKeyedChildFrame(ordinal, keyed.key)
+        pushKeyScope(keyed.key.toString())
         try {
             content(keyed.item)
         } finally {
+            popKeyScope()
             exitFrame()
         }
     }
@@ -1575,6 +1587,7 @@ public fun <T> ComponentScope.lazyEachRegion(
         if (index in visibleRange) {
             visibleKeys += keyed.key
             enterKeyedChildFrame(ordinal, keyed.key)
+            pushKeyScope(keyed.key.toString())
             try {
                 content(keyed.item)
             } catch (pending: ResourcePendingException) {
@@ -1585,6 +1598,7 @@ public fun <T> ComponentScope.lazyEachRegion(
                 )
                 placeholder(keyed.item)
             } finally {
+                popKeyScope()
                 exitFrame()
             }
         }
