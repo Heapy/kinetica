@@ -15,7 +15,6 @@ import io.heapy.kinetica.host
 import io.heapy.kinetica.state
 import io.heapy.kinetica.text
 import io.heapy.kinetica.UiComponent
-import kotlin.random.Random
 
 data class RowData(val id: Int, val label: String)
 
@@ -34,13 +33,24 @@ private val nouns = listOf(
 
 private var nextId = 1
 
-private fun buildData(count: Int): List<RowData> = List(count) {
-    RowData(
-        id = nextId++,
-        label = "${adjectives[Random.nextInt(adjectives.size)]} " +
-            "${colours[Random.nextInt(colours.size)]} " +
-            nouns[Random.nextInt(nouns.size)],
-    )
+private fun randomIndex(max: Int): Int =
+    js("Math.round(Math.random() * 1000) % max").unsafeCast<Int>()
+
+private fun buildData(count: Int): List<RowData> {
+    val adjectivePool = adjectives
+    val colourPool = colours
+    val nounPool = nouns
+    val adjectiveCount = adjectivePool.size
+    val colourCount = colourPool.size
+    val nounCount = nounPool.size
+    return List(count) {
+        RowData(
+            id = nextId++,
+            label = "${adjectivePool[randomIndex(adjectiveCount)]} " +
+                "${colourPool[randomIndex(colourCount)]} " +
+                nounPool[randomIndex(nounCount)],
+        )
+    }
 }
 
 private fun ComponentScope.toolbarButton(tag: String, label: String, onClick: () -> Unit) {
