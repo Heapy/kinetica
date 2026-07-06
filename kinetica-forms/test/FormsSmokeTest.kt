@@ -87,7 +87,7 @@ class FormsSmokeTest {
         val model = DraftModel()
 
         fun renderField(): Node = runtime.render(scope) {
-            form = formState(key = "delegate-form")
+            form = formState()
             draftField = field(
                 form = form,
                 name = "draft",
@@ -132,7 +132,7 @@ class FormsSmokeTest {
         var observedSubmitting = false
 
         runtime.render(scope) {
-            form = formState(key = "strict-form")
+            form = formState()
             title = field(
                 form = form,
                 name = "title",
