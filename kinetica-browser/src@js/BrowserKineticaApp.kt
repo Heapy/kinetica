@@ -41,8 +41,7 @@ public class BrowserKineticaApp(
     private var currentTree: Node? = null
     private var mountedRoot: Mounted? = null
     private var clientRefCount = 0
-    private val keyedPatchScratch = ArrayList<KeyedPatchScratchFrame>(KEYED_PATCH_SCRATCH_DEPTH)
-    private var keyedPatchDepth = 0
+    private val keyedPatchScratchPool = ArrayList<KeyedPatchScratchFrame>(KEYED_PATCH_SCRATCH_DEPTH)
     private val templatePrototypes = HashMap<String, TemplatePrototype>()
 
     private val delegatedListener: (Event) -> Unit = { event -> handleDelegatedEvent(event) }
@@ -730,7 +729,7 @@ public class BrowserKineticaApp(
         try {
             patchKeyedChildren(parent, mounted, next, appendAnchor, parentPath, ownsParent, scratch)
         } finally {
-            releaseKeyedPatchScratch()
+            releaseKeyedPatchScratch(scratch)
         }
     }
 
@@ -767,7 +766,7 @@ public class BrowserKineticaApp(
         if (ownsParent && appendAnchor == null &&
             oldStart == 0 && oldEnd == mounted.lastIndex &&
             newStart == 0 && newEnd == next.lastIndex &&
-            hasNoKeyOverlap(mounted, oldStart, oldEnd, next, newStart, newEnd)
+            hasNoKeyOverlap(mounted, oldStart, oldEnd, next, newStart, newEnd, scratch)
         ) {
             clearOwnedChildren(parent, mounted)
             next.forEachIndexed { index, node ->
@@ -835,19 +834,13 @@ public class BrowserKineticaApp(
     }
 
     private fun acquireKeyedPatchScratch(): KeyedPatchScratchFrame {
-        val depth = keyedPatchDepth
-        keyedPatchDepth += 1
-        if (depth >= KEYED_PATCH_SCRATCH_DEPTH) {
-            return KeyedPatchScratchFrame()
-        }
-        while (keyedPatchScratch.size <= depth) {
-            keyedPatchScratch += KeyedPatchScratchFrame()
-        }
-        return keyedPatchScratch[depth]
+        return keyedPatchScratchPool.removeLastOrNull() ?: KeyedPatchScratchFrame()
     }
 
-    private fun releaseKeyedPatchScratch() {
-        keyedPatchDepth -= 1
+    private fun releaseKeyedPatchScratch(scratch: KeyedPatchScratchFrame) {
+        if (keyedPatchScratchPool.size < KEYED_PATCH_SCRATCH_DEPTH) {
+            keyedPatchScratchPool.add(scratch)
+        }
     }
 
     private fun hasNoKeyOverlap(
@@ -857,16 +850,18 @@ public class BrowserKineticaApp(
         next: List<Node>,
         newStart: Int,
         newEnd: Int,
+        scratch: KeyedPatchScratchFrame,
     ): Boolean {
         if (oldStart > oldEnd || newStart > newEnd) {
             return false
         }
-        val oldKeys = HashSet<String>(oldEnd - oldStart + 1)
-        for (index in oldStart..oldEnd) {
-            oldKeys += mounted[index].reconcileKey() ?: return false
-        }
+        val keyToNewIndex = scratch.keyToNewIndex
+        keyToNewIndex.clear()
         for (index in newStart..newEnd) {
-            if ((next[index].reconcileKey ?: return false) in oldKeys) {
+            keyToNewIndex[next[index].reconcileKey ?: return false] = index
+        }
+        for (index in oldStart..oldEnd) {
+            if (keyToNewIndex.containsKey(mounted[index].reconcileKey() ?: return false)) {
                 return false
             }
         }

@@ -120,6 +120,7 @@ history of `perf-rewrite-design.md` (up to commit `7cfde69`).
 - Skip `disposeMountedSubtree` recursion entirely when `clientRefCount == 0` (verified: expando-nulling on discarded DOM is collectable garbage either way).
 
 ### KNT-0013 (was C3) — `hasNoKeyOverlap` allocation
+**Status:** Done (2026-07-07, codex, with KNT-0019) — reuses `scratch.keyToNewIndex` (new-side fill, old-side probe); zero per-call allocation; safe because every consumer clears the map before filling (call-ordering verified).
 - L864-885: reuse the scratch frame's `keyToNewIndex` (build new-side map first, probe old keys) instead of allocating a fresh HashSet per reorder patch.
 
 ### KNT-0014 (was C4) — `dispatchTo` duplication
@@ -138,6 +139,7 @@ history of `perf-rewrite-design.md` (up to commit `7cfde69`).
 **Status:** Closed — obsolete; `emitCachedEachRow`/`EachRowCache` were deleted by the frames rework (each-row caching moved to row frames — see KNT-0005/KNT-0023; L807 now sits inside `patchKeyedChildren`). Nothing left to dedup.
 
 ### KNT-0019 (was C9) — Scratch pool free-list
+**Status:** Done (2026-07-07, codex, with KNT-0013) — `keyedPatchScratchPool` free-list (`removeLastOrNull() ?: new` / capped `add`), release takes the exact frame; depth-counter desync class gone. Characterization tests (nested keyed reorders, disjoint-replace + partial-overlap, nesting past the old cap) green before and after each refactor stage.
 - L848-862 (`acquireKeyedPatchScratch`/`releaseKeyedPatchScratch`), L1029-1063 (`KeyedPatchScratchFrame`): replace depth-counter + cap with a free-list (`pool.removeLastOrNull() ?: Frame()` / `pool.add(frame)`), removing the desync failure class; keep a size cap.
 
 ### KNT-0020 (was C10) — Debug-mode template clones carry stale path/tag attrs
