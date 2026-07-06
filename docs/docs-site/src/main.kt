@@ -27,12 +27,17 @@ import io.heapy.kinetica.toSafeHtml
 import io.heapy.kinetica.toServerRenderStream
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
+import java.util.UUID
 import kotlin.io.path.exists
 
 fun main(args: Array<String>) {
@@ -139,6 +144,12 @@ class DocsServer(
                     exchange.sendResponseHeaders(204, -1)
                     exchange.responseBody.close()
                 }
+
+                exchange.requestMethod == "GET" && path == "/demo/api/stack" ->
+                    respondDemoStack(exchange)
+
+                exchange.requestMethod == "POST" && path == "/demo/api/stack" ->
+                    respondDemoStackSubmission(exchange)
 
                 exchange.requestMethod == "GET" && path == "/stream" ->
                     exchange.respondText(contentType = "application/x-ndjson", body = renderStreamBody())
@@ -257,6 +268,103 @@ class DocsServer(
         transport.encodeActionResponse(dispatcher.dispatch(request))
     }
 
+    // --- the data-fetching demo on /docs/resources: one language stack per visitor session ---
+
+    private val demoSessions = object : LinkedHashMap<String, DemoStackSession>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, DemoStackSession>): Boolean =
+            size > MaxDemoSessions
+    }
+
+    private fun respondDemoStack(exchange: HttpExchange) {
+        val session = demoSession(exchange)
+        exchange.respondText(contentType = "application/json", body = session.toJson())
+    }
+
+    private fun respondDemoStackSubmission(exchange: HttpExchange) {
+        val session = demoSession(exchange)
+        val body = exchange.requestBody.readAllBytes().decodeToString()
+        val language = runCatching {
+            Json.parseToJsonElement(body).jsonObject["language"]?.jsonPrimitive?.content
+        }.getOrNull()?.trim()
+        when {
+            language.isNullOrEmpty() -> exchange.respondText(
+                status = 400,
+                contentType = "text/plain",
+                body = """Send {"language": "<name>"} with a non-blank name.""",
+            )
+
+            language.length > MaxDemoLanguageLength -> exchange.respondText(
+                status = 400,
+                contentType = "text/plain",
+                body = "Language names are capped at $MaxDemoLanguageLength characters.",
+            )
+
+            language.equals("java", ignoreCase = true) -> exchange.respondText(
+                status = 500,
+                contentType = "text/plain",
+                body = JavaFailureBody,
+            )
+
+            language.equals("javascript", ignoreCase = true) || language.equals("js", ignoreCase = true) ->
+                exchange.respondText(
+                    status = 500,
+                    contentType = "text/plain",
+                    body = JavaScriptFailureBody,
+                )
+
+            else -> {
+                val accepted = synchronized(demoSessions) {
+                    when {
+                        session.languages.any { it.equals(language, ignoreCase = true) } -> true
+                        session.languages.size >= MaxDemoStackSize -> false
+                        else -> {
+                            session.languages += language
+                            true
+                        }
+                    }
+                }
+                if (accepted) {
+                    exchange.respondText(contentType = "application/json", body = session.toJson())
+                } else {
+                    exchange.respondText(
+                        status = 400,
+                        contentType = "text/plain",
+                        body = "That stack already has $MaxDemoStackSize languages — time to ship something.",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun demoSession(exchange: HttpExchange): DemoStackSession {
+        val cookieId = exchange.requestHeaders["Cookie"]
+            ?.flatMap { header -> header.split(";") }
+            ?.map(String::trim)
+            ?.firstOrNull { cookie -> cookie.startsWith("$DemoSessionCookie=") }
+            ?.substringAfter("=")
+            ?.takeIf(String::isNotBlank)
+        synchronized(demoSessions) {
+            val existing = cookieId?.let(demoSessions::get)
+            if (existing != null) {
+                return existing
+            }
+        }
+
+        val id = UUID.randomUUID().toString()
+        val session = DemoStackSession()
+        synchronized(demoSessions) { demoSessions[id] = session }
+        exchange.responseHeaders.add(
+            "Set-Cookie",
+            "$DemoSessionCookie=$id; Path=/demo; HttpOnly; SameSite=Lax; Max-Age=86400",
+        )
+        return session
+    }
+
+    private fun DemoStackSession.toJson(): String {
+        val snapshot = synchronized(demoSessions) { languages.toList() }
+        return JsonObject(mapOf("languages" to JsonArray(snapshot.map(::JsonPrimitive)))).toString()
+    }
+
     // --- static assets ---
 
     private fun respondBundleAsset(
@@ -306,6 +414,21 @@ class DocsServer(
             ?.let { staticAssetFromPath(it, contentType = contentTypeFor(relative)) }
     }
 }
+
+private class DemoStackSession {
+    val languages: MutableList<String> = mutableListOf("Kotlin")
+}
+
+private const val DemoSessionCookie = "kinetica-demo-session"
+private const val MaxDemoSessions = 1000
+private const val MaxDemoStackSize = 12
+private const val MaxDemoLanguageLength = 40
+
+private const val JavaFailureBody =
+    "java.lang.NullPointerException: Cannot invoke \"Language.modernFeatures()\" because \"java\" is null"
+
+private const val JavaScriptFailureBody =
+    "TypeError: undefined is not a function (evaluating 'javascript.typeSystem()')"
 
 private val AddToCartRegistration = ServerActionRegistration(
     actionId = ADD_TO_CART_ACTION_ID,
