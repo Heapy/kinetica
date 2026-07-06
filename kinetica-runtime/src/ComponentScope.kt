@@ -95,7 +95,62 @@ public class ComponentScope public constructor(
     private val layoutEffects = mutableListOf<() -> Unit>()
     private val postCommitEffects = mutableListOf<() -> Unit>()
 
+    // --- Frame kernel: ordinal-addressed storage assigned by the compiler plugin ---
+    internal val rootFrame: Frame = Frame(table = null, parent = null)
+    internal var currentFrame: Frame = rootFrame
+        private set
+    private var stagedOrdinal: Int = -1
+    private val enteredFrames = mutableListOf<Frame>()
+
     public val coroutineScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /**
+     * Stages the ordinal of the next slot/event/child-consuming call. Written exclusively
+     * by compiler-generated code immediately before the call it identifies; user code
+     * never calls this.
+     */
+    public fun ordinal(n: Int) {
+        stagedOrdinal = n
+    }
+
+    internal fun consumeStagedOrdinal(construct: String): Int {
+        val staged = stagedOrdinal
+        stagedOrdinal = -1
+        if (staged < 0) {
+            throw MissingKineticaPluginException(construct)
+        }
+        return staged
+    }
+
+    /**
+     * Enters the frame of a `@UiComponent` call site. Compiler-generated prologue; the
+     * child ordinal is staged by the caller via [ordinal]. Paired with [endComponentFrame].
+     */
+    public fun beginComponentFrame(table: FrameTable) {
+        val childOrdinal = consumeStagedOrdinal("component call")
+        enterFrame(currentFrame.enterFixedChild(childOrdinal, table, slotGeneration))
+    }
+
+    public fun endComponentFrame() {
+        currentFrame = currentFrame.parent ?: rootFrame
+    }
+
+    internal fun enterFrame(frame: Frame) {
+        if (frame.markEntered(slotGeneration)) {
+            enteredFrames += frame
+        }
+        currentFrame = frame
+    }
+
+    internal fun exitFrame() {
+        currentFrame = currentFrame.parent ?: rootFrame
+    }
+
+    internal fun <T> frameSlot(ordinal: Int, transient: Boolean = false, initial: () -> T): T =
+        currentFrame.slot(ordinal, slotGeneration, transient, initial)
+
+    internal fun frameEvent(ordinal: Int, role: Int = EVENT_ROLE_PRIMARY, callback: (Any?) -> Unit): String =
+        currentFrame.event(ordinal, role, slotGeneration, runtime, callback)
 
     internal fun beginRender() {
         slotCursor = 0
@@ -103,6 +158,11 @@ public class ComponentScope public constructor(
         effectCursor = 0
         slotGeneration += 1
         eventGeneration += 1
+        enteredFrames.clear()
+        rootFrame.markEntered(slotGeneration)
+        enteredFrames += rootFrame
+        currentFrame = rootFrame
+        stagedOrdinal = -1
         eachOrdinals.clear()
         eachCaptures.clear()
         resourceKeyCounts.clear()
@@ -118,6 +178,9 @@ public class ComponentScope public constructor(
             .map { it.key }
         expiredTransientSlots.forEach(::removeSlot)
         evictUntouchedHostEvents()
+        for (frame in enteredFrames) {
+            frame.commitChecks(slotGeneration, runtime)
+        }
         val children = nodeStack.single()
         return when (children.size) {
             0 -> FragmentNode()
@@ -439,6 +502,9 @@ public class ComponentScope public constructor(
     }
 
     public fun dispose() {
+        rootFrame.dispose(runtime)
+        currentFrame = rootFrame
+        enteredFrames.clear()
         slots.keys.toList().forEach(::removeSlot)
         hostEvents.values.forEach { entry ->
             entry.dead = true
