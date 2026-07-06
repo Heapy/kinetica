@@ -1,15 +1,15 @@
 {
-  "date": "2026-07-06T02:38:58.526Z",
+  "date": "2026-07-06T07:11:54.904Z",
   "sizes": {
     "kinetica/browser-bench-bundle": {
       "files": 1,
-      "rawBytes": 249592,
-      "gzipBytes": 78902
+      "rawBytes": 251497,
+      "gzipBytes": 79607
     },
     "kinetica/browser-bench-js": {
       "files": 226,
-      "rawBytes": 1056547,
-      "gzipBytes": 264879
+      "rawBytes": 1063958,
+      "gzipBytes": 265909
     },
     "kinetica/docs-client-js": {
       "files": 222,
