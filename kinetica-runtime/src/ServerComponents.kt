@@ -203,6 +203,17 @@ public interface ServerActionStub {
     ): ServerActionResponse
 }
 
+/**
+ * Thrown by a server-action handler to reject an input with a specific, client-safe message.
+ *
+ * The dispatcher's serializer-derived schema only checks a payload's *shape*; it cannot express
+ * business invariants (range bounds, allowed enum values, cross-field rules). Handlers validate
+ * those themselves and throw this exception — its [message] is returned verbatim in the
+ * [ServerActionResponse.Failure], so it must not contain secrets or internals. Any other throwable
+ * surfaces only a generic "Server action failed." so server stack traces never leak.
+ */
+public class ServerActionRejection(message: String) : RuntimeException(message)
+
 public fun <I, O> serverActionStub(
     registration: ServerActionRegistration,
     inputSerializer: KSerializer<I>,
@@ -237,10 +248,19 @@ public fun <I, O> serverActionStub(
                 if (throwable is CancellationException) {
                     throw throwable
                 }
-                ServerActionResponse.Failure(
-                    message = "Server action failed.",
-                    retryable = false,
-                )
+                // A handler-thrown ServerActionRejection surfaces its client-safe message; any
+                // other throwable stays generic so server internals never reach a response body.
+                if (throwable is ServerActionRejection) {
+                    ServerActionResponse.Failure(
+                        message = throwable.message ?: "Server action rejected.",
+                        retryable = false,
+                    )
+                } else {
+                    ServerActionResponse.Failure(
+                        message = "Server action failed.",
+                        retryable = false,
+                    )
+                }
             }
     }
 

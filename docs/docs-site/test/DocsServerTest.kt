@@ -79,7 +79,10 @@ class DocsServerTest {
             .startsWith("text/plain"))
         val missingAsset = getResponse("$baseUrl/docs-client/missing.mjs")
         assertEquals(404, missingAsset.statusCode())
-        assertTrue("Missing bundle asset missing.mjs" in missingAsset.body())
+        // Hardened: the 404 body is generic and must not leak the requested path or the bundles
+        // dir (those are logged server-side only).
+        assertTrue("Bundle asset not found." in missingAsset.body())
+        assertTrue("missing.mjs" !in missingAsset.body())
 
         val demo = get("$baseUrl/examples/server-components")
         assertTrue("id=\"kinetica-hydration-plan\"" in demo)
@@ -128,7 +131,14 @@ class DocsServerTest {
                 .build(),
             HttpResponse.BodyHandlers.ofString(),
         )
-        assertEquals(500, malformedAction.statusCode())
+        // Hardened: a malformed action body is a client error (400) with a generic message, not a
+        // 500 that could bubble internal detail through the catch-all.
+        assertEquals(400, malformedAction.statusCode())
+        val malformedFailure = transport.decodeActionResponse(malformedAction.body())
+        assertEquals(
+            "Malformed server action request.",
+            assertIs<ServerActionResponse.Failure>(malformedFailure).message,
+        )
 
         val favicon = getResponse("$baseUrl/favicon.ico")
         assertEquals(204, favicon.statusCode())

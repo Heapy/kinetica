@@ -6,6 +6,7 @@ import app.servercomponents.shared.AddToCartInput
 import app.servercomponents.shared.AddToCartResult
 import app.servercomponents.shared.DEMO_CAPABILITY_TOKEN
 import app.servercomponents.shared.DEMO_CSRF_TOKEN
+import app.servercomponents.shared.validationError
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import io.heapy.kinetica.CapabilityToken
@@ -22,6 +23,7 @@ import io.heapy.kinetica.KineticaServerTransport
 import io.heapy.kinetica.ServerActionRegistration
 import io.heapy.kinetica.ServerActionRequest
 import io.heapy.kinetica.ServerActionResponse
+import io.heapy.kinetica.ServerActionRejection
 import io.heapy.kinetica.ServerRenderDeferredSubtree
 import io.heapy.kinetica.TextNode
 import io.heapy.kinetica.host
@@ -136,6 +138,7 @@ internal class ServerComponentsDemoServer(
                 inputSerializer = AddToCartInput.serializer(),
                 outputSerializer = AddToCartResult.serializer(),
             ) { input ->
+                input.validationError()?.let { error -> throw ServerActionRejection(error) }
                 val updated = cartCount.addAndGet(input.quantity)
                 AddToCartResult(
                     message = "Added ${input.quantity} of ${input.productId}",
@@ -368,31 +371,32 @@ internal class ServerComponentsDemoServer(
         projectRoot.resolve("build/tasks/_server-components-client_linkJs").normalize()
 
     /**
-     * Reads up to [limit] bytes from the request body and returns them decoded as UTF-8, or `null`
-     * if the body exceeds the limit. Bounding the read prevents a single oversized POST from
+     * Reads at most [limit] bytes from the request body and returns them decoded as UTF-8, or `null`
+     * if the body is longer than [limit]. Bounding the read prevents a single oversized POST from
      * exhausting heap via `readAllBytes()`; action payloads here are tiny, so a few KB is generous.
      */
     private fun readBoundedBody(exchange: HttpExchange, limit: Int): String? {
+        require(limit > 0) { "limit must be positive." }
         val input = exchange.requestBody
-        val buffer = ByteArray(limit + 1)
+        val buffer = ByteArray(limit)
         var read = 0
         while (read < buffer.size) {
             val n = input.read(buffer, read, buffer.size - read)
-            if (n < 0) break
+            if (n < 0) {
+                // EOF within the limit — the body fits.
+                return buffer.decodeToString(0, read)
+            }
             read += n
         }
-        // If we filled the whole buffer (limit + 1 bytes) there is at least one more byte, i.e. the
-        // body exceeds the limit.
-        if (read == buffer.size && input.read() >= 0) {
-            return null
-        }
-        return buffer.decodeToString(0, read)
+        // The buffer is full (exactly `limit` bytes read). A body is within the limit only if there
+        // are no further bytes; one more read tells us. Anything beyond `limit` is rejected.
+        return if (input.read() < 0) buffer.decodeToString(0, read) else null
     }
 
-    private companion object {
+    internal companion object {
         // Action payloads are tiny JSON (AddToCartInput is ~60 bytes). 4 KB is far above any
         // legitimate request while keeping a hostile POST trivially cheap to reject.
-        const val MAX_ACTION_BODY_BYTES = 4 * 1024
+        const val MAX_ACTION_BODY_BYTES: Int = 4 * 1024
         const val SERVER_THREAD_POOL_SIZE = 8
     }
 }
@@ -450,10 +454,11 @@ private fun HttpExchange.applySecurityHeaders() {
     responseHeaders.set("X-Frame-Options", "DENY")
     responseHeaders.set("Referrer-Policy", "no-referrer")
     // Strict CSP: scripts and styles are same-origin; styles fall back to inline (the page ships
-    // an inline <style> block) but no inline script or eval is permitted.
+    // an inline <style> block) but no inline script or eval is permitted. frame-ancestors is set
+    // explicitly because it does not inherit from default-src.
     responseHeaders.set(
         "Content-Security-Policy",
-        "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self'",
+        "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'",
     )
 }
 

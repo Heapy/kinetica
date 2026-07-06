@@ -4,6 +4,7 @@ import app.servercomponents.shared.ADD_TO_CART_ACTION_ID
 import app.servercomponents.shared.ADD_TO_CART_COMPONENT_ID
 import app.servercomponents.shared.AddToCartInput
 import app.servercomponents.shared.AddToCartResult
+import app.servercomponents.shared.CART_QUANTITY_RANGE
 import app.servercomponents.shared.DEMO_CAPABILITY_TOKEN
 import app.servercomponents.shared.DEMO_CSRF_TOKEN
 import io.heapy.kinetica.CapabilityToken
@@ -174,6 +175,62 @@ class ServerComponentsDemoTest {
             ),
         )
         assertEquals("Invalid CSRF token.", assertIs<ServerActionResponse.Failure>(csrfDenied).message)
+    }
+
+    @Test
+    fun httpServerRejectsOutOfRangeQuantitiesAndOversizedBodies() = withDemoServer { baseUrl ->
+        // The schema accepts any number; the handler must reject out-of-range business values with
+        // a typed Failure (ServerActionRejection) rather than mutating state.
+        val negative = postAction(
+            baseUrl = baseUrl,
+            request = ServerActionRequest(
+                actionId = ADD_TO_CART_ACTION_ID,
+                payload = KineticaJson.encodeToJsonElement(AddToCartInput("runtime-license", -1)),
+                token = CapabilityToken(DEMO_CAPABILITY_TOKEN),
+                csrfToken = CsrfToken(DEMO_CSRF_TOKEN),
+            ),
+        )
+        assertEquals(
+            "quantity must be in $CART_QUANTITY_RANGE.",
+            assertIs<ServerActionResponse.Failure>(negative).message,
+        )
+
+        val tooLarge = postAction(
+            baseUrl = baseUrl,
+            request = ServerActionRequest(
+                actionId = ADD_TO_CART_ACTION_ID,
+                payload = KineticaJson.encodeToJsonElement(AddToCartInput("runtime-license", 10_000)),
+                token = CapabilityToken(DEMO_CAPABILITY_TOKEN),
+                csrfToken = CsrfToken(DEMO_CSRF_TOKEN),
+            ),
+        )
+        assertEquals(
+            "quantity must be in $CART_QUANTITY_RANGE.",
+            assertIs<ServerActionResponse.Failure>(tooLarge).message,
+        )
+
+        // A valid quantity still succeeds and is unaffected by the prior rejections.
+        val ok = postAction(
+            baseUrl = baseUrl,
+            request = ServerActionRequest(
+                actionId = ADD_TO_CART_ACTION_ID,
+                payload = KineticaJson.encodeToJsonElement(AddToCartInput("runtime-license", 1)),
+                token = CapabilityToken(DEMO_CAPABILITY_TOKEN),
+                csrfToken = CsrfToken(DEMO_CSRF_TOKEN),
+            ),
+        ).successResult()
+        assertEquals(1, ok.cartCount)
+
+        // An oversized body is rejected with 413 before it can exhaust heap.
+        val oversized = http.send(
+            HttpRequest.newBuilder(URI.create("$baseUrl/actions/$ADD_TO_CART_ACTION_ID"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("a".repeat(ServerComponentsDemoServer.MAX_ACTION_BODY_BYTES + 256)))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(),
+        )
+        assertEquals(413, oversized.statusCode())
+        assertIs<ServerActionResponse.Failure>(transport.decodeActionResponse(oversized.body()))
     }
 
     @Test

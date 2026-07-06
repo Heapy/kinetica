@@ -6,6 +6,7 @@ import app.servercomponents.shared.AddToCartInput
 import app.servercomponents.shared.AddToCartResult
 import app.servercomponents.shared.DEMO_CAPABILITY_TOKEN
 import app.servercomponents.shared.DEMO_CSRF_TOKEN
+import app.servercomponents.shared.validationError
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import io.heapy.kinetica.ClientComponentManifest
@@ -18,6 +19,7 @@ import io.heapy.kinetica.KineticaServerActionDispatcher
 import io.heapy.kinetica.KineticaServerTransport
 import io.heapy.kinetica.ServerActionRegistration
 import io.heapy.kinetica.ServerActionResponse
+import io.heapy.kinetica.ServerActionRejection
 import io.heapy.kinetica.ServerRenderDeferredSubtree
 import io.heapy.kinetica.TextNode
 import io.heapy.kinetica.host
@@ -89,6 +91,7 @@ class DocsServer(
                 inputSerializer = AddToCartInput.serializer(),
                 outputSerializer = AddToCartResult.serializer(),
             ) { input ->
+                input.validationError()?.let { error -> throw ServerActionRejection(error) }
                 val updated = cartCount.addAndGet(input.quantity)
                 AddToCartResult(
                     message = "Added ${input.quantity} of ${input.productId}",
@@ -155,6 +158,7 @@ class DocsServer(
 
                 exchange.requestMethod == "GET" && path == "/favicon.ico" -> {
                     exchange.responseHeaders.set("Cache-Control", "no-store")
+                    exchange.applySecurityHeaders()
                     exchange.sendResponseHeaders(204, -1)
                     exchange.responseBody.close()
                 }
@@ -408,10 +412,12 @@ class DocsServer(
     ) {
         val asset = bundleAsset(preferredRoot, fallbackRoot, relative)
         if (asset == null) {
+            // Log the path server-side only; the response must not leak the absolute bundles dir.
+            System.err.println("Missing bundle asset $relative under $bundlesDir")
             exchange.respondText(
                 status = 404,
                 contentType = "text/plain",
-                body = "Missing bundle asset $relative under $bundlesDir. Build with node scripts/bundle-docs.mjs, or set KINETICA_BUNDLES_DIR.",
+                body = "Bundle asset not found.",
             )
             return
         }
@@ -469,25 +475,26 @@ class DocsServer(
     }
 
     /**
-     * Reads up to [limit] bytes from the request body and returns them decoded as UTF-8, or `null`
-     * if the body exceeds the limit. Bounding the read prevents a single oversized POST from
+     * Reads at most [limit] bytes from the request body and returns them decoded as UTF-8, or `null`
+     * if the body is longer than [limit]. Bounding the read prevents a single oversized POST from
      * exhausting heap via `readAllBytes()`; action payloads here are tiny, so a few KB is generous.
      */
     private fun readBoundedBody(exchange: HttpExchange, limit: Int): String? {
+        require(limit > 0) { "limit must be positive." }
         val input = exchange.requestBody
-        val buffer = ByteArray(limit + 1)
+        val buffer = ByteArray(limit)
         var read = 0
         while (read < buffer.size) {
             val n = input.read(buffer, read, buffer.size - read)
-            if (n < 0) break
+            if (n < 0) {
+                // EOF within the limit — the body fits.
+                return buffer.decodeToString(0, read)
+            }
             read += n
         }
-        // If we filled the whole buffer (limit + 1 bytes) there is at least one more byte, i.e. the
-        // body exceeds the limit.
-        if (read == buffer.size && input.read() >= 0) {
-            return null
-        }
-        return buffer.decodeToString(0, read)
+        // The buffer is full (exactly `limit` bytes read). A body is within the limit only if there
+        // are no further bytes; one more read tells us. Anything beyond `limit` is rejected.
+        return if (input.read() < 0) buffer.decodeToString(0, read) else null
     }
 
     private companion object {
@@ -607,9 +614,10 @@ private fun HttpExchange.applySecurityHeaders() {
     responseHeaders.set("Referrer-Policy", "no-referrer")
     // Strict CSP: scripts and styles are same-origin only; no inline script, no eval. The
     // hydration plan is a <script type="application/json"> data block (not executed).
+    // frame-ancestors is set explicitly because it does not inherit from default-src.
     responseHeaders.set(
         "Content-Security-Policy",
-        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'",
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'",
     )
 }
 

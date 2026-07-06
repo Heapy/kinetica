@@ -950,6 +950,17 @@ class RuntimeSmokeServerTest {
                 ),
                 serverActionStub(
                     registration = ServerActionRegistration(
+                        actionId = "cart.reject",
+                        functionFqName = "app.server.reject",
+                    ),
+                    inputSerializer = String.serializer(),
+                    outputSerializer = String.serializer(),
+                    handler = {
+                        throw ServerActionRejection("quantity must be in 1..999.")
+                    },
+                ),
+                serverActionStub(
+                    registration = ServerActionRegistration(
                         actionId = "cart.cancel",
                         functionFqName = "app.server.cancel",
                     ),
@@ -1077,6 +1088,19 @@ class RuntimeSmokeServerTest {
             dispatcher.dispatch(
                 ServerActionRequest(
                     actionId = "cart.crash",
+                    payload = JsonPrimitive("sku-1"),
+                    token = CapabilityToken("valid"),
+                    csrfToken = CsrfToken("csrf"),
+                ),
+            ),
+        )
+        // A ServerActionRejection surfaces its client-safe message verbatim — handlers use it to
+        // reject bad input (e.g. out-of-range quantities) with a specific Failure.
+        assertEquals(
+            ServerActionResponse.Failure("quantity must be in 1..999."),
+            dispatcher.dispatch(
+                ServerActionRequest(
+                    actionId = "cart.reject",
                     payload = JsonPrimitive("sku-1"),
                     token = CapabilityToken("valid"),
                     csrfToken = CsrfToken("csrf"),
