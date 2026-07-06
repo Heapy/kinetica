@@ -1,11 +1,11 @@
 {
   "maxGrowthPct": 10,
   "entries": {
-    "kinetica/browser-bench-js": 264609,
-    "kinetica/docs-client-bundle": 78061,
-    "kinetica/docs-client-js": 260815,
-    "kinetica/server-components-client-bundle": 118048,
-    "kinetica/server-components-client-js": 366497,
+    "kinetica/browser-bench-js": 271914,
+    "kinetica/docs-client-bundle": 126554,
+    "kinetica/docs-client-js": 396211,
+    "kinetica/server-components-client-bundle": 122938,
+    "kinetica/server-components-client-js": 375247,
     "bench/vanilla": 1251,
     "bench/react": 61726,
     "bench/preact": 8825,
@@ -16,6 +16,6 @@
     "bench/preact-tree": 6035,
     "bench/vue-tree": 66305,
     "bench/svelte-tree": 20652,
-    "kinetica/browser-bench-bundle": 78717
+    "kinetica/browser-bench-bundle": 83580
   }
 }
