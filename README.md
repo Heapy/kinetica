@@ -52,7 +52,6 @@ See [`docs/README.md`](docs/README.md).
 | `docs/` | the documentation site + Docker packaging |
 | `bench/` | js-framework-benchmark harness vs React/Preact/Vue/Svelte/vanilla — 13 keyed-table ops, GC accounting, scaling curves, sustained updates, deep-tree suite, memory/leak probes ([guide](bench/README.md)) |
 | `bench-jvm/` | JVM microbenchmarks: reactive core, render pipeline, markdown SSR (`./kotlin run -m bench-jvm`) |
-| `deep-research-report.md` | the design specification |
 | `perf-rewrite-design.md` | renderer performance analysis & open perf items (P0–P4 done — latest 13-op geomean **0.97× vs React**; swap, replace and create-10k ahead of React, remove/update on 10k rows are the next target) |
 
 ## Building
