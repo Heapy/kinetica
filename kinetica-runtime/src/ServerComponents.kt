@@ -526,6 +526,7 @@ public fun Node.collectClientIslands(): List<ClientIsland> {
             is FragmentNode -> node.children.forEachIndexed { index, child -> visit(child, path + index) }
             is HostNode -> node.children.forEachIndexed { index, child -> visit(child, path + index) }
             is TextNode -> Unit
+            is TemplateNode -> visit(node.materialize(), path)
         }
     }
 

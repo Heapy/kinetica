@@ -21,12 +21,14 @@ public fun CompilerPluginRegistrar.ExtensionStorage.registerKineticaCompilerExte
     configuration: CompilerConfiguration,
 ) {
     val pluginConfiguration = KineticaCompilerPluginConfiguration.from(configuration)
-    // The source-processing extension is only ever invoked by the JVM pipeline in PSI mode,
-    // which modules opt into via the sourcePipeline=psi plugin option (processed early, in
-    // KineticaCommandLineProcessor). Registering it unconditionally is harmless elsewhere.
-    ProcessSourcesBeforeCompilingExtension.Companion.registerExtension(
-        KineticaProcessSourcesExtension(pluginConfiguration),
-    )
+    // The source-processing extension is only safe in the JVM PSI pipeline. The default
+    // lightTree mode keeps registration to IR-only transforms so every backend can load
+    // the plugin without materializing replacement KtFile instances.
+    if (pluginConfiguration.sourcePipeline == "psi") {
+        ProcessSourcesBeforeCompilingExtension.Companion.registerExtension(
+            KineticaProcessSourcesExtension(pluginConfiguration),
+        )
+    }
     if (pluginConfiguration.transforms) {
         IrGenerationExtension.registerExtension(
             KineticaIrGenerationExtension(

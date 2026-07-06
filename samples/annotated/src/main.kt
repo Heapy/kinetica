@@ -8,6 +8,7 @@ import io.heapy.kinetica.generated.KineticaGeneratedCompilerPluginVersion
 import io.heapy.kinetica.generated.KineticaGeneratedComponentTransforms
 import io.heapy.kinetica.generated.KineticaGeneratedPreviews
 import io.heapy.kinetica.host
+import io.heapy.kinetica.materialize
 import io.heapy.kinetica.propsOf
 import io.heapy.kinetica.state
 import io.heapy.kinetica.text
@@ -59,6 +60,9 @@ private fun findHost(node: io.heapy.kinetica.Node, tag: String): io.heapy.kineti
     }
     if (node is io.heapy.kinetica.FragmentNode) {
         node.children.forEach { child -> findHost(child, tag)?.let { return it } }
+    }
+    if (node is io.heapy.kinetica.TemplateNode) {
+        return findHost(node.materialize(), tag)
     }
     return null
 }

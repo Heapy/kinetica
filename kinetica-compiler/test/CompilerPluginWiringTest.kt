@@ -130,11 +130,29 @@ class CompilerPluginWiringTest {
 
     @Test
     @OptIn(CompilerConfiguration.Internals::class)
-    fun registrarInstallsSourceProcessingExtension() {
+    fun registrarInstallsIrExtensionByDefault() {
         val configuration = CompilerConfiguration().apply {
             put(KineticaConfigurationKeys.moduleId, "sample")
             put(KineticaConfigurationKeys.serverSourceSet, "serverMain")
             put(KineticaConfigurationKeys.clientSourceSet, "clientMain")
+        }
+        val storage = CompilerPluginRegistrar.ExtensionStorage()
+
+        storage.registerKineticaCompilerExtensions(configuration)
+
+        assertTrue(storage.get(ProcessSourcesBeforeCompilingExtension.Companion).isEmpty())
+        val irExtension = storage.get(IrGenerationExtension.Companion).single()
+        assertIs<KineticaIrGenerationExtension>(irExtension)
+    }
+
+    @Test
+    @OptIn(CompilerConfiguration.Internals::class)
+    fun registrarInstallsSourceProcessingExtensionForPsiPipeline() {
+        val configuration = CompilerConfiguration().apply {
+            put(KineticaConfigurationKeys.moduleId, "sample")
+            put(KineticaConfigurationKeys.serverSourceSet, "serverMain")
+            put(KineticaConfigurationKeys.clientSourceSet, "clientMain")
+            put(KineticaConfigurationKeys.sourcePipeline, "psi")
         }
         val storage = CompilerPluginRegistrar.ExtensionStorage()
 
@@ -148,10 +166,11 @@ class CompilerPluginWiringTest {
 
     @Test
     @OptIn(CompilerConfiguration.Internals::class)
-    fun transformsKillSwitchDisablesIrExtension() {
+    fun transformsKillSwitchDisablesIrExtensionButKeepsPsiSourcePipeline() {
         val configuration = CompilerConfiguration().apply {
             put(KineticaConfigurationKeys.moduleId, "sample")
             put(KineticaConfigurationKeys.transforms, "off")
+            put(KineticaConfigurationKeys.sourcePipeline, "psi")
         }
         val storage = CompilerPluginRegistrar.ExtensionStorage()
 

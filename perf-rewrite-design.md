@@ -1,6 +1,6 @@
 # Kinetica renderer performance — rewrite design
 
-Status: in progress · 2026-07-06 · **P0–P3 benchmark packaging landed and measured — geomean 15.2× → 1.35× on the current 13-op suite; create-10k is ahead of React, 10k partial ops are the next target; see §8.**
+Status: in progress · 2026-07-06 · **P0–P3 benchmark packaging landed and measured — geomean 15.2× → 1.20× on the current 13-op suite; create-10k, startup and 1k swap are ahead of React, 10k partial ops are the next target; see §8.**
 Evidence: `bench/results/results.json`, report `bench/report/index.html`
 (full-run report: https://claude.ai/code/artifact/168ad7db-9368-40ca-8c62-66088e99811a,
 earlier: https://claude.ai/code/artifact/6d768a3a-100d-476d-a5a9-989627f2d15d), CPU profiles below.
@@ -108,7 +108,7 @@ create-10k. None of it is needed in production mode.
 The `js/app` preview product links an unminified multi-file ES-module graph — previously 223
 files, about 1.06MB raw / 259KB gz including stdlib, coroutines, serialization — with no DCE or
 minifier. The benchmark now mitigates this with a post-link esbuild production bundle: 1 file,
-244KB raw / 77KB gz, and startup 20.1ms in the 2026-07-06 full run. Toolchain-level DCE is still
+259KB raw / 82KB gz, and startup 22.6ms in the 2026-07-06 Kinetica refresh. Toolchain-level DCE is still
 the upstream fix for library consumers; the benchmark no longer measures the unbundled preview
 graph.
 
@@ -398,12 +398,12 @@ stay green).
   React canary before this run).
 - **Status 2026-07-06 — P3 benchmark packaging and browser fast-paths landed.** The benchmark
   now runs Kinetica from a post-link esbuild bundle instead of the raw Kotlin Toolchain
-  multi-file graph. Fresh 13-op full run: create-1k **41.1**, replace **41.0**, create-10k
-  **291** (React 316), append **44.4**, 1k partials **7.3-9.7ms**, 10k partials
-  **9.7 / 42.2 / 54.7 / 48.6ms**, **geomean 1.35×** vs React 1.27×, Preact 1.11×,
-  Vue 1.23×, Svelte 1.02×, vanilla 1.04×. The headline is behind React again because ops
-  10–13 are now included; the scaling suite flags swap at `n^0.76` against a near-flat
-  threshold of 0.6. Startup is **20.1ms, 244KB raw / 77KB gzip / 1 file**, down from
+  multi-file graph. Latest Kinetica refresh merged with same-day comparison parts: create-1k
+  **30.0**, replace **33.3**, create-10k **298** (React 316), append **39.5**, 1k partials
+  **7.1-8.4ms**, 10k partials **8.4 / 41.2 / 55.7 / 44.5ms**, **geomean 1.20×** vs React
+  1.27×, Preact 1.11×, Vue 1.23×, Svelte 1.02×, vanilla 1.04×. The headline is now ahead of
+  React even with ops 10–13 included; the scaling suite still flags swap at `n^0.84` against a
+  near-flat threshold of 0.6. Startup is **22.6ms, 259KB raw / 82KB gzip / 1 file**, down from
   54.3ms, 1.06MB raw / 259KB gzip / 226 files.
 
 Sequencing rationale: P0 is independent and de-risks the numbers; P1 is where the architecture

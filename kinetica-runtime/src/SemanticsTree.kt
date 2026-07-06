@@ -37,7 +37,11 @@ public fun Node.semanticsTree(): SemanticsTree {
     val nodes = mutableListOf<SemanticsNode>()
 
     fun visit(node: Node, path: List<Int>) {
-        val semantics = node.semantics
+        if (node is TemplateNode) {
+            visit(node.materialize(), path)
+            return
+        }
+        val semantics = node.derivedSemantics()
         if (semantics != null) {
             nodes += SemanticsNode(
                 path = path,
@@ -51,11 +55,21 @@ public fun Node.semanticsTree(): SemanticsTree {
             is HostNode -> node.children.forEachIndexed { index, child -> visit(child, path + index) }
             is TextNode -> Unit
             is ClientRef -> Unit
+            is TemplateNode -> Unit
         }
     }
 
     visit(this, emptyList())
     return SemanticsTree(nodes)
+}
+
+private fun Node.derivedSemantics(): Semantics? {
+    val current = this.semantics ?: return null
+    return if (this is TextNode && current.role == Role.Text && current.label == null) {
+        current.copy(label = value)
+    } else {
+        current
+    }
 }
 
 public fun Node.nodeAt(path: List<Int>): Node? {
@@ -64,6 +78,7 @@ public fun Node.nodeAt(path: List<Int>): Node? {
         current = when (current) {
             is FragmentNode -> current.children.getOrNull(index)
             is HostNode -> current.children.getOrNull(index)
+            is TemplateNode -> current.materialize().children.getOrNull(index)
             is TextNode -> null
             is ClientRef -> null
         } ?: return null
@@ -129,4 +144,3 @@ private fun Int.floorMod(divisor: Int): Int {
     val value = this % divisor
     return if (value < 0) value + divisor else value
 }
-

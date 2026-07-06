@@ -144,4 +144,31 @@ class EachKeyedFlagTest {
         }
         assertEquals(0, flags)
     }
+
+    @Test
+    fun plainSingleTextChildCertifiesHostColumnAndRow() {
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+
+        fun renderFlags(body: ComponentScope.() -> Unit): Int =
+            (runtime.render(scope, body).tree as HostNode).flags
+
+        assertEquals(NodeFlags.CHILDREN_SINGLE_TEXT, renderFlags { host("p") { text("plain", semantics = null) } })
+        assertEquals(NodeFlags.CHILDREN_SINGLE_TEXT, renderFlags { column { text("plain", semantics = null) } })
+        assertEquals(NodeFlags.CHILDREN_SINGLE_TEXT, renderFlags { row { text("plain", semantics = null) } })
+    }
+
+    @Test
+    fun singleTextFlagRejectsWrappedOrNonSingleTextChildren() {
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+
+        fun renderFlags(body: ComponentScope.() -> Unit): Int =
+            (runtime.render(scope, body).tree as HostNode).flags
+
+        assertEquals(NodeFlags.CHILDREN_SINGLE_TEXT, renderFlags { host("p") { text("default semantics") } })
+        assertEquals(0, renderFlags { host("p") { text("image", semantics = Semantics(role = Role.Image, label = "Image")) } })
+        assertEquals(0, renderFlags { host("p") { text("deleted", strikethrough = true, semantics = null) } })
+        assertEquals(0, renderFlags { host("p") { text("one", semantics = null); text("two", semantics = null) } })
+    }
 }

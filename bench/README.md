@@ -271,11 +271,12 @@ the repo root, include the `__mountMs` snippet in its HTML (copy from
 - The page's headline is **geometric-mean slowdown** vs the per-operation fastest framework;
   the table shades cells by that factor. Medians everywhere; hover cells/bars for distributions
   (op cells include GC time in the hover).
-- Reference points from the 2026-07-06 full run (M4 Max, Chromium 149, 13-op suite): Svelte
-  1.02×, vanilla 1.04×, Preact 1.11×, Vue 1.23×, React 1.27×, **Kinetica 1.35×**. Kinetica is
-  ahead of React on create-10k (291 ms vs 316 ms), startup (20.1 ms vs 27.3 ms), and the 1k-row
-  swap case (8.5 ms vs 22.4 ms), but the 10k partial ops now drive the overall gap. On the
-  historical 9-op view only, Kinetica is 1.32× vs React 1.28×. Re-run all frameworks before
+- Reference points from the 2026-07-06 run set (M4 Max, Chromium 149, 13-op suite): Svelte
+  1.02×, vanilla 1.04×, Preact 1.11×, Vue 1.23×, React 1.27×, **Kinetica 1.20×**. Kinetica is
+  ahead of React on create-10k (298 ms vs 316 ms), startup (22.6 ms vs 27.3 ms), and the 1k-row
+  swap case (7.3 ms vs 22.4 ms). The 10k partial ops still drive the remaining gap. On the
+  historical 9-op view only, Kinetica is 1.13× vs React 1.28×.
+  Re-run all frameworks before
   comparing headline geomeans across suite changes.
 - Kinetica context: 1k partial ops sit at the paint floor via keyed row memoization; the remaining
   browser gap is large-table partial work (ops 10–13), create-op Node construction + GC pressure

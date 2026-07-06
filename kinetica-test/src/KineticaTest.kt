@@ -9,6 +9,7 @@ import io.heapy.kinetica.Node
 import io.heapy.kinetica.Role
 import io.heapy.kinetica.Semantics
 import io.heapy.kinetica.TextNode
+import io.heapy.kinetica.materialize
 import io.heapy.kinetica.toSafeHtml
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -157,6 +158,7 @@ private fun traverseNodes(root: Node): Sequence<Node> = sequence {
         is HostNode -> root.children.forEach { yieldAll(traverseNodes(it)) }
         is TextNode -> Unit
         is io.heapy.kinetica.ClientRef -> Unit
+        is io.heapy.kinetica.TemplateNode -> yieldAll(traverseNodes(root.materialize()))
     }
 }
 

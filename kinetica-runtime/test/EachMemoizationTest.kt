@@ -167,6 +167,45 @@ class EachMemoizationTest {
     }
 
     @Test
+    fun rowEventCacheRebuildsAfterEventEvictionAndKeyReuse() {
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+        val items = listOf(Item(1, "one"))
+        val clicks = mutableListOf<String>()
+        var mode = "list"
+
+        fun render(): HostNode = runtime.render(scope) {
+            column {
+                when (mode) {
+                    "list" -> each(items, key = { it.id }) { item ->
+                        host("li", key = item.id) {
+                            button(onClick = { clicks += "row" }) {
+                                text(item.label, semantics = null)
+                            }
+                        }
+                    }
+                    "fresh-event" -> button(onClick = { clicks += "fresh" }) {
+                        text("fresh", semantics = null)
+                    }
+                    else -> text("empty", semantics = null)
+                }
+            }
+        }.tree as HostNode
+
+        val firstRow = render().children.filterIsInstance<HostNode>().single()
+        mode = "empty"
+        render()
+        mode = "fresh-event"
+        render()
+        mode = "list"
+        val rebuiltRow = render().children.filterIsInstance<HostNode>().single()
+
+        assertNotSame(firstRow, rebuiltRow)
+        runtime.dispatch(rebuiltRow.findClickEventId())
+        assertEquals(listOf("row"), clicks)
+    }
+
+    @Test
     fun removedRowEvictsCacheAndReaddedRowRebuilds() {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)

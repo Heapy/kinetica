@@ -144,6 +144,48 @@ class SkippableEachCompositionTest {
     }
 
     @Test
+    fun skippedComponentRebuildsAfterEventEvictionAndKeyReuse() {
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+        val clicks = mutableListOf<String>()
+        var mode = "cached"
+        var factoryRuns = 0
+
+        fun render(): Node = runtime.render(scope) {
+            host("div") {
+                when (mode) {
+                    "cached" -> emit(
+                        skippableNode("clicker", listOf("stable")) {
+                            factoryRuns++
+                            renderNode {
+                                button(onClick = { clicks += "cached" }, semantics = null) {
+                                    text("cached", semantics = null)
+                                }
+                            }
+                        },
+                    )
+                    "fresh-event" -> button(onClick = { clicks += "fresh" }, semantics = null) {
+                        text("fresh", semantics = null)
+                    }
+                    else -> text("empty", semantics = null)
+                }
+            }
+        }.tree
+
+        render()
+        mode = "empty"
+        render()
+        mode = "fresh-event"
+        render()
+        mode = "cached"
+        val rebuilt = render()
+
+        assertEquals(2, factoryRuns)
+        runtime.dispatch(rebuilt.findClickEventId(), Unit)
+        assertEquals(listOf("cached"), clicks)
+    }
+
+    @Test
     fun siblingPositionalSlotsStayAlignedAcrossSkips() {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)

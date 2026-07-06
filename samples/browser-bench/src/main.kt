@@ -1,18 +1,25 @@
 package app.browser.bench
 
 import io.heapy.kinetica.ComponentScope
+import io.heapy.kinetica.HostNode
 import io.heapy.kinetica.KineticaRuntime
 import io.heapy.kinetica.MutableCell
 import io.heapy.kinetica.propsOf
 import io.heapy.kinetica.Role
 import io.heapy.kinetica.Semantics
+import io.heapy.kinetica.TemplateDefinition
+import io.heapy.kinetica.TemplateHole
+import io.heapy.kinetica.TemplateHoleKinds
+import io.heapy.kinetica.TextNode
 import io.heapy.kinetica.browser.BrowserKineticaApp
 import io.heapy.kinetica.browser.mountKineticaApp
 import io.heapy.kinetica.button
 import io.heapy.kinetica.each
 import io.heapy.kinetica.event
 import io.heapy.kinetica.host
+import io.heapy.kinetica.hostEvent
 import io.heapy.kinetica.state
+import io.heapy.kinetica.templateNode
 import io.heapy.kinetica.text
 import io.heapy.kinetica.UiComponent
 
@@ -123,6 +130,55 @@ private class Animator {
 
 private var animTick = 0
 
+private val BenchRowTemplate = TemplateDefinition(
+    id = "browser-bench-row-v1",
+    skeleton = HostNode(
+        tag = "tr",
+        props = propsOf("class", "", "data-id", ""),
+        children = listOf(
+            HostNode(
+                tag = "td",
+                props = propsOf("class", "col-id"),
+                children = listOf(TextNode("", semantics = null)),
+            ),
+            HostNode(
+                tag = "td",
+                props = propsOf("class", "col-label"),
+                children = listOf(
+                    HostNode(
+                        tag = "button",
+                        children = listOf(TextNode("", semantics = null)),
+                    ),
+                ),
+            ),
+            HostNode(
+                tag = "td",
+                props = propsOf("class", "col-remove"),
+                children = listOf(
+                    HostNode(
+                        tag = "button",
+                        children = listOf(
+                            HostNode(
+                                tag = "span",
+                                props = propsOf("class", "remove-icon", "aria-hidden", "true"),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            HostNode(tag = "td", props = propsOf("class", "col-rest")),
+        ),
+    ),
+    holes = listOf(
+        TemplateHole(path = "", kind = TemplateHoleKinds.Prop, propName = "class"),
+        TemplateHole(path = "", kind = TemplateHoleKinds.Prop, propName = "data-id"),
+        TemplateHole(path = "0.0", kind = TemplateHoleKinds.Text),
+        TemplateHole(path = "1.0", kind = TemplateHoleKinds.EventProp, propName = "event:onClick"),
+        TemplateHole(path = "1.0.0", kind = TemplateHoleKinds.Text),
+        TemplateHole(path = "2.0", kind = TemplateHoleKinds.EventProp, propName = "event:onClick"),
+    ),
+)
+
 // @UiComponent enables IR const-props interning + leaf-host hoisting (td.col-rest,
 // span.remove-icon become shared singletons). requestRender is a function type, so the
 // component is not skippable — which also keeps each-row memoization intact.
@@ -182,25 +238,16 @@ fun ComponentScope.BenchApp(requestRender: () -> Unit = {}) {
                 each(rows, key = { it.id }) { row ->
                     val isSelected = state(key = "selected") { false }
                     val danger = if (isSelected.value) "danger" else ""
-                    host("tr", props = propsOf("class", danger, "data-id", row.id.toString()), key = row.id) {
-                        host("td", props = propsOf("class", "col-id")) {
-                            text(row.id.toString(), semantics = null)
-                        }
-                        host("td", props = propsOf("class", "col-label")) {
-                            button(onClick = event { selection.select(isSelected) }, semantics = null) {
-                                text(row.label, semantics = null)
-                            }
-                        }
-                        host("td", props = propsOf("class", "col-remove")) {
-                            button(
-                                onClick = event { rows = rows.filterNot { it.id == row.id } },
-                                semantics = null,
-                            ) {
-                                host("span", props = propsOf("class", "remove-icon", "aria-hidden", "true"))
-                            }
-                        }
-                        host("td", props = propsOf("class", "col-rest"))
-                    }
+                    val id = row.id.toString()
+                    val select = hostEvent(event { selection.select(isSelected) })
+                    val remove = hostEvent(event { rows = rows.filterNot { it.id == row.id } })
+                    emit(
+                        templateNode(
+                            definition = BenchRowTemplate,
+                            values = listOf(danger, id, id, select, row.label, remove),
+                            key = row.id,
+                        ),
+                    )
                 }
             }
         }

@@ -76,15 +76,21 @@ public class KineticaIrGenerationExtension(
     override fun generate(moduleFragment: IrModuleFragment, pluginContext: IrPluginContext) {
         val symbols = KineticaIrSymbols.resolve(pluginContext) ?: return
         val hoistSymbols = KineticaHoistSymbols.resolve(pluginContext)
+        val templateSymbols = KineticaTemplateSymbols.resolve(pluginContext)
         val stability = KineticaStability()
         moduleFragment.files.forEach { file ->
             val hoister = hoistSymbols?.let { KineticaHoistTransformer(file, pluginContext, it) }
+            val templater = templateSymbols?.let { KineticaTemplateTransformer(file, pluginContext, it) }
             // snapshot: hoisting appends file-level fields while we iterate declarations
             file.declarations.filterIsInstance<IrSimpleFunction>().forEach { function ->
-                if (hoister != null && function.isUiComponentWithScopeReceiver()) {
-                    hoister.transform(function)
+                if (function.isUiComponentWithScopeReceiver()) {
+                    templater?.transform(function)
+                    hoister?.transform(function)
                 }
                 transformComponent(function, symbols, stability, pluginContext)
+            }
+            if (templater != null && templater.templatesEmitted > 0) {
+                report("${file.fileEntry.name}: emitted ${templater.templatesEmitted} template definitions.")
             }
             if (hoister != null && (hoister.propsInterned > 0 || hoister.hostsHoisted > 0)) {
                 report(

@@ -17,6 +17,7 @@ import io.heapy.kinetica.ServerRenderChunk
 import io.heapy.kinetica.TextNode
 import io.heapy.kinetica.collectClientIslands
 import io.heapy.kinetica.hydrationPlan
+import io.heapy.kinetica.materialize
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.JsonObject
@@ -281,6 +282,7 @@ private fun io.heapy.kinetica.Node.findPath(path: List<Int>): io.heapy.kinetica.
         current = when (current) {
             is io.heapy.kinetica.FragmentNode -> current.children[index]
             is io.heapy.kinetica.HostNode -> current.children[index]
+            is io.heapy.kinetica.TemplateNode -> current.materialize().children[index]
             is ClientRef,
             is TextNode,
             -> error("Node has no children at path $path")
@@ -293,6 +295,7 @@ private fun io.heapy.kinetica.Node.flattenText(): List<String> =
     when (this) {
         is io.heapy.kinetica.FragmentNode -> children.flatMap { child -> child.flattenText() }
         is io.heapy.kinetica.HostNode -> children.flatMap { child -> child.flattenText() }
+        is io.heapy.kinetica.TemplateNode -> materialize().flattenText()
         is TextNode -> listOf(value)
         is ClientRef -> emptyList()
     }
