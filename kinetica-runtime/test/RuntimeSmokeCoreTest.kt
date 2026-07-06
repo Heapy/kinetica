@@ -244,56 +244,59 @@ private fun ComponentScope.SmokeLazyEffectRows() {
 }
 
 // --- watch tests ---
+// The barebones Node runner does not await runTest promises, so async tests in one file
+// run interleaved. Every mutable collaborator therefore lives in a per-test probe passed
+// as a component parameter — never in shared top-level state.
 
-private var smokeWatchCountCell: MutableCell<Int>? = null
-private val smokeWatchObserved = mutableListOf<Int>()
+private class WatchProbe {
+    val observed = mutableListOf<Int>()
+    var countCell: MutableCell<Int>? = null
+    val store = store(0)
+    val useFirst = store(true)
+    val first = store(0)
+    val second = store(100)
+}
 
 @UiComponent(skippable = false)
-private fun ComponentScope.SmokeWatchCounter() {
+private fun ComponentScope.SmokeWatchCounter(probe: WatchProbe) {
     val count = state { 0 }
-    smokeWatchCountCell = count
+    probe.countCell = count
     watch({ count.value }) { value ->
-        smokeWatchObserved += value
+        probe.observed += value
     }
     text("Count: ${count.value}")
 }
 
-private val smokeWatchStore = store(0)
-
 @UiComponent(skippable = false)
-private fun ComponentScope.SmokeWatchOnlyReader() {
-    watch({ smokeWatchStore.value }) { value ->
-        smokeWatchObserved += value
+private fun ComponentScope.SmokeWatchOnlyReader(probe: WatchProbe) {
+    watch({ probe.store.value }) { value ->
+        probe.observed += value
     }
     text("Watching")
 }
 
-private val smokeWatchUseFirst = store(true)
-private val smokeWatchFirst = store(0)
-private val smokeWatchSecond = store(100)
-
 @UiComponent(skippable = false)
-private fun ComponentScope.SmokeWatchSwitcher() {
+private fun ComponentScope.SmokeWatchSwitcher(probe: WatchProbe) {
     watch(
         source = {
-            if (smokeWatchUseFirst.value) {
-                smokeWatchFirst.value
+            if (probe.useFirst.value) {
+                probe.first.value
             } else {
-                smokeWatchSecond.value
+                probe.second.value
             }
         },
     ) { value ->
-        smokeWatchObserved += value
+        probe.observed += value
     }
     text("Watching")
 }
 
 @UiComponent(skippable = false)
-private fun ComponentScope.SmokeWatchSelfRestarting() {
+private fun ComponentScope.SmokeWatchSelfRestarting(probe: WatchProbe) {
     val count = state { 0 }
-    smokeWatchCountCell = count
+    probe.countCell = count
     watch({ count.value }) { value ->
-        smokeWatchObserved += value
+        probe.observed += value
         count.value = value + 1
     }
     text("Count: ${count.value}")
@@ -1086,17 +1089,16 @@ class RuntimeSmokeCoreTest {
     fun watchEvaluatesAfterCommitsAndDoesNotDuplicateAcrossRenders() = runTest {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
-        smokeWatchObserved.clear()
-        smokeWatchCountCell = null
+        val probe = WatchProbe()
 
         fun render() {
-            runtime.render(scope) { SmokeWatchCounter() }
+            runtime.render(scope) { SmokeWatchCounter(probe) }
         }
 
         render()
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
-                while (smokeWatchObserved != listOf(0)) {
+                while (probe.observed != listOf(0)) {
                     delay(10)
                 }
             }
@@ -1104,16 +1106,16 @@ class RuntimeSmokeCoreTest {
 
         render()
         delay(50)
-        assertEquals(listOf(0), smokeWatchObserved)
+        assertEquals(listOf(0), probe.observed)
 
-        smokeWatchCountCell!!.value = 1
+        probe.countCell!!.value = 1
         delay(50)
-        assertEquals(listOf(0), smokeWatchObserved)
+        assertEquals(listOf(0), probe.observed)
 
         render()
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
-                while (smokeWatchObserved != listOf(0, 1)) {
+                while (probe.observed != listOf(0, 1)) {
                     delay(10)
                 }
             }
@@ -1121,121 +1123,121 @@ class RuntimeSmokeCoreTest {
 
         render()
         delay(50)
-        assertEquals(listOf(0, 1), smokeWatchObserved)
+        assertEquals(listOf(0, 1), probe.observed)
         assertEquals(
             listOf("watch started", "watch restarted"),
             runtime.journal().filter { it.kind == JournalKind.WatchRestart }.map { it.message },
         )
+        // Cancel the watch task: the observed list is shared across tests, and on JS a
+        // pending task from this test would fire into the next test's cleared list.
+        scope.dispose()
     }
 
     @Test
     fun watchSourceInvalidatesWhenOnlyReadByWatch() = runTest {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
-        smokeWatchObserved.clear()
-        smokeWatchStore.value = 0
+        val probe = WatchProbe()
 
         fun render() {
-            runtime.render(scope) { SmokeWatchOnlyReader() }
+            runtime.render(scope) { SmokeWatchOnlyReader(probe) }
         }
 
         render()
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
-                while (smokeWatchObserved != listOf(0)) {
+                while (probe.observed != listOf(0)) {
                     delay(10)
                 }
             }
         }
 
-        smokeWatchStore.value = 1
+        probe.store.value = 1
         assertTrue(runtime.hasPendingInvalidation)
         render()
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
-                while (smokeWatchObserved != listOf(0, 1)) {
+                while (probe.observed != listOf(0, 1)) {
                     delay(10)
                 }
             }
         }
 
-        smokeWatchStore.value = 2
+        probe.store.value = 2
         assertTrue(runtime.hasPendingInvalidation)
         render()
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
-                while (smokeWatchObserved != listOf(0, 1, 2)) {
+                while (probe.observed != listOf(0, 1, 2)) {
                     delay(10)
                 }
             }
         }
+        scope.dispose()
     }
 
     @Test
     fun watchSourceReplacesSubscriptionsWhenDependenciesChange() = runTest {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
-        smokeWatchObserved.clear()
-        smokeWatchUseFirst.value = true
-        smokeWatchFirst.value = 0
-        smokeWatchSecond.value = 100
+        val probe = WatchProbe()
 
         fun render() {
-            runtime.render(scope) { SmokeWatchSwitcher() }
+            runtime.render(scope) { SmokeWatchSwitcher(probe) }
         }
 
         render()
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
-                while (smokeWatchObserved != listOf(0)) {
+                while (probe.observed != listOf(0)) {
                     delay(10)
                 }
             }
         }
 
-        smokeWatchFirst.value = 1
+        probe.first.value = 1
         assertTrue(runtime.hasPendingInvalidation)
         render()
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
-                while (smokeWatchObserved != listOf(0, 1)) {
+                while (probe.observed != listOf(0, 1)) {
                     delay(10)
                 }
             }
         }
 
-        smokeWatchUseFirst.value = false
+        probe.useFirst.value = false
         assertTrue(runtime.hasPendingInvalidation)
         render()
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
-                while (smokeWatchObserved != listOf(0, 1, 100)) {
+                while (probe.observed != listOf(0, 1, 100)) {
                     delay(10)
                 }
             }
         }
 
-        smokeWatchFirst.value = 2
+        probe.first.value = 2
         assertFalse(runtime.hasPendingInvalidation)
-        smokeWatchSecond.value = 101
+        probe.second.value = 101
         assertTrue(runtime.hasPendingInvalidation)
+        scope.dispose()
     }
 
     @Test
     fun debugWatchLoopStopsSelfRestartingEffectWithTrace() = runTest {
         val runtime = KineticaRuntime(watchLoopRestartLimit = 3)
         val scope = ComponentScope(runtime)
-        smokeWatchObserved.clear()
-        smokeWatchCountCell = null
+        val probe = WatchProbe()
 
         fun render() {
-            runtime.render(scope) { SmokeWatchSelfRestarting() }
+            runtime.render(scope) { SmokeWatchSelfRestarting(probe) }
         }
 
         render()
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
-                while (smokeWatchObserved != listOf(0)) {
+                while (probe.observed != listOf(0)) {
                     delay(10)
                 }
             }
@@ -1244,7 +1246,7 @@ class RuntimeSmokeCoreTest {
         render()
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
-                while (smokeWatchObserved != listOf(0, 1)) {
+                while (probe.observed != listOf(0, 1)) {
                     delay(10)
                 }
             }
@@ -1253,7 +1255,7 @@ class RuntimeSmokeCoreTest {
         render()
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
-                while (smokeWatchObserved != listOf(0, 1, 2)) {
+                while (probe.observed != listOf(0, 1, 2)) {
                     delay(10)
                 }
             }
@@ -1269,12 +1271,13 @@ class RuntimeSmokeCoreTest {
         assertEquals("4", loop.attributes["restarts"])
         assertEquals("3", loop.attributes["limit"])
         assertEquals("1 -> 2 -> 3", loop.attributes["trace"])
-        assertEquals(listOf(0, 1, 2), smokeWatchObserved)
-        assertEquals(3, smokeWatchCountCell!!.value)
+        assertEquals(listOf(0, 1, 2), probe.observed)
+        assertEquals(3, probe.countCell!!.value)
 
         render()
         delay(50)
-        assertEquals(listOf(0, 1, 2), smokeWatchObserved)
+        assertEquals(listOf(0, 1, 2), probe.observed)
+        scope.dispose()
     }
 
     @Test
