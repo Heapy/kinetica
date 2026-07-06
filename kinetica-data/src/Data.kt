@@ -109,7 +109,7 @@ public class Paginator<T> internal constructor(
 }
 
 public fun <T> ComponentScope.paginator(
-    key: String = "paginator",
+    key: String = "kinetica.data/paginator",
     initialRequest: PageRequest = PageRequest(),
 ): Paginator<T> =
     state(key = key) { Paginator<T>(initialRequest) }.value

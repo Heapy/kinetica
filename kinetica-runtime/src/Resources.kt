@@ -468,7 +468,7 @@ public fun <K : ResourceKey, T> ComponentScope.resource(
     val namespace = resourceCacheNamespace(scope)
     val slotKey = nextResourceKey("resource:${scope.name}:${key}")
     registerSlot(SlotMetadata(slotKey, slotId = null, persistent = false, transient = true))
-    val resource = slot(slotKey) {
+    val resource = checkedSlot(slotKey, ResourceImpl::class) {
         ResourceImpl(
             runtime = runtime,
             key = key,

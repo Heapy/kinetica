@@ -6,6 +6,36 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.serialization.Serializable
+import kotlin.reflect.KClass
+
+/**
+ * Discriminates every slot-consuming construct in its key, so two different constructs can
+ * never address the same slot even when divergent render paths (boundary fallback vs content,
+ * if/else branches) consume the same positional cursor sequence. Suffixes are folded into the
+ * key inside the key factories — callers never concatenate them — so a future per-scope key
+ * interner can key on (kind, cursor) directly.
+ */
+internal enum class SlotKind(val suffix: String) {
+    State(":state"),
+    Derived(":derived"),
+    ErrorBoundary(":errb"),
+    LoadingBoundary(":loadb"),
+    SuspendSubtree(":suspend"),
+    Frame(":frame"),
+    HostRef(":ref"),
+    Handle(":handle"),
+    Launch(":launch"),
+    Watch(":watch"),
+    TypedEvent(""),
+    UnitEvent(":unit"),
+    HostEvent(""),
+}
+
+/** A slot key with its scope-relative local form, for deriving stable sub-scope names. */
+internal class SlotKeyPair(val key: String, val local: String)
+
+/** Snapshot of the positional cursors, used to make boundaries cursor-neutral for siblings. */
+internal class CursorMark(val slot: Int, val event: Int, val effect: Int)
 
 @Serializable
 public data class SlotId(
@@ -24,7 +54,9 @@ public data class SlotMetadata(
     val slotId: SlotId?,
     val persistent: Boolean,
     val transient: Boolean,
-)
+) {
+    internal var touchedGeneration: Int = 0
+}
 
 public class ComponentScope public constructor(
     internal val runtime: KineticaRuntime = KineticaRuntime(),
@@ -33,9 +65,7 @@ public class ComponentScope public constructor(
     private val nodeStack = mutableListOf<MutableList<Node>>(mutableListOf())
     private val slots = mutableMapOf<String, Any?>()
     private val slotMetadata = mutableMapOf<String, SlotMetadata>()
-    private val touchedSlots = mutableSetOf<String>()
-    private val hostEventIds = mutableMapOf<String, String>()
-    private val touchedHostEvents = mutableSetOf<String>()
+    private val hostEvents = mutableMapOf<String, HostEventEntry>()
     private val contexts = mutableMapOf<Context<*>, MutableList<Any?>>()
     private val exitGroups = mutableMapOf<String, ExitGroupState>()
     private val errorBoundaryStack = mutableListOf<ErrorBoundaryState>()
@@ -59,6 +89,8 @@ public class ComponentScope public constructor(
     private var slotCursor = 0
     private var eventCursor = 0
     private var effectCursor = 0
+    private var slotGeneration = 0
+    private var eventGeneration = 0
     private val resourceKeyCounts = mutableMapOf<String, Int>()
     private val layoutEffects = mutableListOf<() -> Unit>()
     private val postCommitEffects = mutableListOf<() -> Unit>()
@@ -69,11 +101,11 @@ public class ComponentScope public constructor(
         slotCursor = 0
         eventCursor = 0
         effectCursor = 0
+        slotGeneration += 1
+        eventGeneration += 1
         eachOrdinals.clear()
         eachCaptures.clear()
         resourceKeyCounts.clear()
-        touchedSlots.clear()
-        touchedHostEvents.clear()
         layoutEffects.clear()
         postCommitEffects.clear()
         nodeStack.clear()
@@ -82,7 +114,7 @@ public class ComponentScope public constructor(
 
     internal fun commitRender(): Node {
         val expiredTransientSlots = slotMetadata.values
-            .filter { it.transient && it.key !in touchedSlots }
+            .filter { it.transient && it.touchedGeneration != slotGeneration }
             .map { it.key }
         expiredTransientSlots.forEach(::removeSlot)
         evictUntouchedHostEvents()
@@ -164,7 +196,7 @@ public class ComponentScope public constructor(
     // every skip" — is gone: it made skips unreachable in any stateful app.)
     private fun skippableHitLocked(cache: SkippableNodeCache, inputs: List<Any?>): Boolean =
         cache.inputs == inputs &&
-            cache.touchedEventKeys.all(hostEventIds::containsKey) &&
+            cache.touchedEvents.all { entry -> !entry.dead } &&
             cache.dependenciesUnchanged() &&
             contextReadsUnchanged(cache.contextReads)
 
@@ -178,10 +210,10 @@ public class ComponentScope public constructor(
     private fun emitSkippableHit(cache: SkippableNodeCache, componentId: String) {
         slotCursor += cache.slotCursorDelta
         eventCursor += cache.eventCursorDelta
-        for (eventKey in cache.touchedEventKeys) {
-            touchedHostEvents += eventKey
+        for (eventEntry in cache.touchedEvents) {
+            touchHostEvent(eventEntry)
             for (capture in eachCaptures) {
-                capture.recordEventKey(eventKey)
+                capture.recordEvent(eventEntry)
             }
         }
         for (read in cache.contextReads) {
@@ -199,7 +231,7 @@ public class ComponentScope public constructor(
                 inputs = inputs.toList(),
                 node = capture.node,
                 dependencies = capture.dependencies,
-                touchedEventKeys = capture.touchedEventKeys,
+                touchedEvents = capture.touchedEvents,
                 contextReads = capture.contextReads,
                 slotCursorDelta = capture.slotCursorDelta,
                 eventCursorDelta = capture.eventCursorDelta,
@@ -408,10 +440,11 @@ public class ComponentScope public constructor(
 
     public fun dispose() {
         slots.keys.toList().forEach(::removeSlot)
-        touchedSlots.clear()
-        hostEventIds.values.forEach(runtime::removeEvent)
-        hostEventIds.clear()
-        touchedHostEvents.clear()
+        hostEvents.values.forEach { entry ->
+            entry.dead = true
+            runtime.removeEvent(entry.id)
+        }
+        hostEvents.clear()
         contexts.clear()
         exitGroups.values.forEach { state -> state.cancelTasks() }
         exitGroups.clear()
@@ -431,53 +464,78 @@ public class ComponentScope public constructor(
         coroutineScope.cancel()
     }
 
-    internal fun nextSlotKey(explicitKey: String?): String {
-        val localKey = explicitKey ?: "slot-${slotCursor++}"
+    internal fun nextSlotKey(explicitKey: String?, kind: SlotKind): String {
+        val localKey = "${explicitKey ?: "slot-${slotCursor++}"}${kind.suffix}"
         val prefix = keyScopePrefix()
         val key = if (prefix.isEmpty()) localKey else "$prefix/$localKey"
-        touchedSlots += key
+        touchSlot(key)
         return key
     }
 
-    internal fun nextEventKey(): String {
-        val localKey = "event-${eventCursor++}"
+    internal fun nextSlotKeyPair(explicitKey: String?, kind: SlotKind): SlotKeyPair {
+        val localKey = "${explicitKey ?: "slot-${slotCursor++}"}${kind.suffix}"
+        val prefix = keyScopePrefix()
+        val key = if (prefix.isEmpty()) localKey else "$prefix/$localKey"
+        touchSlot(key)
+        return SlotKeyPair(key = key, local = localKey)
+    }
+
+    internal fun cursorMark(): CursorMark = CursorMark(slotCursor, eventCursor, effectCursor)
+
+    internal fun resetCursors(mark: CursorMark) {
+        slotCursor = mark.slot
+        eventCursor = mark.event
+        effectCursor = mark.effect
+    }
+
+    internal fun nextEventKey(kind: SlotKind): String {
+        val localKey = "event-${eventCursor++}${kind.suffix}"
         val prefix = keyScopePrefix()
         return if (prefix.isEmpty()) localKey else "$prefix/$localKey"
     }
 
     internal fun registerHostEvent(key: String, callback: (Any?) -> Unit): String {
-        touchedHostEvents += key
-        for (capture in eachCaptures) {
-            capture.recordEventKey(key)
-        }
-        val existing = hostEventIds[key]
-        if (existing != null && runtime.updateEvent(existing, callback)) {
-            return existing
+        val existing = hostEvents[key]
+        if (existing != null && !existing.dead && runtime.updateEvent(existing.id, callback)) {
+            touchHostEvent(existing)
+            for (capture in eachCaptures) {
+                capture.recordEvent(existing)
+            }
+            return existing.id
         }
         val id = runtime.registerEvent(callback)
-        hostEventIds[key] = id
+        if (existing != null) {
+            existing.dead = true
+        }
+        val entry = HostEventEntry(id = id, touchedGeneration = eventGeneration)
+        hostEvents[key] = entry
+        for (capture in eachCaptures) {
+            capture.recordEvent(entry)
+        }
         return id
     }
 
     private fun evictUntouchedHostEvents() {
-        if (hostEventIds.size == touchedHostEvents.size) {
-            return
-        }
-        val iterator = hostEventIds.entries.iterator()
+        val iterator = hostEvents.entries.iterator()
         while (iterator.hasNext()) {
             val entry = iterator.next()
-            if (entry.key !in touchedHostEvents) {
-                runtime.removeEvent(entry.value)
+            if (entry.value.touchedGeneration != eventGeneration) {
+                entry.value.dead = true
+                runtime.removeEvent(entry.value.id)
                 iterator.remove()
             }
         }
     }
 
-    internal fun nextEffectKey(): String {
-        val localKey = "effect-${effectCursor++}"
+    private fun touchHostEvent(entry: HostEventEntry) {
+        entry.touchedGeneration = eventGeneration
+    }
+
+    internal fun nextEffectKey(kind: SlotKind): String {
+        val localKey = "effect-${effectCursor++}${kind.suffix}"
         val prefix = keyScopePrefix()
         val key = if (prefix.isEmpty()) localKey else "$prefix/$localKey"
-        touchedSlots += key
+        touchSlot(key)
         return key
     }
 
@@ -490,13 +548,44 @@ public class ComponentScope public constructor(
         val count = resourceKeyCounts.getOrElse(namespacedKey) { 0 }
         resourceKeyCounts[namespacedKey] = count + 1
         val key = if (count == 0) namespacedKey else "$namespacedKey@$count"
-        touchedSlots += key
+        touchSlot(key)
         return key
     }
 
-    internal fun <T> slot(key: String, initial: () -> T): T {
+    internal fun <T> checkedSlot(key: String, expected: KClass<*>, initial: () -> T): T {
+        val existing = slots[key]
+        if (existing != null && !expected.isInstance(existing)) {
+            slotClassMismatch(key, expected, existing)
+        }
         @Suppress("UNCHECKED_CAST")
         return slots.getOrPut(key) { initial() } as T
+    }
+
+    private fun slotClassMismatch(key: String, expected: KClass<*>, existing: Any) {
+        val expectedName = expected.simpleName ?: "unknown"
+        val actualName = existing::class.simpleName ?: "unknown"
+        runtime.warn(
+            code = "slot-class-mismatch",
+            message = "slot class mismatch",
+            attributes = mapOf("slot" to key, "expected" to expectedName, "actual" to actualName),
+        )
+        runtime.record(
+            JournalKind.Skipped,
+            "slot class mismatch",
+            mapOf("slot" to key, "expected" to expectedName, "actual" to actualName),
+        )
+        if (runtime.debug) {
+            error(
+                "Slot class mismatch at '$key': expected $expectedName, found $actualName. " +
+                    "Two render paths are consuming the same positional slot with different constructs — " +
+                    "wrap divergent branches in keyed {} or pass explicit keys.",
+            )
+        }
+        // Production self-heal: drop the stale holder so the caller recreates the right one.
+        // Deliberately not removeSlot(): the caller registered this key's SlotMetadata just
+        // before fetching, and removing it would orphan the recreated slot from eviction.
+        disposeSlotValue(existing)
+        slots.remove(key)
     }
 
     internal fun registerSlot(metadata: SlotMetadata) {
@@ -505,17 +594,26 @@ public class ComponentScope public constructor(
             // render does not touch them — a skipped row would silently cancel them.
             markEachCapturesUnsafe()
         }
+        metadata.touchedGeneration = slotGeneration
         slotMetadata[metadata.key] = metadata
     }
 
+    private fun touchSlot(key: String) {
+        slotMetadata[key]?.touchedGeneration = slotGeneration
+    }
+
     private fun removeSlot(key: String) {
-        when (val value = slots[key]) {
+        disposeSlotValue(slots[key])
+        slots.remove(key)
+        slotMetadata.remove(key)
+    }
+
+    private fun disposeSlotValue(value: Any?) {
+        when (value) {
             is ManagedEffectState -> value.cancel()
             is Disposable -> value.dispose()
             is Ref<*> -> value.clear()
         }
-        slots.remove(key)
-        slotMetadata.remove(key)
     }
 
     public fun containsSlot(slotId: SlotId): Boolean =
@@ -561,7 +659,9 @@ public class ComponentScope public constructor(
                 },
             )
         }
-        slotMetadata[key] = SlotMetadata(key, slotId, persistent, transient)
+        slotMetadata[key] = SlotMetadata(key, slotId, persistent, transient).also { metadata ->
+            metadata.touchedGeneration = slotGeneration
+        }
     }
 
     internal fun recordStateWrite() {
@@ -671,7 +771,7 @@ public class ComponentScope public constructor(
         return SkippableCapture(
             node = node,
             dependencies = dependencies.associateWith { dependency -> dependency.version },
-            touchedEventKeys = frame.touchedEventKeys ?: emptyList(),
+            touchedEvents = frame.touchedEvents ?: emptyList(),
             contextReads = frame.contextReads ?: emptyList(),
             slotCursorDelta = slotCursor - slotCursorBefore,
             eventCursorDelta = eventCursor - eventCursorBefore,
@@ -701,7 +801,7 @@ public class ComponentScope public constructor(
         return SkippableCapture(
             node = node,
             dependencies = dependencies.associateWith { dependency -> dependency.version },
-            touchedEventKeys = frame.touchedEventKeys ?: emptyList(),
+            touchedEvents = frame.touchedEvents ?: emptyList(),
             contextReads = frame.contextReads ?: emptyList(),
             slotCursorDelta = slotCursor - slotCursorBefore,
             eventCursorDelta = eventCursor - eventCursorBefore,
@@ -745,19 +845,19 @@ public class ComponentScope public constructor(
         keyedItems.forEach { keyed ->
             val itemKey = keyed.key
             val item = keyed.item
-            val rowKey = itemKey.toString()
-            pushKeyScope(rowKey)
-            try {
-                val rowCertified = if (emitCachedEachRow(callsite, rowKey, item)) {
-                    reused += 1
-                    callsite.rows[rowKey]?.certifiedKeyedHost == true
-                } else {
-                    captureEachRow(callsite, rowKey, item, content)
+            val rowCertified = if (emitCachedEachRow(callsite, itemKey, item)) {
+                reused += 1
+                callsite.rows[itemKey]?.certifiedKeyedHost == true
+            } else {
+                val rowKey = itemKey.toString()
+                pushKeyScope(rowKey)
+                try {
+                    captureEachRow(callsite, itemKey, rowKey, item, content)
+                } finally {
+                    popKeyScope()
                 }
-                allRowsCertified = allRowsCertified && rowCertified
-            } finally {
-                popKeyScope()
             }
+            allRowsCertified = allRowsCertified && rowCertified
         }
         recordKeyedEmission(frame, frameStart, allRowsCertified && keyedItems.isNotEmpty())
         evictRemovedEachRows(callsite)
@@ -785,14 +885,14 @@ public class ComponentScope public constructor(
         }
     }
 
-    private fun emitCachedEachRow(callsite: EachCallsiteCache, rowKey: String, item: Any?): Boolean {
-        val cache = callsite.rows[rowKey] ?: return false
+    private fun emitCachedEachRow(callsite: EachCallsiteCache, itemKey: Any, item: Any?): Boolean {
+        val cache = callsite.rows[itemKey] ?: return false
         if (
             cache.item != item ||
             // A cached node references host-event ids; if any were evicted (the row's last
             // committed render did not touch them, e.g. after an aborted render), the row
             // must rebuild so its handlers re-register.
-            !cache.touchedEventKeys.all(hostEventIds::containsKey) ||
+            !cache.touchedEvents.all { entry -> !entry.dead } ||
             !cache.dependenciesUnchanged() ||
             !contextReadsUnchanged(cache.contextReads)
         ) {
@@ -802,10 +902,10 @@ public class ComponentScope public constructor(
         // sibling rows that DO rebuild derive the same slot/event keys as a full render.
         slotCursor += cache.slotCursorDelta
         eventCursor += cache.eventCursorDelta
-        for (eventKey in cache.touchedEventKeys) {
-            touchedHostEvents += eventKey
+        for (eventEntry in cache.touchedEvents) {
+            touchHostEvent(eventEntry)
             for (capture in eachCaptures) {
-                capture.recordEventKey(eventKey)
+                capture.recordEvent(eventEntry)
             }
         }
         // Keep the row's cells visible to the render-level dependency collector: without
@@ -819,6 +919,7 @@ public class ComponentScope public constructor(
 
     private fun <T> captureEachRow(
         callsite: EachCallsiteCache,
+        itemKey: Any,
         rowKey: String,
         item: T,
         content: ComponentScope.(T) -> Unit,
@@ -845,12 +946,12 @@ public class ComponentScope public constructor(
         dependencies.forEach(ReadTracking::record)
         val certifiedKeyedHost = nodes.size == 1 && (nodes[0] as? HostNode)?.key == rowKey
         if (capture.memoizable) {
-            callsite.rows[rowKey] = EachRowCache(
+            callsite.rows[itemKey] = EachRowCache(
                 item = item,
                 nodes = nodes,
                 dependencies = dependencies.associateWith { dependency -> dependency.version },
                 contextReads = capture.contextReads ?: emptyList(),
-                touchedEventKeys = capture.touchedEventKeys ?: emptyList(),
+                touchedEvents = capture.touchedEvents ?: emptyList(),
                 slotCursorDelta = slotCursor - slotCursorBefore,
                 eventCursorDelta = eventCursor - eventCursorBefore,
                 renderGeneration = callsite.renderGeneration,
@@ -859,7 +960,7 @@ public class ComponentScope public constructor(
         } else {
             // The row may have been cached in an earlier render and only now turned
             // non-memoizable (e.g. a conditional effect); a stale entry must not revive.
-            callsite.rows.remove(rowKey)
+            callsite.rows.remove(itemKey)
         }
         return certifiedKeyedHost
     }
@@ -928,6 +1029,12 @@ public class ComponentScope public constructor(
         }
     }
 
+    private class HostEventEntry(
+        val id: String,
+        var touchedGeneration: Int,
+        var dead: Boolean = false,
+    )
+
     private class EachContextRead(
         val context: Context<*>,
         val value: Any?,
@@ -936,13 +1043,13 @@ public class ComponentScope public constructor(
     private class EachRowCapture {
         // Lazily allocated: most rows read no contexts, and rows without handlers
         // register no events — the create path should not pay for empty lists.
-        var touchedEventKeys: MutableList<String>? = null
+        var touchedEvents: MutableList<HostEventEntry>? = null
         var contextReads: MutableList<EachContextRead>? = null
         var memoizable = true
 
-        fun recordEventKey(key: String) {
-            val keys = touchedEventKeys ?: mutableListOf<String>().also { touchedEventKeys = it }
-            keys += key
+        fun recordEvent(entry: HostEventEntry) {
+            val events = touchedEvents ?: mutableListOf<HostEventEntry>().also { touchedEvents = it }
+            events += entry
         }
 
         fun recordContextRead(read: EachContextRead) {
@@ -956,7 +1063,7 @@ public class ComponentScope public constructor(
         val nodes: List<Node>,
         val dependencies: Map<ObservableCell<*>, Long>,
         val contextReads: List<EachContextRead>,
-        val touchedEventKeys: List<String>,
+        val touchedEvents: List<HostEventEntry>,
         val slotCursorDelta: Int,
         val eventCursorDelta: Int,
         var renderGeneration: Int,
@@ -971,14 +1078,14 @@ public class ComponentScope public constructor(
     }
 
     private class EachCallsiteCache {
-        val rows = HashMap<String, EachRowCache>()
+        val rows = HashMap<Any, EachRowCache>()
         var renderGeneration = 0
     }
 
     private class SkippableCapture(
         val node: Node,
         val dependencies: Map<ObservableCell<*>, Long>,
-        val touchedEventKeys: List<String>,
+        val touchedEvents: List<HostEventEntry>,
         val contextReads: List<EachContextRead>,
         val slotCursorDelta: Int,
         val eventCursorDelta: Int,
@@ -989,7 +1096,7 @@ public class ComponentScope public constructor(
         val inputs: List<Any?>,
         val node: Node,
         val dependencies: Map<ObservableCell<*>, Long>,
-        val touchedEventKeys: List<String>,
+        val touchedEvents: List<HostEventEntry>,
         val contextReads: List<EachContextRead>,
         val slotCursorDelta: Int,
         val eventCursorDelta: Int,
@@ -1033,9 +1140,9 @@ public fun <T> ComponentScope.state(
     key: String? = null,
     initial: () -> T,
 ): MutableCell<T> {
-    val slotKey = nextSlotKey(key)
+    val slotKey = nextSlotKey(key, SlotKind.State)
     registerSlot(SlotMetadata(slotKey, slotId = null, persistent = persistent, transient = transient))
-    val cell = slot(slotKey) {
+    val cell = checkedSlot(slotKey, MutableCellImpl::class) {
         MutableCellImpl(
             initial = initial(),
             policy = policy,
@@ -1065,10 +1172,10 @@ public fun <T> ComponentScope.state(
     transient: Boolean = false,
     initial: () -> T,
 ): MutableCell<T> {
-    val slotKey = nextSlotKey(slotId.stableKey())
+    val slotKey = nextSlotKey(slotId.stableKey(), SlotKind.State)
     migrateRestoredSlot(slotId, slotKey)
     registerSlot(SlotMetadata(slotKey, slotId = slotId, persistent = persistent, transient = transient))
-    val cell = slot(slotKey) {
+    val cell = checkedSlot(slotKey, MutableCellImpl::class) {
         MutableCellImpl(
             initial = initial(),
             policy = policy,
@@ -1100,9 +1207,9 @@ public fun <T> ComponentScope.derived(
     // allocated once and reused across renders, so its lazy cache and version counter
     // survive instead of restarting from zero on every render. The compute closure is
     // refreshed because it may capture render-local inputs from the current invocation.
-    val slotKey = nextSlotKey(null)
+    val slotKey = nextSlotKey(null, SlotKind.Derived)
     registerSlot(SlotMetadata(slotKey, slotId = null, persistent = false, transient = false))
-    val cell = slot(slotKey) {
+    val cell = checkedSlot(slotKey, DerivedCell::class) {
         DerivedCell(policy, compute)
     }
     cell.updateDefinition(policy, compute)

@@ -145,7 +145,7 @@ public operator fun <T> FieldState<T>.setValue(
     set(next)
 }
 
-public fun ComponentScope.formState(key: String = "form"): FormState =
+public fun ComponentScope.formState(key: String = "kinetica.forms/form"): FormState =
     state(key = key) { FormState() }.value
 
 public fun <T> ComponentScope.field(
@@ -155,8 +155,8 @@ public fun <T> ComponentScope.field(
     validator: suspend (T) -> String? = { null },
 ): FieldState<T> {
     val initialValue = initial()
-    val value = state(key = "field:$name") { initialValue }
-    val field = state(key = "fieldState:$name") {
+    val value = state(key = "kinetica.forms/field:$name") { initialValue }
+    val field = state(key = "kinetica.forms/fieldState:$name") {
         FieldState(name, value, initialValue, FieldValidator { value -> validator(value) })
     }.value
     field.updateValidator(FieldValidator { value -> validator(value) })

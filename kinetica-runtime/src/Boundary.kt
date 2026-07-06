@@ -24,22 +24,30 @@ public fun ComponentScope.errorBoundary(
     // Boundary state (captured error, retry) lives outside the tracked cell graph, so a
     // memoized each row containing a boundary could replay a stale fallback after retry().
     markEachCapturesUnsafe()
-    val slotKey = nextSlotKey(null)
+    val pair = nextSlotKeyPair(null, SlotKind.ErrorBoundary)
+    val slotKey = pair.key
     registerSlot(SlotMetadata(slotKey, slotId = null, persistent = false, transient = false))
-    val state = slot(slotKey) { ErrorBoundaryState(boundaryId = "boundary:$slotKey") }
+    val state = checkedSlot(slotKey, ErrorBoundaryState::class) { ErrorBoundaryState(boundaryId = "boundary:$slotKey") }
     val retry = BoundaryRetry {
         state.clear()
         runtime.invalidate("boundary retry")
     }
-    val captured = state.error
-    if (captured != null) {
-        fallback(captured, ErrorInfo(boundaryId = state.boundaryId), retry)
-        return
-    }
-
+    // Content and fallback render in their own key scopes, and the boundary restores the
+    // positional cursors on every exit. The reset before the fresh-catch fallback aligns its
+    // slot identity with the captured-on-a-previous-render path, which starts from the same
+    // mark — without it the fallback's keys would depend on where the content threw.
+    val mark = cursorMark()
     try {
+        val captured = state.error
+        if (captured != null) {
+            withKeyScope("${pair.local}:fallback") {
+                fallback(captured, ErrorInfo(boundaryId = state.boundaryId), retry)
+            }
+            return
+        }
+
         val node = withErrorBoundary(state) {
-            collect(content).toNode()
+            collect { withKeyScope("${pair.local}:content") { content() } }.toNode()
         }
         emit(node)
     } catch (pending: ResourcePendingException) {
@@ -48,7 +56,12 @@ public fun ComponentScope.errorBoundary(
         throw cancelled
     } catch (error: Throwable) {
         state.capture(runtime, error)
-        fallback(error, ErrorInfo(boundaryId = state.boundaryId), retry)
+        resetCursors(mark)
+        withKeyScope("${pair.local}:fallback") {
+            fallback(error, ErrorInfo(boundaryId = state.boundaryId), retry)
+        }
+    } finally {
+        resetCursors(mark)
     }
 }
 
@@ -78,16 +91,20 @@ public fun ComponentScope.loadingBoundary(
     fallback: ComponentScope.() -> Unit,
     content: ComponentScope.() -> Unit,
 ) {
-    val slotKey = nextSlotKey(null)
-    registerSlot(SlotMetadata(slotKey, slotId = null, persistent = false, transient = false))
-    val state = slot(slotKey) { LoadingBoundaryState() }
+    val pair = nextSlotKeyPair(null, SlotKind.LoadingBoundary)
+    registerSlot(SlotMetadata(pair.key, slotId = null, persistent = false, transient = false))
+    val state = checkedSlot(pair.key, LoadingBoundaryState::class) { LoadingBoundaryState() }
     runtime.record(
         JournalKind.RenderStarted,
         "loadingBoundary",
         mapOf("retainPrevious" to retainPrevious.toString()),
     )
+    // Content and fallback render in their own key scopes, and the boundary restores the
+    // positional cursors on every exit: a pending thrown mid-content can no longer shift the
+    // fallback's or any later sibling's slot identity.
+    val mark = cursorMark()
     try {
-        val node = collect(content).toNode()
+        val node = collect { withKeyScope("${pair.local}:content") { content() } }.toNode()
         state.previous = node
         emit(node)
     } catch (pending: ResourcePendingException) {
@@ -100,11 +117,14 @@ public fun ComponentScope.loadingBoundary(
                 "retained" to (state.previous != null).toString(),
             ),
         )
+        resetCursors(mark)
         if (retainPrevious && state.previous != null) {
             emit(state.previous ?: FragmentNode())
         } else {
-            fallback()
+            withKeyScope("${pair.local}:fallback") { fallback() }
         }
+    } finally {
+        resetCursors(mark)
     }
 }
 
@@ -117,9 +137,10 @@ public fun ComponentScope.suspendSubtree(
     fallback: ComponentScope.() -> Unit,
     content: suspend ComponentScope.() -> Unit,
 ) {
-    val slotKey = nextSlotKey(key)
+    val pair = nextSlotKeyPair(key, SlotKind.SuspendSubtree)
+    val slotKey = pair.key
     registerSlot(SlotMetadata(slotKey, slotId = null, persistent = false, transient = true))
-    val state = slot(slotKey) {
+    val state = checkedSlot(slotKey, SuspendSubtreeState::class) {
         SuspendSubtreeState(
             key = slotKey,
             scope = ComponentScope(runtime, instanceId = "$instanceId/suspend:$slotKey"),
@@ -140,7 +161,15 @@ public fun ComponentScope.suspendSubtree(
     if (!state.running) {
         state.start(runtime, content)
     }
-    val fallbackNode = collect(fallback).toNode()
+    // The fallback renders in its own key scope and its cursor consumption is rolled back, so
+    // the pending and ready paths consume the same positions — siblings after this subtree
+    // keep their slot identity when the async content resolves.
+    val mark = cursorMark()
+    val fallbackNode = try {
+        collect { withKeyScope("${pair.local}:fallback") { fallback() } }.toNode()
+    } finally {
+        resetCursors(mark)
+    }
     state.previousFallback = fallbackNode
     emit(fallbackNode)
 }
@@ -217,7 +246,15 @@ public fun ComponentScope.exitGroup(
         state.phase = ExitPhase.Active
         state.pendingCallbacks = 0
         state.callbacks.clear()
-        val nodes = collectExitGroup(state, content)
+        // Content renders in its own key scope and its cursor consumption is rolled back, so
+        // toggling visible -> leaving (which emits the retained node without running content)
+        // cannot shift the slot identity of siblings after the group.
+        val mark = cursorMark()
+        val nodes = try {
+            collectExitGroup(state) { withKeyScope("exit:${state.key}:content") { content() } }
+        } finally {
+            resetCursors(mark)
+        }
         state.retained = nodes.toNode()
         emit(state.retained ?: FragmentNode())
         return
@@ -330,6 +367,7 @@ public fun Node.asLeaving(): Node = when (this) {
     )
     is TextNode -> copy(semantics = semantics.copyLeaving())
     is ClientRef -> copy(semantics = semantics.copyLeaving())
+    is TemplateNode -> materialize().asLeaving()
 }
 
 private fun Semantics?.copyLeaving(): Semantics =
@@ -367,9 +405,9 @@ public class FrameValue internal constructor(
 }
 
 public fun ComponentScope.frameValue(initial: Float): FrameValue =
-    nextSlotKey(null).let { slotKey ->
+    nextSlotKey(null, SlotKind.Frame).let { slotKey ->
         registerSlot(SlotMetadata(slotKey, slotId = null, persistent = false, transient = false))
-        slot(slotKey) { runtime.createFrameValue(initial) }
+        checkedSlot(slotKey, FrameValue::class) { runtime.createFrameValue(initial) }
     }
 
 private fun Float.frameValueEquals(other: Float): Boolean =

@@ -231,9 +231,9 @@ private class StableUnitEvent(
 }
 
 public fun ComponentScope.launchEffect(block: suspend EffectScope.() -> Unit): EffectHandle {
-    val key = nextEffectKey()
+    val key = nextEffectKey(SlotKind.Launch)
     registerSlot(SlotMetadata(key, slotId = null, persistent = false, transient = true))
-    val state = slot(key) { LaunchEffectState(runtime) }
+    val state = checkedSlot(key, LaunchEffectState::class) { LaunchEffectState(runtime) }
     state.configure(block, currentErrorBoundary())
     schedulePostCommitEffect { state.runAfterCommit() }
     return state
@@ -244,9 +244,9 @@ public fun <T> ComponentScope.watch(
     equals: EqualityPolicy<T> = EqualityPolicy.structural(),
     block: suspend EffectScope.(T) -> Unit,
 ): EffectHandle {
-    val key = nextEffectKey()
+    val key = nextEffectKey(SlotKind.Watch)
     registerSlot(SlotMetadata(key, slotId = null, persistent = false, transient = true))
-    val state = slot(key) { WatchEffectState<T>(runtime, key) }
+    val state = checkedSlot(key, WatchEffectState::class) { WatchEffectState<T>(runtime, key) }
     state.configure(source, equals, currentErrorBoundary(), block)
     schedulePostCommitEffect { state.runAfterCommit() }
     return state
@@ -259,15 +259,15 @@ public fun ComponentScope.layoutEffect(block: LayoutScope.() -> Unit) {
 }
 
 public fun <A> ComponentScope.event(block: EventScope.(A) -> Unit): (A) -> Unit {
-    val key = nextEventKey()
-    val stable = slot(key) { StableEvent(runtime, block) }
+    val key = nextEventKey(SlotKind.TypedEvent)
+    val stable = checkedSlot(key, StableEvent::class) { StableEvent(runtime, block) }
     stable.block = block
     return stable.callback
 }
 
 public fun ComponentScope.event(block: EventScope.() -> Unit): () -> Unit {
-    val key = nextEventKey()
-    val stable = slot(key) { StableUnitEvent(runtime, block) }
+    val key = nextEventKey(SlotKind.UnitEvent)
+    val stable = checkedSlot(key, StableUnitEvent::class) { StableUnitEvent(runtime, block) }
     stable.block = block
     return stable.callback
 }

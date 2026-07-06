@@ -16,6 +16,15 @@ count += 1                       // write -> invalidate -> re-render
 go through an `EqualityPolicy` — `structural()` by default — so writing an equal value does not
 re-render.
 
+Without an explicit key, slots are numbered by position within the render **and discriminated
+by construct kind** — a `state`, a `derived`, an `event` and a boundary can never share a slot,
+even when an `if/else` swaps one for another at the same position. Two branches using the *same*
+construct at the same position do still share it; when a branch's state should have its own
+identity, wrap the branch in `keyed { … }` or pass explicit keys. Keys starting with `kinetica.`
+are reserved for the batteries (forms, data). In debug builds the runtime fails loudly if two
+constructs ever land on one slot; in production it disposes the stale slot, recreates it, and
+reports a `slot-class-mismatch` warning.
+
 ```kotlin
 fun <T> ComponentScope.state(
     policy: EqualityPolicy<T> = EqualityPolicy.structural(),

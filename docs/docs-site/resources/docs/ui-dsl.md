@@ -52,9 +52,9 @@ button(
 None`. `Semantics` also carries `stateDescription` (aria-description), `traversalIndex`, and
 `leaving` (exit-animation marker).
 
-`text()` defaults to `Semantics(role = Role.Text, label = value)`, which wraps the text in a
-span carrying aria attributes. Pass `semantics = null` for a bare text node — do this inside
-your own labeled containers to avoid attribute noise.
+`text()` defaults to `Semantics(role = Role.Text)` and renders as a bare text node. The
+semantics tree derives its label from the text value for queries; pass an explicit
+`Semantics(label = ...)` only when the accessible label differs from the visible text.
 
 ## Contexts
 
@@ -80,3 +80,22 @@ everything above and are covered in [Resources & boundaries](/docs/resources):
 errorBoundary(fallback = { error, info, retry -> … }) { RiskyPanel() }
 loadingBoundary(fallback = { text("Loading…") }) { ProfileCard() }
 ```
+
+## Conditional subtrees
+
+Plain `if/else` works — different constructs can never corrupt each other's slots (they are
+kind-discriminated), and boundaries isolate their branches automatically. What positional slots
+do **not** give you is separate identity for the *same* construct across branches: two arms that
+each declare a keyless `state` at the same position share it. When each branch should keep its
+own state, give the branch its own key scope:
+
+```kotlin
+if (editing) {
+    keyed("editor") { NoteEditor(note) }
+} else {
+    keyed("viewer") { NoteViewer(note) }
+}
+```
+
+`keyed` scopes every slot, event and effect inside it, exactly like an `each` row — see
+[State & reactivity](/docs/state) for how slots are addressed.

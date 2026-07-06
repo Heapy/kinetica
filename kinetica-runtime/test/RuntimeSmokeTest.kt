@@ -1144,7 +1144,7 @@ class RuntimeSmokeTest {
 
         val loop = runtime.journal().single { it.kind == JournalKind.WatchLoop }
         assertEquals("watch loop stopped", loop.message)
-        assertEquals("effect-0", loop.attributes["effectKey"])
+        assertEquals("effect-0:watch", loop.attributes["effectKey"])
         assertEquals("4", loop.attributes["restarts"])
         assertEquals("3", loop.attributes["limit"])
         assertEquals("1 -> 2 -> 3", loop.attributes["trace"])
@@ -2753,6 +2753,109 @@ class RuntimeSmokeTest {
     }
 
     @Test
+    fun templateNodesMaterializeForHtmlSemanticsAndDiffs() {
+        val definition = TemplateDefinition(
+            id = "runtime-template",
+            skeleton = HostNode(
+                tag = "span",
+                props = propsOf("class", ""),
+                children = listOf(TextNode("", semantics = Semantics(role = Role.Text))),
+            ),
+            holes = listOf(
+                TemplateHole(path = "", kind = TemplateHoleKinds.Prop, propName = "class"),
+                TemplateHole(path = "0", kind = TemplateHoleKinds.Text),
+            ),
+        )
+        val hello = templateNode(definition, values = listOf("cold", "Hello"), key = "greeting")
+        val world = templateNode(definition, values = listOf("cold", "World"), key = "greeting")
+
+        assertEquals(
+            HostNode(
+                tag = "span",
+                props = propsOf("class", "cold"),
+                children = listOf(TextNode("Hello", semantics = Semantics(role = Role.Text))),
+                key = "greeting",
+            ),
+            hello.materialize(),
+        )
+        assertEquals("""<span class="cold" data-kinetica-key="greeting">Hello</span>""", hello.toSafeHtml())
+        assertEquals("Hello", hello.semanticsTree().byRole(Role.Text).single().semantics.label)
+        assertEquals(
+            listOf(
+                NodeDiff(
+                    path = listOf(0),
+                    kind = NodeDiff.Kind.Replaced,
+                    before = TextNode("Hello", semantics = Semantics(role = Role.Text)),
+                    after = TextNode("World", semantics = Semantics(role = Role.Text)),
+                ),
+            ),
+            diffNodes(hello, world),
+        )
+        assertEquals(
+            listOf(
+                NodeDiff(
+                    path = emptyList(),
+                    kind = NodeDiff.Kind.Replaced,
+                    before = hello,
+                    after = templateNode(definition, values = listOf("warm", "Hello"), key = "greeting"),
+                ),
+            ),
+            diffNodes(hello, templateNode(definition, values = listOf("warm", "Hello"), key = "greeting")),
+        )
+
+        val nestedDefinition = TemplateDefinition(
+            id = "nested-template",
+            skeleton = HostNode(
+                tag = "strong",
+                props = propsOf("data-static", "yes"),
+                children = listOf(TextNode("", semantics = null)),
+            ),
+            holes = listOf(TemplateHole(path = "0", kind = TemplateHoleKinds.Text)),
+        )
+        val complexDefinition = TemplateDefinition(
+            id = "complex-template",
+            skeleton = HostNode(
+                tag = "article",
+                props = propsOf("class", "fallback", "data-action", "stale"),
+                children = listOf(
+                    FragmentNode(children = listOf(TextNode("pending", semantics = null))),
+                    HostNode(
+                        tag = "button",
+                        props = propsOf("data-action", "stale"),
+                        children = listOf(TextNode("Click", semantics = null)),
+                        key = "child",
+                    ),
+                    TemplateNode(nestedDefinition, values = listOf("Nested")),
+                ),
+                key = "skeleton-key",
+            ),
+            holes = listOf(
+                TemplateHole(path = "", kind = TemplateHoleKinds.Prop, propName = "class"),
+                TemplateHole(path = "", kind = TemplateHoleKinds.EventProp, propName = "event:onClick"),
+                TemplateHole(path = "", kind = TemplateHoleKinds.Prop),
+                TemplateHole(path = "0.0", kind = TemplateHoleKinds.Text),
+                TemplateHole(path = "1", kind = TemplateHoleKinds.Prop, propName = "data-action"),
+                TemplateHole(path = "1.0", kind = TemplateHoleKinds.Text),
+            ),
+        )
+        val complex = TemplateNode(
+            definition = complexDefinition,
+            values = listOf(null, "event-7", "ignored", "Body", null),
+        ).materialize()
+        assertEquals("article", complex.tag)
+        assertEquals("skeleton-key", complex.key)
+        assertFalse("class" in complex.props)
+        assertEquals("event-7", complex.props["event:onClick"])
+        assertEquals("Body", assertIs<TextNode>(assertIs<FragmentNode>(complex.children[0]).children.single()).value)
+        val button = assertIs<HostNode>(complex.children[1])
+        assertFalse("data-action" in button.props)
+        assertEquals("", assertIs<TextNode>(button.children.single()).value)
+        val nested = assertIs<HostNode>(complex.children[2])
+        assertEquals("strong", nested.tag)
+        assertEquals("Nested", assertIs<TextNode>(nested.children.single()).value)
+    }
+
+    @Test
     fun safeHtmlEscapesTextAttributesKeysAndClientRefs() {
         val html = HostNode(
             tag = "section",
@@ -3508,7 +3611,7 @@ class RuntimeSmokeTest {
         assertEquals(listOf("First", "Second"), semantics.focusOrder().map { it.semantics.label })
         assertEquals(listOf(0, 1), semantics.byTestTag("first")?.path)
         assertEquals(listOf("Second", "First"), semantics.byRole(Role.Button).map { it.semantics.label })
-        assertEquals(listOf(listOf(0, 1)), semantics.byLabel("First").map { it.path })
+        assertEquals(listOf(listOf(0, 1), listOf(0, 1, 0)), semantics.byLabel("First").map { it.path })
         assertEquals("First", (node.nodeAt(listOf(0, 1, 0)) as TextNode).value)
         assertEquals(null, node.nodeAt(listOf(99)))
         assertEquals(null, node.nodeAt(listOf(0, 0, 0, 0)))
@@ -3518,6 +3621,7 @@ class RuntimeSmokeTest {
         val terminalSemantics = FragmentNode(
             children = listOf(
                 TextNode("Label", semantics = Semantics(role = Role.Text, label = "Label")),
+                TextNode("Derived label", semantics = Semantics(role = Role.Text)),
                 ClientRef(
                     componentId = "client",
                     props = JsonObject(emptyMap()),
@@ -3525,8 +3629,9 @@ class RuntimeSmokeTest {
                 ),
             ),
         ).semanticsTree()
-        assertEquals("Label", terminalSemantics.byRole(Role.Text).single().text)
-        assertEquals(listOf(1), terminalSemantics.byTestTag("island")?.path)
+        assertEquals(listOf("Label", "Derived label"), terminalSemantics.byRole(Role.Text).map { it.text })
+        assertEquals(listOf(listOf(1)), terminalSemantics.byLabel("Derived label").map { it.path })
+        assertEquals(listOf(2), terminalSemantics.byTestTag("island")?.path)
 
         val focus = FocusManager(semantics)
         assertEquals("First", focus.moveNext()?.semantics?.label)
@@ -3668,7 +3773,7 @@ class RuntimeSmokeTest {
         val beforeCommit = render()
         assertEquals(listOf(32f), observed)
         assertFalse(beforeCommit.invalidated)
-        assertEquals("Committed: 0.0", beforeCommit.tree.findText().value)
+        assertEquals("Committed: ${0f}", beforeCommit.tree.findText().value)
         assertEquals(32f, beforeCommit.tree.findHostByTag("box").frameBindings().single().initialValue)
 
         offset.commitTo(committed)
@@ -3676,7 +3781,7 @@ class RuntimeSmokeTest {
         offset.commitTo { value -> callbackCommitted = value }
         assertEquals(32f, callbackCommitted)
         val afterCommit = render()
-        assertEquals("Committed: 32.0", afterCommit.tree.findText().value)
+        assertEquals("Committed: ${32f}", afterCommit.tree.findText().value)
         assertEquals("cell write", afterCommit.journal.last { it.kind == JournalKind.RenderStarted }.attributes["cause"])
 
         subscription.dispose()
@@ -4125,6 +4230,7 @@ private fun Node.findText(): TextNode = when (this) {
     is FragmentNode -> children.firstNotNullOf { it.findTextOrNull() }
     is HostNode -> children.firstNotNullOf { it.findTextOrNull() }
     is ClientRef -> error("No text node")
+    is TemplateNode -> materialize().findText()
 }
 
 private fun Node.findTextOrNull(): TextNode? = when (this) {
@@ -4132,6 +4238,7 @@ private fun Node.findTextOrNull(): TextNode? = when (this) {
     is FragmentNode -> children.firstNotNullOfOrNull { it.findTextOrNull() }
     is HostNode -> children.firstNotNullOfOrNull { it.findTextOrNull() }
     is ClientRef -> null
+    is TemplateNode -> materialize().findTextOrNull()
 }
 
 private fun Node.findHostByTag(tag: String): HostNode = when (this) {
@@ -4139,6 +4246,7 @@ private fun Node.findHostByTag(tag: String): HostNode = when (this) {
     is FragmentNode -> children.firstNotNullOf { it.findHostByTagOrNull(tag) }
     is TextNode -> error("No host node with tag $tag")
     is ClientRef -> error("No host node with tag $tag")
+    is TemplateNode -> materialize().findHostByTag(tag)
 }
 
 private fun Node.findHostByTagOrNull(tag: String): HostNode? = when (this) {
@@ -4146,6 +4254,7 @@ private fun Node.findHostByTagOrNull(tag: String): HostNode? = when (this) {
     is FragmentNode -> children.firstNotNullOfOrNull { it.findHostByTagOrNull(tag) }
     is TextNode -> null
     is ClientRef -> null
+    is TemplateNode -> materialize().findHostByTagOrNull(tag)
 }
 
 private fun Node.findTexts(): List<TextNode> = when (this) {
@@ -4153,6 +4262,7 @@ private fun Node.findTexts(): List<TextNode> = when (this) {
     is FragmentNode -> children.flatMap { it.findTexts() }
     is HostNode -> children.flatMap { it.findTexts() }
     is ClientRef -> emptyList()
+    is TemplateNode -> materialize().findTexts()
 }
 
 private fun Node.findHostsByTag(tag: String): List<HostNode> = when (this) {
@@ -4163,4 +4273,5 @@ private fun Node.findHostsByTag(tag: String): List<HostNode> = when (this) {
     is FragmentNode -> children.flatMap { it.findHostsByTag(tag) }
     is TextNode -> emptyList()
     is ClientRef -> emptyList()
+    is TemplateNode -> materialize().findHostsByTag(tag)
 }

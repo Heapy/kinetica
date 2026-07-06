@@ -55,6 +55,16 @@ jobs:
       - name: Browser-runtime JS tests
         run: node build/tasks/_kinetica-browser_linkJsTest/kinetica-browser_test.mjs
 
+      # The slot-collision bug class is silent on JS (mangled property reads instead of a
+      # ClassCastException), so the runtime and test-kit suites must run on Node too.
+      - name: Runtime & test-kit JS tests
+        run: |
+          set -euo pipefail
+          ./kotlin build -m kinetica-runtime --platform js
+          ./kotlin build -m kinetica-test --platform js
+          node build/tasks/_kinetica-runtime_linkJsTest/kinetica-runtime_test.mjs
+          node build/tasks/_kinetica-test_linkJsTest/kinetica-test_test.mjs
+
       # Fails when a tracked artifact's gzip size grows >10% over bench/size-baseline.json;
       # accept intentional growth by re-running with --update-baseline and committing.
       - name: Bundle size check
