@@ -528,7 +528,7 @@ class RuntimeSmokeTest {
     }
 
     @Test
-    fun skippableNodeReusesEqualInputsUntilStateWrites() {
+    fun skippableNodeReusesEqualInputsAcrossUnrelatedStateWrites() {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
         var renders = 0
@@ -541,16 +541,25 @@ class RuntimeSmokeTest {
             renders += 1
             TextNode("A-$renders")
         }
+        // A write to a cell the factory never read must NOT defeat the skip (the old
+        // global stateWriteVersion guard did; writes to cells the factory DOES read are
+        // covered by skippableNodeRerendersWhenHoistedStoreChanges).
         val cell = scope.state(key = "counter") { 0 }
         cell.value = 1
         val third = scope.skippableNode("app.Header", inputs = listOf("A")) {
             renders += 1
             TextNode("A-$renders")
         }
+        // A changed input still re-runs the factory.
+        val fourth = scope.skippableNode("app.Header", inputs = listOf("B")) {
+            renders += 1
+            TextNode("B-$renders")
+        }
 
         assertSame(first, second)
-        assertEquals("A-1", assertIs<TextNode>(second).value)
-        assertEquals("A-2", assertIs<TextNode>(third).value)
+        assertSame(first, third)
+        assertEquals("A-1", assertIs<TextNode>(third).value)
+        assertEquals("B-2", assertIs<TextNode>(fourth).value)
         assertTrue(runtime.journal().any { entry ->
             entry.kind == JournalKind.Skipped && entry.attributes["componentId"] == "app.Header"
         })

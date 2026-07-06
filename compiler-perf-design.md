@@ -28,9 +28,18 @@ Status: K0–K3 implemented · 2026-07-06 · owner: kinetica-compiler
   narrow leaf-only scope explains the modest delta; the structural effect (reference-equal
   leaves riding the `===` diff path) also isn't isolated by create ops. Bundle 76.9 → 77.4 KB
   gz. Pre-plugin part snapshot: `bench/results/part-kinetica-preplugin-before.json`.
-  **Discovered constraint:** `skippableNode` inside a memoized `each` row calls
-  `markEachCapturesUnsafe()`, disabling row memoization — components inside keyed rows must
-  not be skippable until the runtime reconciles the two caches (tracked for K4/K5 planning).
+  **Discovered constraint (since resolved):** `skippableNode` inside a memoized `each` row
+  called `markEachCapturesUnsafe()`, disabling row memoization; and a second, larger issue —
+  the cache's global `stateWriteVersion` guard invalidated every skippable cache on ANY state
+  write, making skips unreachable in stateful apps (TreeApp never actually skipped in the
+  browser suite). Both fixed on 2026-07-06 by unifying the capture machinery: skippable
+  factories run inside the same capture-frame stack as each rows, the cache captures events/
+  context reads/cursor deltas and replays them on hit (composing with row memoization instead
+  of disabling it), and the global guard is replaced by the row contract — equal inputs +
+  unchanged cell deps + unchanged contexts + live events. Replay-unsafe factories (effects,
+  render-phase writes, nested each) are never cached. Covered by
+  `SkippableEachCompositionTest`; the smoke test's old "any state write re-renders" assertion
+  was updated to the precise contract.
 - **K4/K5** — not started.
 Companion to `perf-rewrite-design.md` (renderer, P0–P3 done, geomean 1.25×): every number in
 that story was measured **without** the plugin. This plan makes the compiler contribute, safely.

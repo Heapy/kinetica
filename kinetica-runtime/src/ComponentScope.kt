@@ -1,6 +1,5 @@
 package io.heapy.kinetica
 
-import kotlinx.atomicfu.atomic
 import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -51,7 +50,6 @@ public class ComponentScope public constructor(
     // was a top allocation source on list-heavy renders.
     private val keyScopeParents = mutableListOf<String>()
     private var keyScopePrefixValue = ""
-    private val stateWriteVersion = atomic(0L)
     private var slotCursor = 0
     private var eventCursor = 0
     private var effectCursor = 0
@@ -129,27 +127,12 @@ public class ComponentScope public constructor(
     ): Node {
         val cacheKey = scopedComponentCacheKey(componentId)
         val cache = skippableNodes[cacheKey]
-        val currentStateWriteVersion = stateWriteVersion.value
-        if (
-            cache != null &&
-            cache.inputs == inputs &&
-            cache.stateWriteVersion == currentStateWriteVersion &&
-            cache.dependenciesUnchanged()
-        ) {
-            // The skipped factory does not re-touch its host events, so an enclosing each
-            // row cannot capture the row's full event set — it must rebuild every render.
-            markEachCapturesUnsafe()
-            cache.recordDependencies()
-            runtime.record(JournalKind.Skipped, "component skipped", mapOf("componentId" to componentId))
+        if (cache != null && skippableHitLocked(cache, inputs)) {
+            emitSkippableHit(cache, componentId)
             return cache.node
         }
         val capture = captureSkippableDependencies(factory)
-        skippableNodes[cacheKey] = SkippableNodeCache(
-            inputs = inputs.toList(),
-            stateWriteVersion = currentStateWriteVersion,
-            node = capture.node,
-            dependencies = capture.dependencies,
-        )
+        storeSkippableCapture(cacheKey, inputs, capture)
         return capture.node
     }
 
@@ -160,27 +143,66 @@ public class ComponentScope public constructor(
     ): Node {
         val cacheKey = scopedComponentCacheKey(componentId)
         val cache = skippableNodes[cacheKey]
-        val currentStateWriteVersion = stateWriteVersion.value
-        if (
-            cache != null &&
-            cache.inputs == inputs &&
-            cache.stateWriteVersion == currentStateWriteVersion &&
-            cache.dependenciesUnchanged()
-        ) {
-            // See skippableNode: a skipped factory hides its host events from row captures.
-            markEachCapturesUnsafe()
-            cache.recordDependencies()
-            runtime.record(JournalKind.Skipped, "component skipped", mapOf("componentId" to componentId))
+        if (cache != null && skippableHitLocked(cache, inputs)) {
+            emitSkippableHit(cache, componentId)
             return cache.node
         }
         val capture = captureSkippableDependencies(factory)
-        skippableNodes[cacheKey] = SkippableNodeCache(
-            inputs = inputs.toList(),
-            stateWriteVersion = currentStateWriteVersion,
-            node = capture.node,
-            dependencies = capture.dependencies,
-        )
+        storeSkippableCapture(cacheKey, inputs, capture)
         return capture.node
+    }
+
+    // Same contract each-row memoization has proven in production: equal inputs + unchanged
+    // cell dependencies + unchanged context values + all captured host events still
+    // registered. (The old global stateWriteVersion guard — "any state write anywhere kills
+    // every skip" — is gone: it made skips unreachable in any stateful app.)
+    private fun skippableHitLocked(cache: SkippableNodeCache, inputs: List<Any?>): Boolean =
+        cache.inputs == inputs &&
+            cache.touchedEventKeys.all(hostEventIds::containsKey) &&
+            cache.dependenciesUnchanged() &&
+            contextReadsUnchanged(cache.contextReads)
+
+    /**
+     * Replays the skipped subtree's liveness into the current render and into any enclosing
+     * capture frames, exactly as a memoized each row does — so a skip COMPOSES with row
+     * memoization instead of disabling it: cursors advance as if the factory ran (sibling
+     * positional slot/event keys stay aligned), host events are re-touched (and reported to
+     * enclosing row captures), and cell/context reads stay visible to outer collectors.
+     */
+    private fun emitSkippableHit(cache: SkippableNodeCache, componentId: String) {
+        slotCursor += cache.slotCursorDelta
+        eventCursor += cache.eventCursorDelta
+        for (eventKey in cache.touchedEventKeys) {
+            touchedHostEvents += eventKey
+            for (capture in eachCaptures) {
+                capture.recordEventKey(eventKey)
+            }
+        }
+        for (read in cache.contextReads) {
+            for (capture in eachCaptures) {
+                capture.recordContextRead(read)
+            }
+        }
+        cache.recordDependencies()
+        runtime.record(JournalKind.Skipped, "component skipped", mapOf("componentId" to componentId))
+    }
+
+    private fun storeSkippableCapture(cacheKey: String, inputs: List<Any?>, capture: SkippableCapture) {
+        if (capture.memoizable) {
+            skippableNodes[cacheKey] = SkippableNodeCache(
+                inputs = inputs.toList(),
+                node = capture.node,
+                dependencies = capture.dependencies,
+                touchedEventKeys = capture.touchedEventKeys,
+                contextReads = capture.contextReads,
+                slotCursorDelta = capture.slotCursorDelta,
+                eventCursorDelta = capture.eventCursorDelta,
+            )
+        } else {
+            // The factory did something replay-unsafe (effect, resource, nested each,
+            // render-phase write, ...); a stale entry from an earlier render must not revive.
+            skippableNodes.remove(cacheKey)
+        }
     }
 
     public fun renderNode(content: ComponentScope.() -> Unit): Node =
@@ -304,6 +326,11 @@ public class ComponentScope public constructor(
             !keepPersistentSlots || slotMetadata[slotKey]?.persistent != true
         }
         removable.forEach(::removeSlot)
+        // Skippable caches scoped under the cleared key reference slots/events that are
+        // going away with the scope — drop them with it.
+        skippableNodes.keys.removeAll { cacheKey ->
+            cacheKey == prefix || cacheKey.startsWith(prefixWithSeparator)
+        }
     }
 
     public fun completeExit(key: Any): Boolean {
@@ -532,10 +559,9 @@ public class ComponentScope public constructor(
     }
 
     internal fun recordStateWrite() {
-        // A cell write while a row is being captured means the row renders with side
-        // effects; replaying its cached nodes would skip the write.
+        // A cell write while a row or skippable component is being captured means it renders
+        // with side effects; replaying its cached nodes would skip the write.
         markEachCapturesUnsafe()
-        stateWriteVersion.incrementAndGet()
     }
 
     private fun keyForSlotId(slotId: SlotId): String? {
@@ -613,32 +639,68 @@ public class ComponentScope public constructor(
             else -> FragmentNode(this)
         }
 
+    // Runs the factory inside a capture frame on the SAME stack each rows use, so the
+    // existing registration hooks (host events, context reads, transient-slot/effect/
+    // render-write unsafe marks) populate it — and simultaneously flow into any enclosing
+    // row frames, keeping the two caches composable.
     private fun captureSkippableDependencies(factory: () -> Node): SkippableCapture {
+        val frame = EachRowCapture()
+        val slotCursorBefore = slotCursor
+        val eventCursorBefore = eventCursor
         val dependencies = linkedSetOf<ObservableCell<*>>()
-        val node = ReadTracking.collect(
-            observer = { cell ->
-                if (cell is ObservableCell<*>) {
-                    dependencies += cell
-                }
-            },
-            block = factory,
-        )
+        eachCaptures += frame
+        val node = try {
+            ReadTracking.collect(
+                observer = { cell ->
+                    if (cell is ObservableCell<*>) {
+                        dependencies += cell
+                    }
+                },
+                block = factory,
+            )
+        } finally {
+            eachCaptures.removeAt(eachCaptures.lastIndex)
+        }
         dependencies.forEach(ReadTracking::record)
-        return SkippableCapture(node, dependencies.associateWith { dependency -> dependency.version })
+        return SkippableCapture(
+            node = node,
+            dependencies = dependencies.associateWith { dependency -> dependency.version },
+            touchedEventKeys = frame.touchedEventKeys ?: emptyList(),
+            contextReads = frame.contextReads ?: emptyList(),
+            slotCursorDelta = slotCursor - slotCursorBefore,
+            eventCursorDelta = eventCursor - eventCursorBefore,
+            memoizable = frame.memoizable,
+        )
     }
 
     private suspend fun captureSkippableDependencies(factory: suspend () -> Node): SkippableCapture {
+        val frame = EachRowCapture()
+        val slotCursorBefore = slotCursor
+        val eventCursorBefore = eventCursor
         val dependencies = linkedSetOf<ObservableCell<*>>()
-        val node = ReadTracking.collectSuspend(
-            observer = { cell ->
-                if (cell is ObservableCell<*>) {
-                    dependencies += cell
-                }
-            },
-            block = factory,
-        )
+        eachCaptures += frame
+        val node = try {
+            ReadTracking.collectSuspend(
+                observer = { cell ->
+                    if (cell is ObservableCell<*>) {
+                        dependencies += cell
+                    }
+                },
+                block = factory,
+            )
+        } finally {
+            eachCaptures.removeAt(eachCaptures.lastIndex)
+        }
         dependencies.forEach(ReadTracking::record)
-        return SkippableCapture(node, dependencies.associateWith { dependency -> dependency.version })
+        return SkippableCapture(
+            node = node,
+            dependencies = dependencies.associateWith { dependency -> dependency.version },
+            touchedEventKeys = frame.touchedEventKeys ?: emptyList(),
+            contextReads = frame.contextReads ?: emptyList(),
+            slotCursorDelta = slotCursor - slotCursorBefore,
+            eventCursorDelta = eventCursor - eventCursorBefore,
+            memoizable = frame.memoizable,
+        )
     }
 
     // --- each row memoization (P2) ---
@@ -872,16 +934,24 @@ public class ComponentScope public constructor(
         var renderGeneration = 0
     }
 
-    private data class SkippableCapture(
+    private class SkippableCapture(
         val node: Node,
         val dependencies: Map<ObservableCell<*>, Long>,
+        val touchedEventKeys: List<String>,
+        val contextReads: List<EachContextRead>,
+        val slotCursorDelta: Int,
+        val eventCursorDelta: Int,
+        val memoizable: Boolean,
     )
 
-    private data class SkippableNodeCache(
+    private class SkippableNodeCache(
         val inputs: List<Any?>,
-        val stateWriteVersion: Long,
         val node: Node,
         val dependencies: Map<ObservableCell<*>, Long>,
+        val touchedEventKeys: List<String>,
+        val contextReads: List<EachContextRead>,
+        val slotCursorDelta: Int,
+        val eventCursorDelta: Int,
     ) {
         fun dependenciesUnchanged(): Boolean =
             dependencies.all { (dependency, version) -> dependency.version == version }
