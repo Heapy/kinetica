@@ -55,6 +55,29 @@ The July 2026 rewrite moved the geometric mean from **15.2× to 1.25×** in six 
 The full root-cause analysis, phase gates and measurement methodology live in
 `perf-rewrite-design.md` at the repository root.
 
+## What the suite measures
+
+Beyond the classic nine operations, the harness tracks the regressions that a single-size,
+single-click table can't see:
+
+- **10k-table partial operations** — select/swap/remove/update against 10,000 rows, where
+  accidental O(n²) bookkeeping surfaces while the 1k numbers still look healthy.
+- **GC accounting** — time spent in V8/Blink collection inside each measured operation, read
+  from the same Chrome traces; separates allocation pressure from DOM work.
+- **Scaling curves** — the same operation at 1k–20k rows fitted as duration ∝ n^exponent, with
+  per-operation thresholds that flag superlinear behaviour.
+- **Sustained updates** — a dbmonster-style animation loop (every 10th row re-labelled per
+  frame) measured as fps, p95 frame time and dropped-frame share, not single-click latency.
+- **Deep tree** — a 1,555-node keyed tree (create, leaf updates, subtree moves, and a no-op
+  re-render that isolates pure reconciliation overhead per framework).
+- **Memory churn and leaks** — heap after replace/create-clear cycles and after repeated
+  mount/unmount cycles through each app's teardown path.
+- **CPU-throttled pass** — the whole suite under 4× CDP throttling as a low-end-device proxy.
+- **JVM microbenchmarks** (`bench-jvm` module) — reactive-core propagation, render-pipeline
+  Node construction and markdown SSR throughput, minutes-fast for per-PR regression checks.
+- **Bundle-size baseline** — CI fails when a tracked artifact's gzip size grows >10% over
+  `bench/size-baseline.json`.
+
 ## Performance model
 
 - An event costs: handler + node-tree build + **diff O(tree) + patch O(changes)** + paint.
@@ -72,7 +95,11 @@ The full root-cause analysis, phase gates and measurement methodology live in
 cd bench
 npm install
 node run-all.mjs                # build everything, bench all frameworks, generate the report
+node run-all.mjs --tree --scaling   # include the deep-tree and scaling suites
 open report/index.html
+
+./kotlin run -m bench-jvm       # JVM microbenchmarks (from the repository root)
+node scripts/size-report.mjs    # bundle sizes vs the committed baseline
 ```
 
 Benchmark on AC power only: below ~10% battery, macOS low-power throttling floors every

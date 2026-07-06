@@ -6,6 +6,12 @@ suite historically used to compare React, Preact, Vue and Svelte — extended wi
 (this repo's Kotlin/JS UI framework, app in `../samples/browser-bench`). Everything runs in one
 environment: one machine, one local static server, one vendored Chromium, one driver.
 
+Beyond the classic 9 operations the suite measures: partial operations on the 10k table,
+GC time inside every operation, scaling curves (complexity-class regression detection),
+sustained-update frame timing (dbmonster-style), a deep-tree suite (UIBench-style), memory
+churn/leak probes, startup script/blocking time, an optional CPU-throttled pass, plus JVM
+microbenchmarks (`../bench-jvm`) and a bundle-size baseline check (`../scripts/size-report.mjs`).
+
 This README is written to be self-sufficient context for an agent asked to add a framework,
 re-run the suite, or modify the harness. Read it fully before changing anything.
 
@@ -26,41 +32,59 @@ node run-all.mjs --frameworks=solid               # bench a newly added framewor
 node run-all.mjs --samples=5 --warmup=1           # quick noisy pass (default 10 + 3)
 node run-all.mjs --skip-build                     # bundles unchanged, skip builds
 node run-all.mjs --report-only                    # only re-merge parts + regenerate the page
-node driver/bench.mjs --frameworks=react --bench=04 --samples=3   # one op, for debugging
+node run-all.mjs --tree                           # also run the deep-tree suite
+node run-all.mjs --scaling                        # also run scaling curves
+node run-all.mjs --throttle=4                     # 4x CPU-throttled pass → results/throttled/
+node run-all.mjs --skip-main --tree               # only the tree suite, keep main parts
+node driver/bench.mjs --frameworks=react --bench=04 --samples=3    # one op, for debugging
+node driver/bench.mjs --frameworks=react --bench=anim              # only the animation bench
+node driver/tree.mjs --frameworks=kinetica --samples=3             # tree suite directly
+node driver/scaling.mjs --frameworks=kinetica --sizes=1000,5000,20000 --strict
 ```
 
-A full default run takes ~20–30 minutes. Frameworks are benchmarked **sequentially, never in
-parallel** — parallel Chromiums contend for CPU and corrupt the timings. Don't run anything
-CPU-heavy on the machine during a run, and don't run two `run-all`/`bench.mjs` at once.
+A full default run takes ~20–30 minutes (more with `--tree`/`--scaling`). Frameworks are
+benchmarked **sequentially, never in parallel** — parallel Chromiums contend for CPU and corrupt
+the timings. Don't run anything CPU-heavy on the machine during a run, and don't run two
+`run-all`/driver invocations at once.
 
 ## Directory map
 
 ```
 frameworks.config.mjs   ← REGISTRY: every benchmarked framework (order = chart color slot)
-run-all.mjs             ← orchestrator: builds → sequential benches → merge → report
+run-all.mjs             ← orchestrator: builds → sequential benches → merges → report
 build.mjs               ← esbuild bundling for the JS frameworks (has its own `targets` list)
 build-kinetica.mjs      ← Kotlin/JS link + esbuild production bundle for Kinetica
-frameworks/<name>/      ← one app implementation per JS framework
-frameworks/shared/      ← data.mjs (label generator), styles.css (shared page CSS)
-driver/bench.mjs        ← the measuring driver (Playwright + Chrome tracing)
+frameworks/<name>/      ← table app (main.*) and tree app (tree.* / Tree*.svelte) per framework
+frameworks/shared/      ← data.mjs + tree-data.mjs (generators), styles.css (shared page CSS)
+driver/common.mjs       ← shared machinery: args, Playwright, trace parsing (incl. GC), stats
+driver/bench.mjs        ← main driver: 13 ops + startup + memory churn + animation
+driver/tree.mjs         ← deep-tree driver (create/update/reverse/no-op on 1,555 nodes)
+driver/scaling.mjs      ← scaling curves: ops at 1k–20k rows, log-log slope fit
 driver/server.mjs       ← static file server rooted at the REPO ROOT (port 4573)
-driver/merge.mjs        ← merges results/part-*.json → results/results.json
-results/part-<name>.json      ← canonical per-framework results (kept between runs)
-results/part-*-before.json    ← historical snapshots; excluded from merges; feed the
-                                report's before/after section
-report/generate.mjs     ← results.json → report/index.html (self-contained page)
+driver/merge.mjs        ← merges part files → merged results JSON (generic per-section)
+results/part-<name>.json       ← canonical per-framework results (kept between runs)
+results/part-*-before.json     ← historical snapshots; excluded from merges; feed the
+                                 report's before/after section
+results/tree/ scaling/ throttled/  ← per-framework parts for the optional suites, merged to
+                                     results/tree.json, scaling.json, throttled.json
+results/jvm/results.json       ← output of ../bench-jvm (JVM microbenchmarks)
+report/generate.mjs     ← results JSONs → report/index.html (self-contained page)
+../bench-jvm/           ← JVM microbenchmarks: reactive core, render pipeline, markdown SSR
+../scripts/size-report.mjs     ← bundle sizes vs ../bench/size-baseline.json (CI-enforced)
 ```
 
-The Kinetica app lives outside this directory: `../samples/browser-bench/` (module
-`browser-bench`, built through `build-kinetica.mjs`, page at
-`../samples/browser-bench/web/index.html`). The script first runs `../kotlin build -m
-browser-bench`, then bundles/minifies the linked Kotlin/JS graph into
-`../build/tasks/_browser-bench_bundle/browser-bench.bundle.mjs`. Renderer performance work is
-planned in `../perf-rewrite-design.md`.
+The Kinetica apps live outside this directory: `../samples/browser-bench/` (module
+`browser-bench`, built through `build-kinetica.mjs`: first `../kotlin build -m browser-bench`,
+then esbuild bundles/minifies the linked Kotlin/JS graph into
+`../build/tasks/_browser-bench_bundle/browser-bench.bundle.mjs`). Table app at
+`../samples/browser-bench/web/index.html`, tree app at the same page with `?app=tree`.
+Renderer performance work is planned in `../perf-rewrite-design.md`.
 
 ## What is measured
 
-Nine operations on a keyed table (medians over N samples, after warmup):
+### Main suite (driver/bench.mjs)
+
+Thirteen operations on a keyed table (medians over N samples, after warmup):
 
 | id | operation | measured click | asserted end state |
 |---|---|---|---|
@@ -73,17 +97,82 @@ Nine operations on a keyed table (medians over N samples, after warmup):
 | 07_create10k | create 10,000 rows | `runlots` | 10000 rows |
 | 08_append1k | append 1,000 to 1,000 | `add` | 2000 rows |
 | 09_clear1k | clear 1,000 rows | `clear` | 0 rows |
+| 10_select10k | select a row in 10k | row label link | `danger` on that row |
+| 11_swap10k | swap rows 2/999 in 10k | `swaprows` | ids exchanged |
+| 12_remove10k | remove row 5 from 10k | row remove link | 9999 rows |
+| 13_update10th10k | update every 10th of 10k | `update` | first label ends with `" !!!"` |
 
-State is reset between samples so every measured click does identical work.
+Ops 10–13 do the same DOM work as their 1k counterparts but with 10× the framework
+bookkeeping — accidental O(n²) reconciliation shows there first. State is reset between
+samples so every measured click does identical work.
 
 **Timing methodology** (krausest-style): the driver clicks with a trusted Playwright event while
 a Chrome trace (`devtools.timeline`) records; duration = first click `EventDispatch` start →
 end of the last `Paint`/`Commit` event. Not wall-clock around the click — it includes async
-flushes, layout and paint. Headless "Chrome for Testing", no CPU throttling.
+flushes, layout and paint. Headless "Chrome for Testing", no CPU throttling by default.
+**GC time** per sample is the summed duration of `MinorGC`/`MajorGC`/`V8.GC*`/`BlinkGC.*`
+events inside the same measured window (`gcMedianMs`/`gcMaxMs`/`gcMeanCount` per op).
 
-Also collected per framework: **startup** (navigation → toolbar rendered, 5 cold loads; JS bytes
-raw/gzip from actual loaded resources), **memory** (JSHeapUsedSize after forced GC, after load
-and after creating 1k rows).
+Also collected per framework:
+
+- **startup** — navigation → toolbar rendered, 5 untraced cold loads (comparable with historical
+  parts); JS bytes raw/gzip from actual loaded resources; plus 2 *traced* cold loads yielding
+  `scriptMs` (merged compile+evaluate intervals) and `tbtMs` (long-task time >50ms, approximate).
+- **memory** — JSHeapUsedSize after forced GC at six checkpoints: after load, after 1k rows,
+  after 5× replace, after 10× create+clear cycles, after `window.__unmount()`, and after five
+  `__mount()`/`__unmount()` cycles. The last two are the leak probe: growth between the first
+  unmount and the fifth means the app retains memory per mount cycle.
+- **animation** (sustained updates, dbmonster-style) — the driver clicks the app's `animate`
+  toggle; the app re-labels every 10th row on every `requestAnimationFrame` until toggled off.
+  An injected rAF collector records real frame deltas for `--anim-seconds` (default 6, first
+  500ms discarded); reported as fps, median/p95 frame time and % of frames >25ms.
+
+`--throttle=N` applies CDP `Emulation.setCPUThrottlingRate` to the op and animation contexts
+(startup/memory stay unthrottled). Via run-all, throttled parts land in `results/throttled/`
+and render as a separate report section — never mixed with unthrottled numbers.
+
+### Deep-tree suite (driver/tree.mjs, run-all --tree)
+
+A keyed tree of depth 4 / fanout 6 → 1,555 nodes, 1,296 leaves (contract in
+`frameworks/shared/tree-data.mjs`, Kotlin mirror in the browser-bench module):
+
+| id | operation | asserted end state |
+|---|---|---|
+| t1_createTree | build a fresh tree | 1555 `.tree-node`, first `data-id` changed |
+| t2_updateLeaves | re-label every 10th leaf (preorder) with `" !<tick>"` | status == tick, first leaf suffixed |
+| t3_reverseTop | reverse the root's six subtrees (big keyed moves) | first subtree root id changed |
+| t4_noopRender | bump only the status counter; tree data unchanged | status == tick |
+
+`t4_noopRender` isolates pure re-render/reconciliation overhead: vdom frameworks re-render all
+1,555 components, fine-grained frameworks should approach zero tree work. Tree apps must not use
+user-land memoization (no `React.memo` etc.) — framework-internal reuse is the thing measured.
+
+### Scaling curves (driver/scaling.mjs, run-all --scaling)
+
+Select / swap / update measured at 1k, 2k, 5k, 10k, 20k rows (sizes reached through the
+standard buttons: `run`/`runlots` + repeated `add`; sizes must be multiples of 1,000), then
+fitted as duration ∝ n^exponent (log-log least squares). Select/swap should be near-flat
+(threshold 0.6), update near-linear (threshold 1.3); exceeding the threshold flags the op
+`superlinear` in the JSON and ⚠ in the report. `--strict` exits 1 on any superlinear op.
+Update rebuilds the table between samples (labels mutate cumulatively); select/swap don't.
+
+### JVM microbenchmarks (../bench-jvm)
+
+`../kotlin run -m bench-jvm` (flags after `--`: `--warmup`, `--samples`, `--filter`, `--out`).
+Measures what the browser suite can't isolate, in minutes instead of half an hour:
+reactive-core propagation (10k-wide derived fan, 1k-deep chain, diamond, cached-read staleness
+walk), render-pipeline Node construction (create/update a 1k-row table tree without DOM), and
+markdown SSR throughput over the real docs pages. Hand-rolled harness (nanoTime, warmup,
+medians, volatile blackhole) — coarser than JMH; treat cross-machine numbers as incomparable.
+Output: `results/jvm/results.json`. CI runs it as a smoke test only.
+
+### Bundle sizes (../scripts/size-report.mjs)
+
+`node scripts/size-report.mjs` from the repo root reports gzip/raw sizes of Kinetica's linked
+JS output and the bench bundles, compares against `bench/size-baseline.json`, and fails (exit 1)
+on >10% gzip growth. CI enforces it; intentional growth is accepted with `--update-baseline`
+committed in the same PR. `--measure-build` additionally times a clean and an incremental
+`browser-bench` build.
 
 ## The app contract (fairness rules — follow exactly)
 
@@ -91,8 +180,8 @@ Every implementation must produce the same page so the DOM work being measured i
 
 1. Render into `<div id="main">` from the page-shell template `build.mjs` generates (it includes
    the `window.__mountMs` snippet the driver needs — don't hand-write pages for JS frameworks).
-2. Toolbar of six `<button>`s addressable as `run`, `runlots`, `add`, `update`, `clear`,
-   `swaprows` — via `id` or `data-testid` (declare which in the config entry).
+2. Toolbar of seven `<button>`s addressable as `run`, `runlots`, `add`, `update`, `clear`,
+   `swaprows`, `animate` — via `id` or `data-testid` (declare which in the config entry).
 3. `<table class="test-data"><tbody>` with one `<tr data-id="<id>">` per row and exactly four
    cells: `td.col-id` (id text) · `td.col-label` containing the clickable **select** control with
    the label text · `td.col-remove` containing the clickable **remove** control wrapping
@@ -107,26 +196,46 @@ Every implementation must produce the same page so the DOM work being measured i
 8. Operations do what the table above says; swap guards `length > 998`; update mutates every
    10th label by appending `" !!!"`. No custom shortcuts (no manual DOM writes from app code in a
    framework implementation — that's what the `vanilla` baseline is for).
-9. Production build, minified, no dev-mode flags. Same shared CSS; no extra hover styles (hover
-   repaints would pollute the paint-based timing).
+9. **animate** toggles a `requestAnimationFrame` loop: each frame, every 10th row's label becomes
+   `label.split(" !")[0] + " !" + tick` (`tick` increments per frame — constant work per frame,
+   labels don't grow). The mutation must go through normal framework state → render flow
+   (vanilla writes text nodes directly, as its baseline role allows). Toggling off cancels the loop.
+10. **`window.__mount()` / `window.__unmount()`** hooks: `__unmount` fully unmounts the app
+    through the framework's teardown path (leaving `#main` empty), `__mount` mounts a fresh
+    instance. Used (unmeasured) by the memory leak probe.
+11. Production build, minified, no dev-mode flags. Same shared CSS; no extra hover styles (hover
+    repaints would pollute the paint-based timing).
+
+### Tree app contract (for `treeUrl`)
+
+Toolbar buttons `run`, `update`, `reverse`, `noop` plus a status element (`#status` or
+`data-testid="status"`) showing the tick counter. Tree data from
+`frameworks/shared/tree-data.mjs` (depth 4, fanout 6, preorder ids, labels `"node <id>"`).
+DOM: nested `<div class="tree-node" data-id data-depth>`; leaves contain
+`<span class="tree-leaf">`, branches `<span class="tree-label">` + children. Children keyed by
+node id. `update` and `noop` both increment the shared tick; `update` re-labels every 10th leaf
+(preorder) to `label.split(" !")[0] + " !" + tick`; `reverse` reverses the root's children;
+`noop` changes only the status text. No user-land memoization on tree nodes.
 
 ## Adding a new framework (checklist)
 
 Example: adding Solid.
 
 1. `npm install solid-js` (in `bench/`).
-2. Create `frameworks/solid/main.jsx` implementing the app contract. Crib from
-   `frameworks/preact/main.jsx` (hooks style) or `frameworks/svelte/App.svelte` (compiled style).
-3. Register the build in `build.mjs` `targets` (entry point, title; add a plugin/jsx config only
-   if the framework needs one — see the svelte entry).
+2. Create `frameworks/solid/main.jsx` implementing the app contract (incl. animate + hooks).
+   Crib from `frameworks/preact/main.jsx` (hooks style) or `frameworks/svelte/App.svelte`
+   (compiled style). Optionally add `frameworks/solid/tree.jsx` for the tree suite.
+3. Register the build(s) in `build.mjs` `targets` (entry point, title; add a plugin/jsx config
+   only if the framework needs one — see the svelte entries).
 4. **Append** an entry to `frameworks.config.mjs` (never reorder existing entries — list position
    is the chart color slot, and colors must stay stable per framework):
    ```js
    { name: "solid", label: "Solid", url: "/bench/dist/solid/index.html",
+     treeUrl: "/bench/dist/solid-tree/index.html",
      buttons: "id", rowControl: "a", version: { package: "solid-js" } }
    ```
-5. Smoke it: `node run-all.mjs --frameworks=solid --samples=2 --warmup=0` — checks build,
-   selectors and all nine assertions end-to-end.
+5. Smoke it: `node run-all.mjs --frameworks=solid --samples=2 --warmup=0 --tree` — checks build,
+   selectors and all assertions end-to-end.
 6. Real numbers: `node run-all.mjs --frameworks=solid` (other frameworks' existing parts are
    reused in the merged report; re-run everything only when the environment changed).
 7. Sanity-check `report/index.html`: the new column appears, values are plausible (a keyed
@@ -139,9 +248,10 @@ the repo root, include the `__mountMs` snippet in its HTML (copy from
 
 ## Environment assumptions (things that break silently)
 
-- **Vendored browser**: `driver/bench.mjs` imports Playwright from `../.tools/playwright/` and
+- **Vendored browser**: `driver/common.mjs` imports Playwright from `../.tools/playwright/` and
   launches `../.playwright-browsers/chromium-1228/chrome-mac-arm64/...` — macOS-arm64 paths. On
-  another machine, adjust both constants at the top of `driver/bench.mjs`.
+  another machine, adjust both constants there (or set `PLAYWRIGHT_IMPORT` /
+  `PLAYWRIGHT_CHROMIUM_EXECUTABLE`).
 - **Port 4573** (`BENCH_PORT` to override); the static server serves the whole repo root.
 - Numbers are only comparable **within one machine + one Chromium**. After changing either,
   re-run ALL frameworks, and treat `results/part-*-before.json` snapshots as stale history.
@@ -149,25 +259,30 @@ the repo root, include the `__mountMs` snippet in its HTML (copy from
   Toolchain linked JS output. If you bypass `build-kinetica.mjs` and load
   `_browser-bench_linkJs/browser-bench.mjs` directly, startup will regress to the unminified
   multi-file preview output.
-- `results.json`/`report/index.html` are generated; edit `report/generate.mjs`, not the page.
+- `results*.json`/`report/index.html` are generated; edit `report/generate.mjs`, not the page.
+- Old part files (9 ops, no churn/animation fields) merge cleanly: the report renders missing
+  cells as "—". A framework's part gets the new metrics on its next re-bench.
 
 ## Interpreting results
 
 - The page's headline is **geometric-mean slowdown** vs the per-operation fastest framework;
-  the table shades cells by that factor. Medians everywhere; hover cells/bars for distributions.
-- Reference points from the 2026-07-06 full run (M4 Max, Chromium 149): vanilla 1.02×,
-  Svelte 1.05×, Preact/Vue 1.09×, **Kinetica 1.25×**, React 1.29× — Kinetica is ahead of React
-  after the P0–P2 renderer rewrite, allocation hygiene, browser fast-paths and benchmark
+  the table shades cells by that factor. Medians everywhere; hover cells/bars for distributions
+  (op cells include GC time in the hover).
+- Reference points from the 2026-07-06 full run (M4 Max, Chromium 149, 9-op suite): vanilla
+  1.02×, Svelte 1.05×, Preact/Vue 1.09×, **Kinetica 1.25×**, React 1.29× — Kinetica is ahead of
+  React after the P0–P2 renderer rewrite, allocation hygiene, browser fast-paths and benchmark
   bundling (15.2× before the rewrite; the pre-rewrite snapshot is kept in
-  `part-kinetica-before.json` and shown as before/after on the page).
+  `part-kinetica-before.json` and shown as before/after on the page). The geomean changes
+  meaning as ops 10–13 join the suite — re-run all frameworks before comparing.
 - Kinetica context: partial ops sit at the paint floor via keyed row memoization; the remaining
-  gap is create-op Node construction and the benchmark's Kotlin runtime payload. History, phase
-  gates and root-cause analysis: `../perf-rewrite-design.md`. When touching Kinetica code, run
-  its own tests too (`../kotlin test -m kinetica-runtime --platform jvm`,
+  gap is create-op Node construction + GC pressure (see the GC section of the report) and the
+  benchmark's Kotlin runtime payload. History, phase gates and root-cause analysis:
+  `../perf-rewrite-design.md`. When touching Kinetica code, run its own tests too
+  (`../kotlin test -m kinetica-runtime --platform jvm`,
   `node ../build/tasks/_kinetica-browser_linkJsTest/kinetica-browser_test.mjs` after
   `../kotlin build -m kinetica-browser`).
 - **Bench on AC power only.** Below ~10% battery, macOS low-power throttling delays every
   headless-Chrome paint to ~2 vsyncs (~30 ms) — for every framework — and every partial op
   reads as ~30 ms with suspiciously tight stddev. Verify the environment with a quick canary
   (`node driver/bench.mjs --frameworks=react --bench=04 --samples=3`; healthy ≈ 7 ms) before
-  trusting a run.
+  trusting a run. The same applies to the animation bench (healthy vanilla ≈ display refresh).

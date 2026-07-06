@@ -43,7 +43,8 @@ See [`docs/README.md`](docs/README.md).
 | `kinetica-compiler` | K2 compiler plugin (`@UiComponent`, slot ids, server/client boundary) |
 | `samples/` | browser apps, server-components demo, annotated (compiler-plugin) sample |
 | `docs/` | the documentation site + Docker packaging |
-| `bench/` | js-framework-benchmark harness vs React/Preact/Vue/Svelte/vanilla ([guide](bench/README.md)) |
+| `bench/` | js-framework-benchmark harness vs React/Preact/Vue/Svelte/vanilla — 13 keyed-table ops, GC accounting, scaling curves, sustained updates, deep-tree suite, memory/leak probes ([guide](bench/README.md)) |
+| `bench-jvm/` | JVM microbenchmarks: reactive core, render pipeline, markdown SSR (`./kotlin run -m bench-jvm`) |
 | `deep-research-report.md` | the design specification |
 | `perf-rewrite-design.md` | renderer performance analysis & rewrite plan (P0–P3 benchmark packaging done — geomean 1.25×, ahead of React in the latest full run) |
 

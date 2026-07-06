@@ -1,4 +1,5 @@
 <script>
+  import { onDestroy } from "svelte";
   import { buildData } from "../shared/data.mjs";
 
   let rows = $state.raw([]);
@@ -25,6 +26,28 @@
   }
   function select(id) { selected = id; }
   function remove(id) { rows = rows.filter((item) => item.id !== id); }
+
+  let animating = false;
+  let raf = 0;
+  let animTick = 0;
+  function animateStep() {
+    const next = rows.slice();
+    animTick++;
+    for (let i = 0; i < next.length; i += 10) {
+      next[i] = { ...next[i], label: next[i].label.split(" !")[0] + " !" + animTick };
+    }
+    rows = next;
+    raf = requestAnimationFrame(animateStep);
+  }
+  function animate() {
+    animating = !animating;
+    if (animating) {
+      raf = requestAnimationFrame(animateStep);
+    } else {
+      cancelAnimationFrame(raf);
+    }
+  }
+  onDestroy(() => cancelAnimationFrame(raf));
 </script>
 
 <div>
@@ -37,6 +60,7 @@
       <button id="update" onclick={update}>Update every 10th row</button>
       <button id="clear" onclick={clear}>Clear</button>
       <button id="swaprows" onclick={swapRows}>Swap Rows</button>
+      <button id="animate" onclick={animate}>Animate</button>
     </div>
   </div>
   <table class="test-data">

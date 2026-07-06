@@ -1,0 +1,18 @@
+{
+  "maxGrowthPct": 10,
+  "entries": {
+    "kinetica/browser-bench-js": 264609,
+    "kinetica/docs-client-js": 260815,
+    "bench/vanilla": 1251,
+    "bench/react": 61726,
+    "bench/preact": 8825,
+    "bench/vue": 66794,
+    "bench/svelte": 21258,
+    "bench/vanilla-tree": 773,
+    "bench/react-tree": 61070,
+    "bench/preact-tree": 6035,
+    "bench/vue-tree": 66305,
+    "bench/svelte-tree": 20652,
+    "kinetica/browser-bench-bundle": 78717
+  }
+}

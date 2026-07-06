@@ -1,4 +1,4 @@
-import { createApp, ref, shallowRef, triggerRef } from "vue/dist/vue.esm-bundler.js";
+import { createApp, onUnmounted, ref, shallowRef, triggerRef } from "vue/dist/vue.esm-bundler.js";
 import { buildData } from "../shared/data.mjs";
 
 const App = {
@@ -13,6 +13,7 @@ const App = {
           <button id="update" @click="update">Update every 10th row</button>
           <button id="clear" @click="clear">Clear</button>
           <button id="swaprows" @click="swapRows">Swap Rows</button>
+          <button id="animate" @click="animate">Animate</button>
         </div>
       </div>
       <table class="test-data">
@@ -54,8 +55,40 @@ const App = {
     function select(id) { selected.value = id; }
     function remove(id) { rows.value = rows.value.filter((item) => item.id !== id); }
 
-    return { rows, selected, run, runLots, add, update, clear, swapRows, select, remove };
+    let animating = false;
+    let raf = 0;
+    let animTick = 0;
+    function animateStep() {
+      const list = rows.value;
+      animTick++;
+      for (let i = 0; i < list.length; i += 10) {
+        list[i] = { ...list[i], label: list[i].label.split(" !")[0] + " !" + animTick };
+      }
+      triggerRef(rows);
+      raf = requestAnimationFrame(animateStep);
+    }
+    function animate() {
+      animating = !animating;
+      if (animating) {
+        raf = requestAnimationFrame(animateStep);
+      } else {
+        cancelAnimationFrame(raf);
+      }
+    }
+    onUnmounted(() => cancelAnimationFrame(raf));
+
+    return { rows, selected, run, runLots, add, update, clear, swapRows, select, remove, animate };
   },
 };
 
-createApp(App).mount("#main");
+let app = null;
+function mountApp() {
+  app = createApp(App);
+  app.mount("#main");
+}
+mountApp();
+window.__mount = mountApp;
+window.__unmount = () => {
+  if (app) app.unmount();
+  app = null;
+};

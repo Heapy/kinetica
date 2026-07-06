@@ -1,7 +1,9 @@
 import { render } from "preact";
 import { memo } from "preact/compat";
-import { useCallback, useState } from "preact/hooks";
+import { useCallback, useEffect, useState } from "preact/hooks";
 import { buildData } from "../shared/data.mjs";
+
+let animTick = 0;
 
 const Row = memo(function Row({ item, selected, onSelect, onRemove }) {
   return (
@@ -51,6 +53,25 @@ function App() {
   const remove = useCallback((id) => {
     setRows((r) => r.filter((item) => item.id !== id));
   }, []);
+  const [animating, setAnimating] = useState(false);
+  const animate = useCallback(() => setAnimating((a) => !a), []);
+  useEffect(() => {
+    if (!animating) return;
+    let raf = 0;
+    const step = () => {
+      animTick++;
+      setRows((r) => {
+        const next = r.slice();
+        for (let i = 0; i < next.length; i += 10) {
+          next[i] = { ...next[i], label: next[i].label.split(" !")[0] + " !" + animTick };
+        }
+        return next;
+      });
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [animating]);
 
   return (
     <div>
@@ -63,6 +84,7 @@ function App() {
           <button id="update" onClick={update}>Update every 10th row</button>
           <button id="clear" onClick={clear}>Clear</button>
           <button id="swaprows" onClick={swapRows}>Swap Rows</button>
+          <button id="animate" onClick={animate}>Animate</button>
         </div>
       </div>
       <table className="test-data">
@@ -82,4 +104,11 @@ function App() {
   );
 }
 
-render(<App />, document.getElementById("main"));
+function mountApp() {
+  render(<App />, document.getElementById("main"));
+}
+mountApp();
+window.__mount = mountApp;
+window.__unmount = () => {
+  render(null, document.getElementById("main"));
+};

@@ -1,0 +1,10 @@
+product: jvm/app
+
+apply:
+  - ../common.module-template.yaml
+
+dependencies:
+  - ../kinetica-runtime
+  - ../kinetica-markdown
+
+description: "JVM microbenchmarks: reactive-core propagation, render-pipeline Node construction, and markdown SSR throughput. Writes bench/results/jvm/results.json."

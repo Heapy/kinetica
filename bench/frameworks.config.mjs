@@ -11,12 +11,15 @@
 // - `version`: literal string, or { package: "<npm-name>" } resolved from bench/node_modules.
 // - `build`: optional extra build step run from the repo root (JS bundles are always built
 //   via `node build.mjs`, which reads TARGETS in build.mjs).
+// - `treeUrl`: the framework's deep-tree benchmark app (driver/tree.mjs); omit to skip
+//   that framework in the tree bench.
 
 export const frameworks = [
   {
     name: "kinetica",
     label: "Kinetica",
     url: "/samples/browser-bench/web/index.html",
+    treeUrl: "/samples/browser-bench/web/index.html?app=tree",
     buttons: "testid",
     rowControl: "button",
     version: "dev",
@@ -26,6 +29,7 @@ export const frameworks = [
     name: "react",
     label: "React",
     url: "/bench/dist/react/index.html",
+    treeUrl: "/bench/dist/react-tree/index.html",
     buttons: "id",
     rowControl: "a",
     version: { package: "react" },
@@ -34,6 +38,7 @@ export const frameworks = [
     name: "preact",
     label: "Preact",
     url: "/bench/dist/preact/index.html",
+    treeUrl: "/bench/dist/preact-tree/index.html",
     buttons: "id",
     rowControl: "a",
     version: { package: "preact" },
@@ -42,6 +47,7 @@ export const frameworks = [
     name: "vue",
     label: "Vue",
     url: "/bench/dist/vue/index.html",
+    treeUrl: "/bench/dist/vue-tree/index.html",
     buttons: "id",
     rowControl: "a",
     version: { package: "vue" },
@@ -50,6 +56,7 @@ export const frameworks = [
     name: "svelte",
     label: "Svelte",
     url: "/bench/dist/svelte/index.html",
+    treeUrl: "/bench/dist/svelte-tree/index.html",
     buttons: "id",
     rowControl: "a",
     version: { package: "svelte" },
@@ -58,6 +65,7 @@ export const frameworks = [
     name: "vanilla",
     label: "Vanilla JS",
     url: "/bench/dist/vanilla/index.html",
+    treeUrl: "/bench/dist/vanilla-tree/index.html",
     buttons: "id",
     rowControl: "a",
     version: "n/a",

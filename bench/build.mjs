@@ -48,6 +48,11 @@ const targets = [
   { name: "preact", title: "Preact keyed benchmark", entry: "frameworks/preact/main.jsx" },
   { name: "vue", title: "Vue keyed benchmark", entry: "frameworks/vue/main.mjs" },
   { name: "svelte", title: "Svelte keyed benchmark", entry: "frameworks/svelte/main.mjs" },
+  { name: "vanilla-tree", title: "Vanilla JS tree benchmark", entry: "frameworks/vanilla/tree.mjs" },
+  { name: "react-tree", title: "React tree benchmark", entry: "frameworks/react/tree.jsx", jsxImportSource: "react" },
+  { name: "preact-tree", title: "Preact tree benchmark", entry: "frameworks/preact/tree.jsx", jsxImportSource: "preact" },
+  { name: "vue-tree", title: "Vue tree benchmark", entry: "frameworks/vue/tree.mjs" },
+  { name: "svelte-tree", title: "Svelte tree benchmark", entry: "frameworks/svelte/tree-main.mjs", svelte: true },
 ];
 
 for (const target of targets) {
@@ -66,8 +71,10 @@ for (const target of targets) {
       "__VUE_PROD_HYDRATION_MISMATCH_DETAILS__": "false",
     },
     jsx: "automatic",
-    jsxImportSource: target.name === "preact" ? "preact" : "react",
-    plugins: target.name === "svelte" ? [sveltePlugin({ compilerOptions: { css: "injected" } })] : [],
+    jsxImportSource: target.jsxImportSource ?? (target.name === "preact" ? "preact" : "react"),
+    plugins: target.svelte || target.name === "svelte"
+      ? [sveltePlugin({ compilerOptions: { css: "injected" } })]
+      : [],
     logLevel: "warning",
   });
   writeFileSync(join(outDir, "index.html"), page(target.title));

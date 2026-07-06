@@ -17,3 +17,10 @@ table.test-data tr.danger { background: #f8d0d4; }
 .col-remove { width: 10%; }
 a { color: #1258c4; text-decoration: none; cursor: pointer; }
 .remove-icon::before { content: "\2716"; color: #a33; }
+
+/* deep-tree benchmark (driver/tree.mjs); fixed height keeps the painted area
+   comparable across frameworks while layout still covers the whole tree */
+.tree-root { height: 600px; overflow: hidden; }
+.tree-node { padding-left: 6px; }
+.tree-label, .tree-leaf { display: block; white-space: nowrap; }
+#status, [data-testid="status"] { margin-left: 8px; font-weight: 600; }

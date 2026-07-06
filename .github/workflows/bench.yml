@@ -11,6 +11,12 @@ on:
       frameworks:
         description: Comma-separated frameworks (empty = all)
         default: ""
+      tree:
+        description: Also run the deep-tree bench
+        default: "false"
+      scaling:
+        description: Also run scaling curves
+        default: "false"
 
 jobs:
   bench:
@@ -34,6 +40,8 @@ jobs:
         run: |
           ARGS="--samples=${{ inputs.samples }}"
           if [ -n "${{ inputs.frameworks }}" ]; then ARGS="$ARGS --frameworks=${{ inputs.frameworks }}"; fi
+          if [ "${{ inputs.tree }}" = "true" ]; then ARGS="$ARGS --tree"; fi
+          if [ "${{ inputs.scaling }}" = "true" ]; then ARGS="$ARGS --scaling"; fi
           node bench/run-all.mjs $ARGS
 
       - name: Upload report
@@ -42,4 +50,4 @@ jobs:
           name: bench-report
           path: |
             bench/report/index.html
-            bench/results/results.json
+            bench/results/*.json
