@@ -143,6 +143,7 @@ history of `perf-rewrite-design.md` (up to commit `7cfde69`).
 - L848-862 (`acquireKeyedPatchScratch`/`releaseKeyedPatchScratch`), L1029-1063 (`KeyedPatchScratchFrame`): replace depth-counter + cap with a free-list (`pool.removeLastOrNull() ?: Frame()` / `pool.add(frame)`), removing the desync failure class; keep a size cap.
 
 ### KNT-0020 (was C10) — Debug-mode template clones carry stale path/tag attrs
+**Status:** Done (2026-07-07, codex TDD) — premise confirmed (prototype built via `mountHost` stamps debug attrs recursively); `stripTemplatePrototypeDebugAttributes` removes path/tag from root+descendants once at prototype build; per-instance root path attr still set at mount. RED showed the leaked attrs; browser JS + runtime 181/181 green.
 - (A#4): after cloning under `runtime.debug`, strip or rewrite descendant `data-kinetica-path`/`tag` attrs (they're stale copies of the prototype's paths and corrupt path-based focus fallback); simplest: remove those attrs from the prototype after `templatePrototype` builds it, since per-instance paths were never correct for clones.
 
 ### KNT-0021 — Harness/test dedup (opportunistic)

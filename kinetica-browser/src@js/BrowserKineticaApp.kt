@@ -572,8 +572,17 @@ public class BrowserKineticaApp(
         templatePrototypes.getOrPut(definition.id) {
             val parent = browserDocument.createElement("div")
             val mounted = mountHost(definition.skeleton, parent, anchor = null, path = "")
+            stripTemplatePrototypeDebugAttributes(mounted.element)
             TemplatePrototype(mounted.element)
         }
+
+    private fun stripTemplatePrototypeDebugAttributes(element: Element) {
+        element.removeAttribute(DATA_KINETICA_PATH)
+        element.removeAttribute(DATA_KINETICA_TAG)
+        for (index in 0 until element.children.length) {
+            stripTemplatePrototypeDebugAttributes(element.children.item(index) ?: continue)
+        }
+    }
 
     private fun patchTemplateValues(
         mounted: MountedTemplate,
