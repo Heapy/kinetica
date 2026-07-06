@@ -9,15 +9,19 @@ history (up to commit `7cfde69`); what follows is only what's still worth explor
 Verify any change with: `./kotlin build -m browser-bench && cd bench && node run-all.mjs
 --frameworks=kinetica`, then `node scripts/verify-browser.mjs` (15 self-tests must stay green).
 
-## 1. Intern slot/event key strings per scope — now urgent
+## 1. ~~Intern slot/event key strings per scope~~ — RESOLVED by frame ordinals (P4)
 
-Every slot/event call builds `"$prefix/$local"` strings per render, and the 2026-07-06
-slot-collision hardening added kind suffixes (`slot-N:state`, `effect-N:watch`, …) on top:
-measured cost **+6–8% on the 10k-row ops** (min-based, not noise), geomean 1.20× → 1.27×,
-startup mount 22.6 → 25.6ms. The suffix is folded only inside the key factories
-(`ComponentScope.nextSlotKey/nextEventKey/nextEffectKey`), deliberately so an interner can key
-on `(kind, cursor)` per key-scope and eliminate both the suffix cost and the pre-existing
-string building in one move. Steady-state renders should allocate zero key strings.
+Superseded: instead of interning the key strings, the strings are gone. The compiler plugin
+is now mandatory; its IR pass assigns every slot/event call site a dense static ordinal in a
+per-component *frame* (tree of instances: component calls and boundary branches are fixed
+children, `keyed`/`each` rows keyed children, wrapped content lambdas region frames). A state
+read is an array index; commit eviction is O(re-rendered frames) instead of scans over all
+slot metadata and host events; the cursor machinery (CursorMark boundary neutrality,
+slot/event cursor deltas in row/skippable caches) is deleted, and the slot-collision bug
+class died at compile time (FIR checker enforces the authoring rules). Each-row memoization
+and component skipping now cache on the row/component frame (inputs + cell versions +
+context reads). Remaining: re-run the browser bench after the batteries/samples migration
+and refresh the numbers here.
 
 ## 2. 10k-table partial operations
 
