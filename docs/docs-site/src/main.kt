@@ -32,8 +32,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.nio.file.Path
+import java.security.MessageDigest
 import kotlin.io.path.exists
-import kotlin.io.path.readText
 
 fun main(args: Array<String>) {
     val port = args.firstOrNull { it.startsWith("--port=") }?.substringAfter("=")?.toIntOrNull()
@@ -51,6 +51,23 @@ class DocsServer(
     port: Int,
     private val bundlesDir: Path,
 ) {
+    private val assetUrls: DocsAssetUrls by lazy {
+        DocsAssetUrls(
+            siteCssHref = versionedUrl("/assets/site.css", siteCssAsset()),
+            docsClientScriptSrc = versionedUrl(
+                "/docs-client/docs-client.mjs",
+                bundleAsset("_docs-client_bundle", "_docs-client_linkJs", "docs-client.mjs"),
+            ),
+            serverComponentsClientScriptSrc = versionedUrl(
+                "/sc-client/server-components-client.mjs",
+                bundleAsset(
+                    "_server-components-client_bundle",
+                    "_server-components-client_linkJs",
+                    "server-components-client.mjs",
+                ),
+            ),
+        )
+    }
     private val transport = KineticaServerTransport()
     private var cartCount = 0
     private val dispatcher = KineticaServerActionDispatcher(
@@ -93,16 +110,26 @@ class DocsServer(
                     respondDocPage(exchange, path.removePrefix("/docs/").trimEnd('/'))
 
                 exchange.requestMethod == "GET" && path == "/assets/site.css" ->
-                    exchange.respondText(contentType = "text/css", body = siteCss())
+                    exchange.respondStaticAsset(siteCssAsset())
 
                 exchange.requestMethod == "GET" && path == "/healthz" ->
                     exchange.respondText(contentType = "text/plain", body = "ok")
 
                 exchange.requestMethod == "GET" && path.startsWith("/docs-client/") ->
-                    respondBundleAsset(exchange, "_docs-client_linkJs", path.removePrefix("/docs-client/"))
+                    respondBundleAsset(
+                        exchange,
+                        preferredRoot = "_docs-client_bundle",
+                        fallbackRoot = "_docs-client_linkJs",
+                        relative = path.removePrefix("/docs-client/"),
+                    )
 
                 exchange.requestMethod == "GET" && path.startsWith("/sc-client/") ->
-                    respondBundleAsset(exchange, "_server-components-client_linkJs", path.removePrefix("/sc-client/"))
+                    respondBundleAsset(
+                        exchange,
+                        preferredRoot = "_server-components-client_bundle",
+                        fallbackRoot = "_server-components-client_linkJs",
+                        relative = path.removePrefix("/sc-client/"),
+                    )
 
                 exchange.requestMethod == "GET" && path == "/examples/server-components" ->
                     exchange.respondText(contentType = "text/html", body = renderDemoDocument())
@@ -136,7 +163,7 @@ class DocsServer(
             exchange.respondText(status = 404, contentType = "text/plain", body = "No such page: $slug")
             return
         }
-        exchange.respondText(contentType = "text/html", body = renderDocPage(page, source))
+        exchange.respondText(contentType = "text/html", body = renderDocPage(page, source, assetUrls))
     }
 
     // --- the server-components demo, hosted inside the docs site ---
@@ -194,9 +221,16 @@ class DocsServer(
             append("\n<script id=\"kinetica-hydration-plan\" type=\"application/json\">")
             append(hydrationPlan.replace("</", "<\\/"))
             append("</script>")
-            append("\n<script type=\"module\" src=\"/sc-client/server-components-client.mjs\"></script>")
+            append("\n<script type=\"module\" src=\"")
+            append(assetUrls.serverComponentsClientScriptSrc.escapeHtml())
+            append("\"></script>")
         }
-        return documentShell(title = "Server components demo · Kinetica", body = body, liveExamples = false)
+        return documentShell(
+            title = "Server components demo · Kinetica",
+            body = body,
+            assetUrls = assetUrls,
+            liveExamples = false,
+        )
     }
 
     private fun renderStreamBody(): String = runBlocking {
@@ -225,26 +259,51 @@ class DocsServer(
 
     // --- static assets ---
 
-    private fun siteCss(): String =
-        DocsServer::class.java.getResourceAsStream("/site.css")?.readAllBytes()?.decodeToString()
-            ?: "/* missing site.css */"
-
-    /**
-     * Each client bundle is an ES-module graph served under its own URL prefix, so relative
-     * imports resolve within their own graph — never into another bundle's same-named files.
-     */
-    private fun respondBundleAsset(exchange: HttpExchange, bundleRoot: String, relative: String) {
-        val rootPath = bundlesDir.resolve(bundleRoot).normalize()
-        val candidate = rootPath.resolve(relative).normalize()
-        if (!candidate.startsWith(rootPath) || !candidate.exists() || Files.isDirectory(candidate)) {
+    private fun respondBundleAsset(
+        exchange: HttpExchange,
+        preferredRoot: String,
+        fallbackRoot: String,
+        relative: String,
+    ) {
+        val asset = bundleAsset(preferredRoot, fallbackRoot, relative)
+        if (asset == null) {
             exchange.respondText(
                 status = 404,
                 contentType = "text/plain",
-                body = "Missing bundle asset $relative under $rootPath. Build with ./kotlin build, or set KINETICA_BUNDLES_DIR.",
+                body = "Missing bundle asset $relative under $bundlesDir. Build with node scripts/bundle-docs.mjs, or set KINETICA_BUNDLES_DIR.",
             )
             return
         }
-        exchange.respondText(contentType = contentTypeFor(candidate), body = candidate.readText())
+        exchange.respondStaticAsset(asset)
+    }
+
+    private fun siteCssAsset(): StaticAsset {
+        val generated = staticAssetFromPath(
+            bundlesDir.resolve("_docs-site_assets").resolve("site.css").normalize(),
+            contentType = "text/css",
+        )
+        if (generated != null) {
+            return generated
+        }
+
+        val bytes = DocsServer::class.java.getResourceAsStream("/site.css")?.readAllBytes()
+            ?: "/* missing site.css */".encodeToByteArray()
+        return StaticAsset(
+            contentType = "text/css",
+            bytes = bytes,
+            brotliBytes = null,
+        )
+    }
+
+    private fun bundleAsset(preferredRoot: String, fallbackRoot: String, relative: String): StaticAsset? =
+        bundleCandidate(preferredRoot, relative) ?: bundleCandidate(fallbackRoot, relative)
+
+    private fun bundleCandidate(root: String, relative: String): StaticAsset? {
+        val rootPath = bundlesDir.resolve(root).normalize()
+        val candidate = rootPath.resolve(relative).normalize()
+        return candidate
+            .takeIf { it.startsWith(rootPath) }
+            ?.let { staticAssetFromPath(it, contentType = contentTypeFor(relative)) }
     }
 }
 
@@ -265,6 +324,63 @@ private val DemoManifest = ClientComponentManifest(
     actions = listOf(AddToCartRegistration),
 )
 
+private data class StaticAsset(
+    val contentType: String,
+    val bytes: ByteArray,
+    val brotliBytes: ByteArray?,
+) {
+    val hash: String = bytes.sha256Hex()
+    val etag: String = "W/\"$hash\""
+}
+
+private fun staticAssetFromPath(path: Path, contentType: String): StaticAsset? {
+    if (!path.exists() || Files.isDirectory(path)) {
+        return null
+    }
+
+    val brotliPath = path.resolveSibling("${path.fileName}.br")
+    return StaticAsset(
+        contentType = contentType,
+        bytes = Files.readAllBytes(path),
+        brotliBytes = brotliPath
+            .takeIf { it.exists() && !Files.isDirectory(it) }
+            ?.let(Files::readAllBytes),
+    )
+}
+
+private fun versionedUrl(path: String, asset: StaticAsset?): String =
+    asset?.let { "$path?hash=${it.hash}" } ?: path
+
+private fun HttpExchange.respondStaticAsset(asset: StaticAsset) {
+    val cacheControl = if (hasHash(asset.hash)) {
+        "public, max-age=31536000, immutable"
+    } else {
+        "no-cache"
+    }
+
+    responseHeaders.set("Content-Type", "${asset.contentType}; charset=utf-8")
+    responseHeaders.set("Cache-Control", cacheControl)
+    responseHeaders.set("ETag", asset.etag)
+    responseHeaders.set("Vary", "Accept-Encoding")
+
+    if (requestHeaders.getFirst("If-None-Match")?.matchesEtag(asset.etag) == true) {
+        sendResponseHeaders(304, -1)
+        responseBody.close()
+        return
+    }
+
+    val brotliBytes = asset.brotliBytes
+    val responseBytes = if (brotliBytes != null && acceptsBrotli()) {
+        responseHeaders.set("Content-Encoding", "br")
+        brotliBytes
+    } else {
+        asset.bytes
+    }
+
+    sendResponseHeaders(200, responseBytes.size.toLong())
+    responseBody.use { output -> output.write(responseBytes) }
+}
+
 private fun HttpExchange.respondText(
     status: Int = 200,
     contentType: String,
@@ -277,8 +393,39 @@ private fun HttpExchange.respondText(
     responseBody.use { output -> output.write(bytes) }
 }
 
-private fun contentTypeFor(path: Path): String =
-    when (path.fileName.toString().substringAfterLast('.', missingDelimiterValue = "")) {
+private fun HttpExchange.hasHash(hash: String): Boolean =
+    requestURI.rawQuery
+        ?.split("&")
+        ?.any { part -> part.substringBefore("=") == "hash" && part.substringAfter("=", "") == hash }
+        ?: false
+
+private fun HttpExchange.acceptsBrotli(): Boolean =
+    requestHeaders["Accept-Encoding"]
+        ?.flatMap { it.split(",") }
+        ?.any { value -> value.trim().substringBefore(";").equals("br", ignoreCase = true) }
+        ?: false
+
+private fun String.matchesEtag(etag: String): Boolean =
+    split(",").any { candidate ->
+        val normalized = candidate.trim()
+        normalized == "*" || normalized == etag
+    }
+
+private fun ByteArray.sha256Hex(length: Int = 16): String {
+    val digest = MessageDigest.getInstance("SHA-256").digest(this)
+    val chars = CharArray(digest.size * 2)
+    for (index in digest.indices) {
+        val value = digest[index].toInt() and 0xff
+        chars[index * 2] = HexChars[value ushr 4]
+        chars[index * 2 + 1] = HexChars[value and 0x0f]
+    }
+    return chars.concatToString().take(length)
+}
+
+private val HexChars = "0123456789abcdef".toCharArray()
+
+private fun contentTypeFor(path: String): String =
+    when (path.substringBefore("?").substringAfterLast('.', missingDelimiterValue = "")) {
         "mjs", "js" -> "application/javascript"
         "json", "map" -> "application/json"
         "css" -> "text/css"

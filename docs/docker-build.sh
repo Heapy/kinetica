@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the kinetica-docs Docker image: packages the site, builds both client bundles,
+# Builds the kinetica-docs Docker image: packages the site, bundles both client modules,
 # stages artifacts into a minimal build context, and runs docker build.
 # Set STAGE_ONLY=1 to stop after preparing docs/.docker-stage for docker buildx.
 set -euo pipefail
@@ -10,14 +10,14 @@ image="${IMAGE:-kinetica-docs}"
 
 cd "$repo_root"
 ./kotlin package -m docs-site
-./kotlin build -m docs-client
-./kotlin build -m server-components-client
+node scripts/bundle-docs.mjs
 
 rm -rf "$stage"
 mkdir -p "$stage/bundles"
 cp build/tasks/_docs-site_executableJarJvm/docs-site-jvm-executable.jar "$stage/docs-site.jar"
-cp -R build/tasks/_docs-client_linkJs "$stage/bundles/_docs-client_linkJs"
-cp -R build/tasks/_server-components-client_linkJs "$stage/bundles/_server-components-client_linkJs"
+cp -R build/tasks/_docs-site_assets "$stage/bundles/_docs-site_assets"
+cp -R build/tasks/_docs-client_bundle "$stage/bundles/_docs-client_bundle"
+cp -R build/tasks/_server-components-client_bundle "$stage/bundles/_server-components-client_bundle"
 cp docs/Dockerfile "$stage/Dockerfile"
 
 if [[ "${STAGE_ONLY:-0}" == "1" ]]; then

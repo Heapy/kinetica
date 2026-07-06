@@ -26,7 +26,8 @@ framework) and ship as a Docker image:
 ```sh
 docs/docker-build.sh && docker run --rm -p 8080:8080 kinetica-docs
 # or locally:
-./kotlin build -m docs-client && ./kotlin build -m server-components-client
+cd bench && npm install && cd ..
+node scripts/bundle-docs.mjs
 PORT=8080 ./kotlin run -m docs-site
 ```
 

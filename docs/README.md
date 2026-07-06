@@ -17,13 +17,18 @@ server.
 ## Run locally
 
 ```sh
-./kotlin build -m docs-client
-./kotlin build -m server-components-client
+cd bench && npm install && cd ..
+node scripts/bundle-docs.mjs
 PORT=8080 ./kotlin run -m docs-site
 open http://127.0.0.1:8080/
 ```
 
 The server reads JS bundles from `build/tasks/` by default (`KINETICA_BUNDLES_DIR` overrides).
+Bundled outputs under `_docs-client_bundle` and `_server-components-client_bundle` are preferred;
+raw Kotlin/JS link outputs remain a fallback for local development. `node scripts/bundle-docs.mjs`
+also writes Brotli sidecars and a generated `_docs-site_assets/site.css`; the server emits
+hash-query asset URLs, immutable caching for matching hashes, ETags, and `Content-Encoding: br`
+when the browser requests it.
 
 ## Docker
 
@@ -33,7 +38,7 @@ docker run --rm -p 8080:8080 kinetica-docs
 ```
 
 The image is self-contained: the executable jar (markdown content and CSS live inside it as
-resources) plus the two JS bundle graphs under `/app/bundles`. `PORT` env is honored;
+resources) plus the two bundled JS entrypoints under `/app/bundles`. `PORT` env is honored;
 `/healthz` backs the container healthcheck. `docs/.docker-stage/` is a disposable build context
 created by the script.
 
@@ -53,4 +58,4 @@ typed add-to-cart action.
 2. Register the slug in `DocPages` (`docs/docs-site/src/Pages.kt`) — order defines the sidebar.
 3. Embed live examples with a `::: example <name>` line; implement the name in
    `docs/docs-client/src/main.kt`.
-4. `./kotlin build -m docs-site && PORT=8080 ./kotlin run -m docs-site`.
+4. `node scripts/bundle-docs.mjs && ./kotlin build -m docs-site && PORT=8080 ./kotlin run -m docs-site`.

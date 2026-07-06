@@ -26,7 +26,15 @@ const args = new Set(process.argv.slice(2));
 const TRACKED = {
   "kinetica/browser-bench-bundle": { file: "build/tasks/_browser-bench_bundle/browser-bench.bundle.mjs" },
   "kinetica/browser-bench-js": { dir: "build/tasks/_browser-bench_linkJs", pattern: /\.mjs$/ },
+  "kinetica/docs-client-bundle": { file: "build/tasks/_docs-client_bundle/docs-client.mjs" },
   "kinetica/docs-client-js": { dir: "build/tasks/_docs-client_linkJs", pattern: /\.mjs$/ },
+  "kinetica/server-components-client-bundle": {
+    file: "build/tasks/_server-components-client_bundle/server-components-client.mjs",
+  },
+  "kinetica/server-components-client-js": {
+    dir: "build/tasks/_server-components-client_linkJs",
+    pattern: /\.mjs$/,
+  },
   "bench/vanilla": { file: "bench/dist/vanilla/main.js" },
   "bench/react": { file: "bench/dist/react/main.js" },
   "bench/preact": { file: "bench/dist/preact/main.js" },
@@ -78,12 +86,13 @@ const maxGrowthPct = baseline.maxGrowthPct ?? 10;
 const sizes = {};
 let failed = false;
 let newEntries = 0;
+const nameWidth = Math.max(...Object.keys(TRACKED).map((name) => name.length));
 
 console.log(`bundle sizes (gzip), baseline tolerance +${maxGrowthPct}%\n`);
 for (const [name, spec] of Object.entries(TRACKED)) {
   const m = measure(spec);
   if (!m) {
-    console.log(`  ${name.padEnd(30)} (not built, skipped)`);
+    console.log(`  ${name.padEnd(nameWidth)} (not built, skipped)`);
     continue;
   }
   sizes[name] = m;
@@ -105,7 +114,7 @@ for (const [name, spec] of Object.entries(TRACKED)) {
     }
   }
   console.log(
-    `  ${name.padEnd(30)} ${kb(m.gzipBytes).padStart(8)} KB gz  ${kb(m.rawBytes).padStart(9)} KB raw  ${String(m.files).padStart(4)} file(s)  ${status}`,
+    `  ${name.padEnd(nameWidth)} ${kb(m.gzipBytes).padStart(8)} KB gz  ${kb(m.rawBytes).padStart(9)} KB raw  ${String(m.files).padStart(4)} file(s)  ${status}`,
   );
 }
 
@@ -125,7 +134,7 @@ if (args.has("--measure-build")) {
   console.log(`  incremental no-op: ${incrementalS.toFixed(1)}s`);
 }
 
-writeFileSync(outPath, JSON.stringify({ date: new Date().toISOString(), sizes, buildTimes }, null, 2));
+writeFileSync(outPath, JSON.stringify({ date: new Date().toISOString(), sizes, buildTimes }, null, 2) + "\n");
 console.log(`\nsizes written to ${outPath}`);
 
 if (args.has("--update-baseline")) {

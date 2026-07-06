@@ -8,12 +8,23 @@ import io.heapy.kinetica.markdown.markdown
 import io.heapy.kinetica.text
 import io.heapy.kinetica.toSafeHtml
 
+data class DocsAssetUrls(
+    val siteCssHref: String,
+    val docsClientScriptSrc: String,
+    val serverComponentsClientScriptSrc: String,
+)
+
 /** The whole page — chrome and content alike — is a Kinetica tree rendered to safe HTML. */
-fun renderDocPage(page: DocPage, source: String): String {
+fun renderDocPage(page: DocPage, source: String, assetUrls: DocsAssetUrls): String {
     val tree = KineticaRuntime(debug = false).render {
         DocLayout(page, source)
     }.tree
-    return documentShell(title = "${page.title} · Kinetica", body = tree.toSafeHtml(), liveExamples = true)
+    return documentShell(
+        title = "${page.title} · Kinetica",
+        body = tree.toSafeHtml(),
+        assetUrls = assetUrls,
+        liveExamples = true,
+    )
 }
 
 private fun ComponentScope.DocLayout(page: DocPage, source: String) {
@@ -96,19 +107,26 @@ private fun ComponentScope.renderDirective(name: String, argument: String): Bool
         else -> false
     }
 
-fun documentShell(title: String, body: String, liveExamples: Boolean): String = buildString {
+fun documentShell(
+    title: String,
+    body: String,
+    assetUrls: DocsAssetUrls,
+    liveExamples: Boolean,
+): String = buildString {
     append("<!doctype html>\n<html lang=\"en\">\n<head>\n")
     append("<meta charset=\"utf-8\">\n")
     append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n")
     append("<title>").append(title.escapeHtml()).append("</title>\n")
-    append("<link rel=\"stylesheet\" href=\"/assets/site.css\">\n")
+    append("<link rel=\"stylesheet\" href=\"").append(assetUrls.siteCssHref.escapeHtml()).append("\">\n")
     append("</head>\n<body>\n")
     append(body)
     if (liveExamples) {
-        append("\n<script type=\"module\" src=\"/docs-client/docs-client.mjs\"></script>")
+        append("\n<script type=\"module\" src=\"")
+            .append(assetUrls.docsClientScriptSrc.escapeHtml())
+            .append("\"></script>")
     }
     append("\n</body>\n</html>\n")
 }
 
-private fun String.escapeHtml(): String =
+internal fun String.escapeHtml(): String =
     replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

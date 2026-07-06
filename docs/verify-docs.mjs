@@ -1,6 +1,8 @@
 // End-to-end verification of the docs site: SSR pages, live examples, hydrated demo island.
 // Usage: DOCS_BASE_URL=http://127.0.0.1:8080 node docs/verify-docs.mjs
 import { existsSync } from "node:fs";
+import http from "node:http";
+import https from "node:https";
 import { pathToFileURL } from "node:url";
 
 const base = process.env.DOCS_BASE_URL ?? "http://127.0.0.1:8080";
@@ -16,6 +18,52 @@ const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ??
 const { chromium } = await import(
   playwrightImport.startsWith("/") ? pathToFileURL(playwrightImport) : playwrightImport
 );
+
+function rawGet(url, headers = {}) {
+  const target = url instanceof URL ? url : new URL(url);
+  const client = target.protocol === "https:" ? https : http;
+  return new Promise((resolve, reject) => {
+    const request = client.request(target, { headers }, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(chunk));
+      response.on("end", () => resolve({
+        status: response.statusCode,
+        headers: response.headers,
+        body: Buffer.concat(chunks),
+      }));
+    });
+    request.on("error", reject);
+    request.end();
+  });
+}
+
+function extractAsset(html, pattern, label) {
+  const match = html.match(pattern);
+  if (!match) throw new Error(`missing ${label} asset URL`);
+  return new URL(match[1], base);
+}
+
+async function verifyStaticAsset(url) {
+  const response = await rawGet(url, { "Accept-Encoding": "br" });
+  if (response.status !== 200) throw new Error(`${url.pathname} -> ${response.status}`);
+  if (response.headers["content-encoding"] !== "br") {
+    throw new Error(`${url.pathname} did not serve Brotli`);
+  }
+  if (!response.headers["cache-control"]?.includes("immutable")) {
+    throw new Error(`${url.pathname} missing immutable cache-control`);
+  }
+  const etag = response.headers.etag;
+  if (!etag) throw new Error(`${url.pathname} missing ETag`);
+
+  const revalidated = await rawGet(url, {
+    "Accept-Encoding": "br",
+    "If-None-Match": etag,
+  });
+  if (revalidated.status !== 304) {
+    throw new Error(`${url.pathname} ETag revalidation -> ${revalidated.status}`);
+  }
+}
+
 const browser = await chromium.launch({ headless: true, executablePath });
 const page = await browser.newPage();
 const errors = [];
@@ -40,6 +88,18 @@ try {
     if (!body.includes("<h1>")) throw new Error(`/docs/${slug} has no h1`);
   }
   console.log(`OK   ${slugs.length + 1} pages server-render`);
+
+  const demoHtml = await fetch(`${base}/examples/server-components`).then((r) => r.text());
+  await verifyStaticAsset(extractAsset(home, /href="([^"]*\/assets\/site\.css\?hash=[0-9a-f]+)"/, "site.css"));
+  await verifyStaticAsset(extractAsset(home, /src="([^"]*\/docs-client\/docs-client\.mjs\?hash=[0-9a-f]+)"/, "docs-client"));
+  await verifyStaticAsset(
+    extractAsset(
+      demoHtml,
+      /src="([^"]*\/sc-client\/server-components-client\.mjs\?hash=[0-9a-f]+)"/,
+      "server-components-client",
+    ),
+  );
+  console.log("OK   static assets are hashed, Brotli-compressed, and cacheable");
 
   // live example: counter mounts and is interactive
   await page.goto(`${base}/docs/state`, { waitUntil: "networkidle" });
