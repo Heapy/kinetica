@@ -144,16 +144,29 @@ public data class CapabilityToken(val value: String)
 @Serializable
 public data class CsrfToken(val value: String)
 
+/**
+ * A non-cryptographic checksum (FNV-1a-64) over a chunk's encoded bytes.
+ *
+ * This detects *accidental* corruption — truncation, encoding drift, partial writes — between
+ * encode and decode. It is **not** a signature or MAC: FNV is not collision-resistant and the
+ * algorithm is keyless, so an attacker who can modify the bytes can recompute a matching
+ * checksum trivially. Do not rely on this for trust or tamper detection; for that, wrap the
+ * transport in an HMAC verified with a server-held secret.
+ */
 @Serializable
-public data class IntegrityHash(
+public data class ChunkChecksum(
     val algorithm: String,
     val value: String,
 )
 
+/**
+ * A [ServerRenderChunk] paired with a [ChunkChecksum] over its encoding. See [ChunkChecksum] for
+ * the threat model — corruption detection only, not tamper resistance.
+ */
 @Serializable
-public data class SignedServerRenderChunk(
+public data class ChecksummedServerRenderChunk(
     val chunk: ServerRenderChunk,
-    val integrity: IntegrityHash,
+    val checksum: ChunkChecksum,
 )
 
 @Serializable
@@ -337,8 +350,11 @@ private fun JsonElement.matches(kind: JsonValueKind): Boolean =
 public class KineticaServerActionDispatcher(
     stubs: List<ServerActionStub>,
     private val json: Json = KineticaJson,
-    private val verifyCapabilityToken: (CapabilityToken) -> Boolean = { true },
-    private val verifyCsrfToken: (CsrfToken?) -> Boolean = { true },
+    // Fail closed by default: a dispatcher constructed without verifiers rejects every action
+    // rather than silently accepting unauthenticated ones. Real deployments must supply a
+    // capability verifier and a per-session CSRF verifier.
+    private val verifyCapabilityToken: (CapabilityToken) -> Boolean = { false },
+    private val verifyCsrfToken: (CsrfToken?) -> Boolean = { false },
 ) {
     private val stubsByActionId: Map<String, ServerActionStub> =
         stubs.associateBy { stub -> stub.registration.actionId }
@@ -383,26 +399,26 @@ public class KineticaServerTransport(
     public fun decodeChunk(value: String): ServerRenderChunk =
         json.decodeFromString(ServerRenderChunk.serializer(), value)
 
-    public fun integrityForChunk(chunk: ServerRenderChunk): IntegrityHash =
-        integrityForPayload(encodeMaterializedChunk(chunk.materializeDeep()))
+    public fun checksumForChunk(chunk: ServerRenderChunk): ChunkChecksum =
+        checksumForPayload(encodeMaterializedChunk(chunk.materializeDeep()))
 
-    public fun encodeSignedChunk(chunk: ServerRenderChunk): String {
+    public fun encodeChecksummedChunk(chunk: ServerRenderChunk): String {
         val materialized = chunk.materializeDeep()
         return json.encodeToString(
-            SignedServerRenderChunk.serializer(),
-            SignedServerRenderChunk(
+            ChecksummedServerRenderChunk.serializer(),
+            ChecksummedServerRenderChunk(
                 chunk = materialized,
-                integrity = integrityForPayload(encodeMaterializedChunk(materialized)),
+                checksum = checksumForPayload(encodeMaterializedChunk(materialized)),
             ),
         )
     }
 
-    public fun decodeSignedChunk(value: String): ServerRenderChunk {
-        val signed = json.decodeFromString(SignedServerRenderChunk.serializer(), value)
-        val materialized = signed.chunk.materializeDeep()
-        val expected = integrityForPayload(encodeMaterializedChunk(materialized))
-        require(signed.integrity == expected) {
-            "Server render chunk integrity mismatch: expected $expected, got ${signed.integrity}."
+    public fun decodeChecksummedChunk(value: String): ServerRenderChunk {
+        val checksummed = json.decodeFromString(ChecksummedServerRenderChunk.serializer(), value)
+        val materialized = checksummed.chunk.materializeDeep()
+        val expected = checksumForPayload(encodeMaterializedChunk(materialized))
+        require(checksummed.checksum == expected) {
+            "Server render chunk checksum mismatch: expected $expected, got ${checksummed.checksum}."
         }
         return materialized
     }
@@ -425,9 +441,9 @@ public class KineticaServerTransport(
     public fun decodeActionResponse(value: String): ServerActionResponse =
         json.decodeFromString(ServerActionResponse.serializer(), value)
 
-    private fun integrityForPayload(payload: String): IntegrityHash =
-        IntegrityHash(
-            algorithm = INTEGRITY_ALGORITHM,
+    private fun checksumForPayload(payload: String): ChunkChecksum =
+        ChunkChecksum(
+            algorithm = CHECKSUM_ALGORITHM,
             value = fnv1a64(payload.encodeToByteArray()).toHex64(),
         )
 
@@ -599,7 +615,7 @@ public fun Node.collectClientIslands(): List<ClientIsland> {
     return islands
 }
 
-private const val INTEGRITY_ALGORITHM = "fnv1a64"
+private const val CHECKSUM_ALGORITHM = "fnv1a64"
 private const val FNV_64_OFFSET_BASIS: Long = -3750763034362895579L
 private const val FNV_64_PRIME: Long = 1099511628211L
 private const val HEX = "0123456789abcdef"

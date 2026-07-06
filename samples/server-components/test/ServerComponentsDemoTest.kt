@@ -117,8 +117,14 @@ class ServerComponentsDemoTest {
                 .build(),
             HttpResponse.BodyHandlers.ofString(),
         )
-        assertEquals(500, malformedAction.statusCode())
-        assertTrue("ServerActionRequest" in malformedAction.body() || "actionId" in malformedAction.body())
+        // Malformed/missing-field request bodies are a client error (400) with a generic message;
+        // the body must not leak serializer internals or field names.
+        assertEquals(400, malformedAction.statusCode())
+        val failure = transport.decodeActionResponse(malformedAction.body())
+        assertEquals(
+            "Malformed server action request.",
+            assertIs<ServerActionResponse.Failure>(failure).message,
+        )
     }
 
     @Test
@@ -175,7 +181,8 @@ class ServerComponentsDemoTest {
         val response = getResponse("$baseUrl/client.mjs")
 
         assertEquals(500, response.statusCode())
-        assertTrue("Missing Kotlin/JS client bundle" in response.body())
+        // The misconfiguration detail is logged server-side, not leaked in the response body.
+        assertEquals("Internal server error.", response.body())
     }
 
     @Test

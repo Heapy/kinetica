@@ -224,12 +224,12 @@ class RuntimeSmokeServerTest {
         val stream = decodedNode.toServerRenderStream(manifest)
         assertIs<ServerRenderChunk.Tree>(transport.decodeChunk(transport.encodeChunk(stream.first())))
         assertIs<ServerRenderChunk.End>(transport.decodeChunk(transport.encodeChunk(stream.last())))
-        assertEquals(stream.first(), transport.decodeSignedChunk(transport.encodeSignedChunk(stream.first())))
-        val tamperedSignedChunk = transport
-            .encodeSignedChunk(stream.first())
+        assertEquals(stream.first(), transport.decodeChecksummedChunk(transport.encodeChecksummedChunk(stream.first())))
+        val corruptedChecksummedChunk = transport
+            .encodeChecksummedChunk(stream.first())
             .replace("sku-1", "sku-2")
         assertFailsWith<IllegalArgumentException> {
-            transport.decodeSignedChunk(tamperedSignedChunk)
+            transport.decodeChecksummedChunk(corruptedChecksummedChunk)
         }
 
         val request = ServerActionRequest(
@@ -264,16 +264,16 @@ class RuntimeSmokeServerTest {
     }
 
     @Test
-    fun serverTransportEncodeSignedChunkMaterializesTemplateNodesBeforeHashing() {
+    fun serverTransportEncodeChecksummedChunkMaterializesTemplateNodesBeforeHashing() {
         val transport = KineticaServerTransport()
         val node = serverBoundaryTemplateNode(text = "Signed")
         val normalized = ServerRenderChunk.Tree(sequence = 8, node = node.materialize())
 
-        val encoded = transport.encodeSignedChunk(ServerRenderChunk.Tree(sequence = 8, node = node))
+        val encoded = transport.encodeChecksummedChunk(ServerRenderChunk.Tree(sequence = 8, node = node))
 
         assertEquals(1, encoded.countOccurrences("static-skeleton-marker"))
         assertFalse("\"type\":\"template\"" in encoded, encoded)
-        assertEquals(normalized, transport.decodeSignedChunk(encoded))
+        assertEquals(normalized, transport.decodeChecksummedChunk(encoded))
     }
 
     @Test
@@ -321,12 +321,12 @@ class RuntimeSmokeServerTest {
             transport.decodeActionResponse(transport.encodeActionResponse(ServerActionResponse.Failure("try again"))),
         )
 
-        val signed = SignedServerRenderChunk(
+        val checksummed = ChecksummedServerRenderChunk(
             chunk = ServerRenderChunk.End(sequence = 5),
-            integrity = IntegrityHash(algorithm = "manual", value = "hash"),
+            checksum = ChunkChecksum(algorithm = "manual", value = "hash"),
         )
-        assertEquals("manual", signed.integrity.algorithm)
-        assertEquals("hash", signed.integrity.value)
+        assertEquals("manual", checksummed.checksum.algorithm)
+        assertEquals("hash", checksummed.checksum.value)
         assertEquals("csrf", CsrfToken("csrf").value)
 
         val entry = JournalEntry(sequence = 1, kind = JournalKind.Event, message = "clicked")
@@ -731,6 +731,20 @@ class RuntimeSmokeServerTest {
         assertFalse("9bad=\"bad\"" in unsafeHtml)
         assertFalse("data bad=\"space\"" in unsafeHtml)
 
+        // Well-formed but executable tag names must be neutralized to a div by the allowlist —
+        // text inside a real <script> would execute even though it's entity-escaped on the way out.
+        listOf("script", "iframe", "object", "embed", "svg", "style", "template").forEach { dangerousTag ->
+            val neutralized = HostNode(
+                tag = dangerousTag,
+                children = listOf(TextNode("payload")),
+            ).toSafeHtml()
+            assertEquals(
+                "<div data-kinetica-tag=\"$dangerousTag\">payload</div>",
+                neutralized,
+                "tag '$dangerousTag' should be neutralized to div",
+            )
+        }
+
         assertTrue(isPublicHtmlAttribute("aria-label", "Kept"))
         assertFalse(isPublicHtmlAttribute("event:onClick", "event-0"))
         assertFalse(isPublicHtmlAttribute("frame:translateX", "frame-0"))
@@ -1110,6 +1124,36 @@ class RuntimeSmokeServerTest {
                     payload = JsonPrimitive("sku-1"),
                     token = CapabilityToken("valid"),
                     csrfToken = CsrfToken("csrf"),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun serverActionDispatcherFailsClosedWithoutExplicitVerifiers() = runTest {
+        // A dispatcher constructed without verifiers must reject every action rather than silently
+        // accept unauthenticated ones — the safe default for a public API.
+        val dispatcher = KineticaServerActionDispatcher(
+            stubs = listOf(
+                serverActionStub(
+                    registration = ServerActionRegistration(
+                        actionId = "cart.add",
+                        functionFqName = "app.server.addToCart",
+                    ),
+                    inputSerializer = String.serializer(),
+                    outputSerializer = String.serializer(),
+                    handler = { _ -> "should not run" },
+                ),
+            ),
+        )
+        assertEquals(
+            ServerActionResponse.Failure("Invalid capability token."),
+            dispatcher.dispatch(
+                ServerActionRequest(
+                    actionId = "cart.add",
+                    payload = JsonPrimitive("sku-1"),
+                    token = CapabilityToken("anything"),
+                    csrfToken = CsrfToken("anything"),
                 ),
             ),
         )

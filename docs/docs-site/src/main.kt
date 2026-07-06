@@ -17,6 +17,7 @@ import io.heapy.kinetica.KineticaRuntime
 import io.heapy.kinetica.KineticaServerActionDispatcher
 import io.heapy.kinetica.KineticaServerTransport
 import io.heapy.kinetica.ServerActionRegistration
+import io.heapy.kinetica.ServerActionResponse
 import io.heapy.kinetica.ServerRenderDeferredSubtree
 import io.heapy.kinetica.TextNode
 import io.heapy.kinetica.host
@@ -27,6 +28,7 @@ import io.heapy.kinetica.toSafeHtml
 import io.heapy.kinetica.toServerRenderStream
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -38,6 +40,8 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
 import java.util.UUID
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.exists
 
 fun main(args: Array<String>) {
@@ -74,7 +78,10 @@ class DocsServer(
         )
     }
     private val transport = KineticaServerTransport()
-    private var cartCount = 0
+    // AtomicInteger so concurrent handler threads (see [executor]) never read-modify-write the
+    // cart count under a data race. Shared across all connections — fine for a demo; real apps
+    // would key this off the session, not the server.
+    private val cartCount = AtomicInteger(0)
     private val dispatcher = KineticaServerActionDispatcher(
         stubs = listOf(
             serverActionStub(
@@ -82,25 +89,29 @@ class DocsServer(
                 inputSerializer = AddToCartInput.serializer(),
                 outputSerializer = AddToCartResult.serializer(),
             ) { input ->
-                cartCount += input.quantity
+                val updated = cartCount.addAndGet(input.quantity)
                 AddToCartResult(
                     message = "Added ${input.quantity} of ${input.productId}",
-                    cartCount = cartCount,
+                    cartCount = updated,
                 )
             },
         ),
         verifyCapabilityToken = { token -> token.value == DEMO_CAPABILITY_TOKEN },
         verifyCsrfToken = { token -> token?.value == DEMO_CSRF_TOKEN },
     )
+    private val executor = Executors.newFixedThreadPool(SERVER_THREAD_POOL_SIZE)
     private val http = HttpServer.create(InetSocketAddress("0.0.0.0", port), 0)
 
     fun start() {
         http.createContext("/") { exchange -> route(exchange) }
-        http.executor = null
+        http.executor = executor
         http.start()
     }
 
-    fun stop(): Unit = http.stop(0)
+    fun stop() {
+        http.stop(0)
+        executor.shutdownNow()
+    }
 
     val boundPort: Int get() = http.address.port
 
@@ -157,16 +168,28 @@ class DocsServer(
                 exchange.requestMethod == "GET" && path == "/stream" ->
                     exchange.respondText(contentType = "application/x-ndjson", body = renderStreamBody())
 
-                exchange.requestMethod == "POST" && path == "/actions/$ADD_TO_CART_ACTION_ID" ->
-                    exchange.respondText(
-                        contentType = "application/json",
-                        body = dispatchAction(exchange.requestBody.readAllBytes().decodeToString()),
-                    )
+                exchange.requestMethod == "POST" && path == "/actions/$ADD_TO_CART_ACTION_ID" -> {
+                    val body = readBoundedBody(exchange, MAX_ACTION_BODY_BYTES)
+                    val (status, response) = if (body == null) {
+                        413 to transport.encodeActionResponse(
+                            ServerActionResponse.Failure(
+                                message = "Request body too large.",
+                                retryable = false,
+                            ),
+                        )
+                    } else {
+                        dispatchAction(body)
+                    }
+                    exchange.respondText(status = status, contentType = "application/json", body = response)
+                }
 
-                else -> exchange.respondText(status = 404, contentType = "text/plain", body = "Not found: $path")
+                else -> exchange.respondText(status = 404, contentType = "text/plain", body = "Not found")
             }
         } catch (error: Throwable) {
-            exchange.respondText(status = 500, contentType = "text/plain", body = error.stackTraceToString())
+            // Log the full detail server-side; return only a generic message to the client so
+            // stack traces, internal paths, and library versions never reach a response body.
+            error.printStackTrace()
+            exchange.respondText(status = 500, contentType = "text/plain", body = "Internal server error.")
         }
     }
 
@@ -266,10 +289,17 @@ class DocsServer(
             .joinToString(separator = "\n", postfix = "\n") { chunk -> transport.encodeChunk(chunk) }
     }
 
-    private fun dispatchAction(body: String): String = runBlocking {
-        val request = transport.decodeActionRequest(body)
-        transport.encodeActionResponse(dispatcher.dispatch(request))
-    }
+    private fun dispatchAction(body: String): Pair<Int, String> =
+        try {
+            runBlocking {
+                val request = transport.decodeActionRequest(body)
+                200 to transport.encodeActionResponse(dispatcher.dispatch(request))
+            }
+        } catch (error: SerializationException) {
+            400 to transport.encodeActionResponse(
+                ServerActionResponse.Failure(message = "Malformed server action request.", retryable = false),
+            )
+        }
 
     // --- the data-fetching demo on /docs/resources: one language stack per visitor session ---
 
@@ -437,6 +467,33 @@ class DocsServer(
             .takeIf { it.startsWith(rootPath) }
             ?.let { staticAssetFromPath(it, contentType = contentTypeFor(relative)) }
     }
+
+    /**
+     * Reads up to [limit] bytes from the request body and returns them decoded as UTF-8, or `null`
+     * if the body exceeds the limit. Bounding the read prevents a single oversized POST from
+     * exhausting heap via `readAllBytes()`; action payloads here are tiny, so a few KB is generous.
+     */
+    private fun readBoundedBody(exchange: HttpExchange, limit: Int): String? {
+        val input = exchange.requestBody
+        val buffer = ByteArray(limit + 1)
+        var read = 0
+        while (read < buffer.size) {
+            val n = input.read(buffer, read, buffer.size - read)
+            if (n < 0) break
+            read += n
+        }
+        // If we filled the whole buffer (limit + 1 bytes) there is at least one more byte, i.e. the
+        // body exceeds the limit.
+        if (read == buffer.size && input.read() >= 0) {
+            return null
+        }
+        return buffer.decodeToString(0, read)
+    }
+
+    private companion object {
+        const val MAX_ACTION_BODY_BYTES = 4 * 1024
+        const val SERVER_THREAD_POOL_SIZE = 8
+    }
 }
 
 private class DemoStackSession {
@@ -509,6 +566,7 @@ private fun HttpExchange.respondStaticAsset(asset: StaticAsset) {
     responseHeaders.set("Cache-Control", cacheControl)
     responseHeaders.set("ETag", asset.etag)
     responseHeaders.set("Vary", "Accept-Encoding")
+    applySecurityHeaders()
 
     if (requestHeaders.getFirst("If-None-Match")?.matchesEtag(asset.etag) == true) {
         sendResponseHeaders(304, -1)
@@ -536,8 +594,23 @@ private fun HttpExchange.respondText(
     val bytes = body.encodeToByteArray()
     responseHeaders.set("Content-Type", "$contentType; charset=utf-8")
     responseHeaders.set("Cache-Control", "no-store")
+    applySecurityHeaders()
     sendResponseHeaders(status, bytes.size.toLong())
     responseBody.use { output -> output.write(bytes) }
+}
+
+private fun HttpExchange.applySecurityHeaders() {
+    // Prevent content-type sniffing on JSON/plain-text responses (reflected 404s, action errors).
+    responseHeaders.set("X-Content-Type-Options", "nosniff")
+    // The docs site has no legitimate need to be framed — block clickjacking outright.
+    responseHeaders.set("X-Frame-Options", "DENY")
+    responseHeaders.set("Referrer-Policy", "no-referrer")
+    // Strict CSP: scripts and styles are same-origin only; no inline script, no eval. The
+    // hydration plan is a <script type="application/json"> data block (not executed).
+    responseHeaders.set(
+        "Content-Security-Policy",
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'",
+    )
 }
 
 private fun HttpExchange.hasHash(hash: String): Boolean =

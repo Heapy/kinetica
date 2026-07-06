@@ -102,6 +102,30 @@ and CSRF tokens are checked by the dispatcher; handler exceptions return a gener
 message (no stack-trace leaks); `invalidates` keys plug into the
 [resource loop](/docs/resources) on the client.
 
+### Hardening for production
+
+The schema validator only checks a payload's *shape* (object/array/string/number/boolean and
+required fields) — never its *ranges* or *domain*. A handler receives a typed value, but a
+`quantity: Int` field will accept negatives or `Int.MAX_VALUE`. Validate business invariants
+inside the handler and return a typed `Failure` for out-of-range input; do not trust the schema
+alone.
+
+The dispatcher **fails closed by default**: omit `verifyCapabilityToken` / `verifyCsrfToken` and
+every action is rejected. The demo wires them to fixed constants for brevity, but a fixed string
+shipped in the client bundle is public — it is not authentication. Real deployments must:
+
+- issue a **per-session, unguessable** CSRF token (a random ≥128-bit value bound to the session,
+  checked server-side), not a shared constant;
+- treat the capability token as a secret held server-side, never compiled into client code;
+- serve over HTTPS, and consider `SameSite=Lax`/`Strict` cookies plus the
+  [double-submit cookie](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html)
+  pattern if you store the CSRF token in a cookie.
+
+The reference HTTP servers (`samples/server-components`, `docs/docs-site`) demonstrate the
+hardening baseline: bounded request bodies, a fixed-size request thread pool, synchronized shared
+state, generic error bodies with stack traces logged server-side only, and `Content-Security-Policy`
+/ `X-Content-Type-Options` / `X-Frame-Options` headers on every response.
+
 ## The manifest
 
 <!-- code: kinetica-runtime/src/ServerComponents.kt (ClientComponentManifest, ClientComponentRegistration), kinetica-runtime/src/Annotations.kt (ClientComponent, ServerAction) -->

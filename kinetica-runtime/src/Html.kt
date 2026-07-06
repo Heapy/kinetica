@@ -45,7 +45,7 @@ private fun StringBuilder.appendSafeHtml(node: Node) {
 }
 
 private fun StringBuilder.appendHostNode(node: HostNode) {
-    val tagName = node.tag.takeIf(::isSafeHtmlName) ?: "div"
+    val tagName = safeHtmlTagName(node.tag)
     append('<')
     append(tagName)
     if (tagName != node.tag) {
@@ -134,6 +134,102 @@ private fun isSafeHtmlName(name: String): Boolean =
                 character == ':' ||
                 character == '.'
         }
+
+/**
+ * Maps a [HostNode] tag to the concrete HTML element name emitted by [toSafeHtml].
+ *
+ * Mirrors `browserTagNameFor` so SSR and the browser renderer agree on layout: abstract
+ * Kinetica tags (`column`/`row`) map to `div`; any tag not on the explicit allowlist falls back
+ * to `div`. The allowlist is the security boundary — a hand-built `HostNode(tag = "script")` or
+ * `"iframe"` serializes as `<div data-kinetica-tag="script">…</div>` rather than a live element,
+ * so SSR cannot introduce a script-injection sink even if attacker-influenced data ever reaches a
+ * tag name.
+ */
+internal fun safeHtmlTagName(tag: String): String =
+    when (tag) {
+        // Abstract layout tags — rendered as a styled div, same as the browser renderer.
+        "column", "row" -> "div"
+        // Allowlisted concrete HTML tags safe to emit from SSR. Anything that executes content
+        // (script, iframe, object, embed, svg, math, template, style, link, meta, base, …) is
+        // intentionally absent and falls through to the div fallback below.
+        "a",
+        "abbr",
+        "address",
+        "article",
+        "aside",
+        "b",
+        "blockquote",
+        "br",
+        "button",
+        "caption",
+        "cite",
+        "code",
+        "col",
+        "colgroup",
+        "data",
+        "dd",
+        "del",
+        "details",
+        "dfn",
+        "div",
+        "dl",
+        "dt",
+        "em",
+        "figcaption",
+        "figure",
+        "footer",
+        "form",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "header",
+        "hgroup",
+        "hr",
+        "i",
+        "img",
+        "input",
+        "ins",
+        "kbd",
+        "label",
+        "li",
+        "main",
+        "mark",
+        "nav",
+        "ol",
+        "optgroup",
+        "option",
+        "p",
+        "pre",
+        "q",
+        "s",
+        "samp",
+        "section",
+        "small",
+        "span",
+        "strong",
+        "sub",
+        "summary",
+        "sup",
+        "table",
+        "tbody",
+        "td",
+        "tfoot",
+        "th",
+        "thead",
+        "time",
+        "tr",
+        "u",
+        "ul",
+        "var",
+        "wbr",
+        -> tag
+        // Anything else (script, iframe, object, embed, svg, template, style, …, as well as any
+        // malformed name) falls back to a plain div — never an executable element.
+        else -> "div"
+    }
 
 private val UrlValuedAttributes = setOf(
     "action",

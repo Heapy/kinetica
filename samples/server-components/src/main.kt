@@ -21,6 +21,7 @@ import io.heapy.kinetica.KineticaServerActionDispatcher
 import io.heapy.kinetica.KineticaServerTransport
 import io.heapy.kinetica.ServerActionRegistration
 import io.heapy.kinetica.ServerActionRequest
+import io.heapy.kinetica.ServerActionResponse
 import io.heapy.kinetica.ServerRenderDeferredSubtree
 import io.heapy.kinetica.TextNode
 import io.heapy.kinetica.host
@@ -32,11 +33,14 @@ import io.heapy.kinetica.toServerRenderStream
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 
@@ -121,7 +125,10 @@ internal class ServerComponentsDemoServer(
     private val projectRoot: Path = Path.of("").toAbsolutePath(),
 ) {
     private val transport = KineticaServerTransport()
-    private var cartCount = 0
+    // AtomicInteger so concurrent handler threads (see [executor]) never read-modify-write the
+    // cart count under a data race. Shared across all connections — fine for a demo; real apps
+    // would key this off the session, not the server.
+    private val cartCount = AtomicInteger(0)
     private val dispatcher = KineticaServerActionDispatcher(
         stubs = listOf(
             serverActionStub(
@@ -129,26 +136,28 @@ internal class ServerComponentsDemoServer(
                 inputSerializer = AddToCartInput.serializer(),
                 outputSerializer = AddToCartResult.serializer(),
             ) { input ->
-                cartCount += input.quantity
+                val updated = cartCount.addAndGet(input.quantity)
                 AddToCartResult(
                     message = "Added ${input.quantity} of ${input.productId}",
-                    cartCount = cartCount,
+                    cartCount = updated,
                 )
             },
         ),
         verifyCapabilityToken = { token -> token.value == DEMO_CAPABILITY_TOKEN },
         verifyCsrfToken = { token -> token?.value == DEMO_CSRF_TOKEN },
     )
+    private val executor = Executors.newFixedThreadPool(SERVER_THREAD_POOL_SIZE)
     private val http = HttpServer.create(InetSocketAddress("127.0.0.1", port), 0)
 
     fun start() {
         http.createContext("/") { exchange -> route(exchange) }
-        http.executor = null
+        http.executor = executor
         http.start()
     }
 
     fun stop() {
         http.stop(0)
+        executor.shutdownNow()
     }
 
     val boundPort: Int
@@ -183,9 +192,21 @@ internal class ServerComponentsDemoServer(
                     )
                 }
                 exchange.requestMethod == "POST" && exchange.requestURI.path == "/actions/$ADD_TO_CART_ACTION_ID" -> {
+                    val body = readBoundedBody(exchange, MAX_ACTION_BODY_BYTES)
+                    val (status, response) = if (body == null) {
+                        413 to transport.encodeActionResponse(
+                            ServerActionResponse.Failure(
+                                message = "Request body too large.",
+                                retryable = false,
+                            ),
+                        )
+                    } else {
+                        dispatchAction(body)
+                    }
                     exchange.respondText(
+                        status = status,
                         contentType = "application/json",
-                        body = dispatchAction(exchange.requestBody.readAllBytes().decodeToString()),
+                        body = response,
                     )
                 }
                 else -> exchange.respondText(
@@ -195,10 +216,13 @@ internal class ServerComponentsDemoServer(
                 )
             }
         } catch (error: Throwable) {
+            // Log the full detail server-side; return only a generic message to the client so
+            // stack traces, internal paths, and library versions never reach a response body.
+            error.printStackTrace()
             exchange.respondText(
                 status = 500,
                 contentType = "text/plain",
-                body = error.stackTraceToString(),
+                body = "Internal server error.",
             )
         }
     }
@@ -308,10 +332,18 @@ internal class ServerComponentsDemoServer(
                 }
         }
 
-    private fun dispatchAction(body: String): String =
-        runBlocking {
-            val request = transport.decodeActionRequest(body)
-            transport.encodeActionResponse(dispatcher.dispatch(request))
+    private fun dispatchAction(body: String): Pair<Int, String> =
+        try {
+            runBlocking {
+                val request = transport.decodeActionRequest(body)
+                200 to transport.encodeActionResponse(dispatcher.dispatch(request))
+            }
+        } catch (error: SerializationException) {
+            // Malformed/invalid request body is a client error, not a server fault — surface a
+            // generic 400 rather than letting it bubble to the catch-all 500.
+            400 to transport.encodeActionResponse(
+                ServerActionResponse.Failure(message = "Malformed server action request.", retryable = false),
+            )
         }
 
     private fun clientBundle(): String {
@@ -334,6 +366,35 @@ internal class ServerComponentsDemoServer(
 
     private fun clientBundleRoot(): Path =
         projectRoot.resolve("build/tasks/_server-components-client_linkJs").normalize()
+
+    /**
+     * Reads up to [limit] bytes from the request body and returns them decoded as UTF-8, or `null`
+     * if the body exceeds the limit. Bounding the read prevents a single oversized POST from
+     * exhausting heap via `readAllBytes()`; action payloads here are tiny, so a few KB is generous.
+     */
+    private fun readBoundedBody(exchange: HttpExchange, limit: Int): String? {
+        val input = exchange.requestBody
+        val buffer = ByteArray(limit + 1)
+        var read = 0
+        while (read < buffer.size) {
+            val n = input.read(buffer, read, buffer.size - read)
+            if (n < 0) break
+            read += n
+        }
+        // If we filled the whole buffer (limit + 1 bytes) there is at least one more byte, i.e. the
+        // body exceeds the limit.
+        if (read == buffer.size && input.read() >= 0) {
+            return null
+        }
+        return buffer.decodeToString(0, read)
+    }
+
+    private companion object {
+        // Action payloads are tiny JSON (AddToCartInput is ~60 bytes). 4 KB is far above any
+        // legitimate request while keeping a hostile POST trivially cheap to reject.
+        const val MAX_ACTION_BODY_BYTES = 4 * 1024
+        const val SERVER_THREAD_POOL_SIZE = 8
+    }
 }
 
 private fun printProtocolDemo() {
@@ -377,8 +438,23 @@ private fun HttpExchange.respondText(
     val bytes = body.encodeToByteArray()
     responseHeaders.set("Content-Type", "$contentType; charset=utf-8")
     responseHeaders.set("Cache-Control", "no-store")
+    applySecurityHeaders()
     sendResponseHeaders(status, bytes.size.toLong())
     responseBody.use { output -> output.write(bytes) }
+}
+
+private fun HttpExchange.applySecurityHeaders() {
+    // Prevent content-type sniffing on JSON/plain-text responses (reflected 404s, action errors).
+    responseHeaders.set("X-Content-Type-Options", "nosniff")
+    // The demo has no legitimate need to be framed — block clickjacking outright.
+    responseHeaders.set("X-Frame-Options", "DENY")
+    responseHeaders.set("Referrer-Policy", "no-referrer")
+    // Strict CSP: scripts and styles are same-origin; styles fall back to inline (the page ships
+    // an inline <style> block) but no inline script or eval is permitted.
+    responseHeaders.set(
+        "Content-Security-Policy",
+        "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self'",
+    )
 }
 
 private fun String.escapeScriptJson(): String =
