@@ -200,7 +200,7 @@ class KineticaIrFrameCompileTest {
     }
 
     @Test
-    fun multiRunLambdasKeepPerInvocationSlots() {
+    fun multiRunLambdaSlotCallsFailFast() {
         harness.compile(
             mapOf(
                 "app/Main.kt" to """
@@ -216,8 +216,8 @@ class KineticaIrFrameCompileTest {
                     @UiComponent(skippable = false)
                     fun ComponentScope.Fan() {
                         // List's init lambda runs three times: a static ordinal would alias
-                        // all iterations into one slot. Multi-run lambdas must stay on the
-                        // per-invocation legacy cursors.
+                        // all iterations into one slot, so slot calls in multi-run lambdas
+                        // are not numbered and must fail fast instead of aliasing silently.
                         val cells = List(3) { index -> derived { index } }
                         text("sum:" + cells.sumOf { it.value })
                     }
@@ -234,8 +234,13 @@ class KineticaIrFrameCompileTest {
             )
             val runtime = KineticaRuntime()
             val scope = ComponentScope(runtime)
-            val tree = (render.invoke(null, runtime, scope) as Node).toDebugString()
-            assertTrue("sum:3" in tree, "each iteration must get its own slot (0+1+2): $tree")
+            val failure = assertFailsWith<java.lang.reflect.InvocationTargetException> {
+                render.invoke(null, runtime, scope)
+            }
+            assertTrue(
+                failure.cause is MissingKineticaPluginException,
+                "slot calls in multi-run lambdas must fail fast, got: ${failure.cause}",
+            )
         }
     }
 

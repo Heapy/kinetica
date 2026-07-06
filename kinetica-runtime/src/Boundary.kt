@@ -21,48 +21,7 @@ public fun ComponentScope.errorBoundary(
     fallback: ComponentScope.(Throwable, ErrorInfo, BoundaryRetry) -> Unit,
     content: ComponentScope.() -> Unit,
 ) {
-    // Boundary state (captured error, retry) lives outside the tracked cell graph, so a
-    // memoized each row containing a boundary could replay a stale fallback after retry().
-    markEachCapturesUnsafe()
-    val pair = nextSlotKeyPair(null, SlotKind.ErrorBoundary)
-    val slotKey = pair.key
-    registerSlot(SlotMetadata(slotKey, slotId = null, persistent = false, transient = false))
-    val state = checkedSlot(slotKey, ErrorBoundaryState::class) { ErrorBoundaryState(boundaryId = "boundary:$slotKey") }
-    val retry = BoundaryRetry {
-        state.clear()
-        runtime.invalidate("boundary retry")
-    }
-    // Content and fallback render in their own key scopes, and the boundary restores the
-    // positional cursors on every exit. The reset before the fresh-catch fallback aligns its
-    // slot identity with the captured-on-a-previous-render path, which starts from the same
-    // mark — without it the fallback's keys would depend on where the content threw.
-    val mark = cursorMark()
-    try {
-        val captured = state.error
-        if (captured != null) {
-            withKeyScope("${pair.local}:fallback") {
-                fallback(captured, ErrorInfo(boundaryId = state.boundaryId), retry)
-            }
-            return
-        }
-
-        val node = withErrorBoundary(state) {
-            collect { withKeyScope("${pair.local}:content") { content() } }.toNode()
-        }
-        emit(node)
-    } catch (pending: ResourcePendingException) {
-        throw pending
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (error: Throwable) {
-        state.capture(runtime, error)
-        resetCursors(mark)
-        withKeyScope("${pair.local}:fallback") {
-            fallback(error, ErrorInfo(boundaryId = state.boundaryId), retry)
-        }
-    } finally {
-        resetCursors(mark)
-    }
+    throw MissingKineticaPluginException("errorBoundary")
 }
 
 internal class ErrorBoundaryState(
@@ -91,41 +50,7 @@ public fun ComponentScope.loadingBoundary(
     fallback: ComponentScope.() -> Unit,
     content: ComponentScope.() -> Unit,
 ) {
-    val pair = nextSlotKeyPair(null, SlotKind.LoadingBoundary)
-    registerSlot(SlotMetadata(pair.key, slotId = null, persistent = false, transient = false))
-    val state = checkedSlot(pair.key, LoadingBoundaryState::class) { LoadingBoundaryState() }
-    runtime.record(
-        JournalKind.RenderStarted,
-        "loadingBoundary",
-        mapOf("retainPrevious" to retainPrevious.toString()),
-    )
-    // Content and fallback render in their own key scopes, and the boundary restores the
-    // positional cursors on every exit: a pending thrown mid-content can no longer shift the
-    // fallback's or any later sibling's slot identity.
-    val mark = cursorMark()
-    try {
-        val node = collect { withKeyScope("${pair.local}:content") { content() } }.toNode()
-        state.previous = node
-        emit(node)
-    } catch (pending: ResourcePendingException) {
-        runtime.record(
-            JournalKind.ResourceLoad,
-            "loading boundary pending",
-            mapOf(
-                "key" to pending.key,
-                "retainPrevious" to retainPrevious.toString(),
-                "retained" to (state.previous != null).toString(),
-            ),
-        )
-        resetCursors(mark)
-        if (retainPrevious && state.previous != null) {
-            emit(state.previous ?: FragmentNode())
-        } else {
-            withKeyScope("${pair.local}:fallback") { fallback() }
-        }
-    } finally {
-        resetCursors(mark)
-    }
+    throw MissingKineticaPluginException("loadingBoundary")
 }
 
 private class LoadingBoundaryState {
@@ -137,41 +62,7 @@ public fun ComponentScope.suspendSubtree(
     fallback: ComponentScope.() -> Unit,
     content: suspend ComponentScope.() -> Unit,
 ) {
-    val pair = nextSlotKeyPair(key, SlotKind.SuspendSubtree)
-    val slotKey = pair.key
-    registerSlot(SlotMetadata(slotKey, slotId = null, persistent = false, transient = true))
-    val state = checkedSlot(slotKey, SuspendSubtreeState::class) {
-        SuspendSubtreeState(
-            key = slotKey,
-            scope = ComponentScope(runtime, instanceId = "$instanceId/suspend:$slotKey"),
-        )
-    }
-
-    val error = state.error
-    if (error != null) {
-        throw error
-    }
-
-    val node = state.node
-    if (node != null) {
-        emit(node)
-        return
-    }
-
-    if (!state.running) {
-        state.start(runtime, content)
-    }
-    // The fallback renders in its own key scope and its cursor consumption is rolled back, so
-    // the pending and ready paths consume the same positions — siblings after this subtree
-    // keep their slot identity when the async content resolves.
-    val mark = cursorMark()
-    val fallbackNode = try {
-        collect { withKeyScope("${pair.local}:fallback") { fallback() } }.toNode()
-    } finally {
-        resetCursors(mark)
-    }
-    state.previousFallback = fallbackNode
-    emit(fallbackNode)
+    throw MissingKineticaPluginException("suspendSubtree")
 }
 
 private class SuspendSubtreeState(
@@ -239,68 +130,7 @@ public fun ComponentScope.exitGroup(
     visible: Boolean,
     content: ComponentScope.() -> Unit,
 ) {
-    val state = exitGroupState(key.toString())
-    if (visible) {
-        state.cancelTasks()
-        state.generation += 1
-        state.phase = ExitPhase.Active
-        state.pendingCallbacks = 0
-        state.callbacks.clear()
-        // Content renders in its own key scope and its cursor consumption is rolled back, so
-        // toggling visible -> leaving (which emits the retained node without running content)
-        // cannot shift the slot identity of siblings after the group.
-        val mark = cursorMark()
-        val nodes = try {
-            collectExitGroup(state) { withKeyScope("exit:${state.key}:content") { content() } }
-        } finally {
-            resetCursors(mark)
-        }
-        state.retained = nodes.toNode()
-        emit(state.retained ?: FragmentNode())
-        return
-    }
-
-    val retained = state.retained ?: return
-    if (state.phase == ExitPhase.Active) {
-        state.phase = ExitPhase.Leaving
-        state.generation += 1
-        state.pendingCallbacks = state.callbacks.size
-        runtime.record(JournalKind.Leaving, "exit started", mapOf("key" to state.key))
-
-        if (state.pendingCallbacks == 0) {
-            completeExit(state.key)
-            return
-        }
-
-        val generation = state.generation
-        state.callbacks.forEach { callback ->
-            state.addTask(
-                runtime.launchTrackedTask {
-                    callback(ExitScopeImpl(state.key) { completeExitCallback(state.key, generation) })
-                },
-            )
-        }
-        val timeoutMillis = runtime.exitTimeoutMillis
-        if (timeoutMillis != null) {
-            state.addTask(
-                runtime.launchTrackedTask {
-                    delay(timeoutMillis)
-                    if (state.phase == ExitPhase.Leaving && state.generation == generation) {
-                        runtime.record(
-                            JournalKind.Leaving,
-                            "exit timeout",
-                            mapOf("key" to state.key, "timeoutMillis" to timeoutMillis.toString()),
-                        )
-                        completeExit(state.key)
-                    }
-                },
-            )
-        }
-    }
-
-    if (state.phase == ExitPhase.Leaving) {
-        emit(retained.asLeaving())
-    }
+    throw MissingKineticaPluginException("exitGroup")
 }
 
 /**
@@ -624,13 +454,8 @@ public class FrameValue internal constructor(
 }
 
 public fun ComponentScope.frameValue(initial: Float, ordinal: Int = -1): FrameValue {
-    if (ordinal >= 0) {
-        return frameSlot(ordinal) { runtime.createFrameValue(initial) }
-    }
-    return nextSlotKey(null, SlotKind.Frame).let { slotKey ->
-        registerSlot(SlotMetadata(slotKey, slotId = null, persistent = false, transient = false))
-        checkedSlot(slotKey, FrameValue::class) { runtime.createFrameValue(initial) }
-    }
+    if (ordinal < 0) throw MissingKineticaPluginException("frameValue")
+    return frameSlot(ordinal) { runtime.createFrameValue(initial) }
 }
 
 private fun Float.frameValueEquals(other: Float): Boolean =

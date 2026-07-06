@@ -234,13 +234,8 @@ public fun ComponentScope.launchEffect(
     ordinal: Int = -1,
     block: suspend EffectScope.() -> Unit,
 ): EffectHandle {
-    val state = if (ordinal >= 0) {
-        frameSlot(ordinal, transient = true) { LaunchEffectState(runtime) }
-    } else {
-        val key = nextEffectKey(SlotKind.Launch)
-        registerSlot(SlotMetadata(key, slotId = null, persistent = false, transient = true))
-        checkedSlot(key, LaunchEffectState::class) { LaunchEffectState(runtime) }
-    }
+    if (ordinal < 0) throw MissingKineticaPluginException("launchEffect")
+    val state = frameSlot(ordinal, transient = true) { LaunchEffectState(runtime) }
     state.configure(block, currentErrorBoundary())
     schedulePostCommitEffect { state.runAfterCommit() }
     return state
@@ -252,13 +247,8 @@ public fun <T> ComponentScope.watch(
     ordinal: Int = -1,
     block: suspend EffectScope.(T) -> Unit,
 ): EffectHandle {
-    val state = if (ordinal >= 0) {
-        frameSlot(ordinal, transient = true) { WatchEffectState<T>(runtime, "watch:$ordinal") }
-    } else {
-        val key = nextEffectKey(SlotKind.Watch)
-        registerSlot(SlotMetadata(key, slotId = null, persistent = false, transient = true))
-        checkedSlot(key, WatchEffectState::class) { WatchEffectState<T>(runtime, key) }
-    }
+    if (ordinal < 0) throw MissingKineticaPluginException("watch")
+    val state = frameSlot(ordinal, transient = true) { WatchEffectState<T>(runtime, "watch:$ordinal") }
     state.configure(source, equals, currentErrorBoundary(), block)
     schedulePostCommitEffect { state.runAfterCommit() }
     return state
@@ -271,23 +261,15 @@ public fun ComponentScope.layoutEffect(block: LayoutScope.() -> Unit) {
 }
 
 public fun <A> ComponentScope.event(ordinal: Int = -1, block: EventScope.(A) -> Unit): (A) -> Unit {
-    val stable = if (ordinal >= 0) {
-        frameSlot(ordinal) { StableEvent(runtime, block) }
-    } else {
-        val key = nextEventKey(SlotKind.TypedEvent)
-        checkedSlot(key, StableEvent::class) { StableEvent(runtime, block) }
-    }
+    if (ordinal < 0) throw MissingKineticaPluginException("event")
+    val stable = frameSlot(ordinal) { StableEvent(runtime, block) }
     stable.block = block
     return stable.callback
 }
 
 public fun ComponentScope.event(ordinal: Int = -1, block: EventScope.() -> Unit): () -> Unit {
-    val stable = if (ordinal >= 0) {
-        frameSlot(ordinal) { StableUnitEvent(runtime, block) }
-    } else {
-        val key = nextEventKey(SlotKind.UnitEvent)
-        checkedSlot(key, StableUnitEvent::class) { StableUnitEvent(runtime, block) }
-    }
+    if (ordinal < 0) throw MissingKineticaPluginException("event")
+    val stable = frameSlot(ordinal) { StableUnitEvent(runtime, block) }
     stable.block = block
     return stable.callback
 }

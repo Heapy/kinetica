@@ -466,38 +466,24 @@ public fun <K : ResourceKey, T> ComponentScope.resource(
     ordinal: Int = -1,
     loader: suspend (K) -> T,
 ): Resource<T> {
+    if (ordinal < 0) throw MissingKineticaPluginException("resource")
     val namespace = resourceCacheNamespace(scope)
-    if (ordinal >= 0) {
-        // Resource states change outside the tracked cell graph (async loads, TTLs), so a
-        // memoized row reading resources cannot be validated by cell versions alone.
-        markEachCapturesUnsafe()
-        @Suppress("UNCHECKED_CAST")
-        val existing = frameSlotValueOrNull(ordinal) as? ResourceImpl<K, T>
-        val resource = if (existing != null && existing.key == key) {
-            frameSlotTouch(ordinal, transient = true, existing)
-        } else {
-            existing?.dispose()
-            ResourceImpl(
-                runtime = runtime,
-                key = key,
-                namespace = namespace,
-                ttlMillis = if (scope == CacheScope.App) runtime.appResourceTtlMillis else null,
-                loader = loader,
-            ).also { created -> frameSlotTouch(ordinal, transient = true, created) }
-        }
-        resource.updateLoader(loader)
-        return resource
-    }
-    val slotKey = nextResourceKey("resource:${scope.name}:${key}")
-    registerSlot(SlotMetadata(slotKey, slotId = null, persistent = false, transient = true))
-    val resource = checkedSlot(slotKey, ResourceImpl::class) {
+    // Resource states change outside the tracked cell graph (async loads, TTLs), so a
+    // memoized row reading resources cannot be validated by cell versions alone.
+    markEachCapturesUnsafe()
+    @Suppress("UNCHECKED_CAST")
+    val existing = frameSlotValueOrNull(ordinal) as? ResourceImpl<K, T>
+    val resource = if (existing != null && existing.key == key) {
+        frameSlotTouch(ordinal, transient = true, existing)
+    } else {
+        existing?.dispose()
         ResourceImpl(
             runtime = runtime,
             key = key,
             namespace = namespace,
             ttlMillis = if (scope == CacheScope.App) runtime.appResourceTtlMillis else null,
             loader = loader,
-        )
+        ).also { created -> frameSlotTouch(ordinal, transient = true, created) }
     }
     resource.updateLoader(loader)
     return resource

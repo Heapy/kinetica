@@ -86,6 +86,16 @@ internal class Frame(
 
     internal var enteredGeneration: Int = -1
         private set
+
+    // Ordinals of slots registered with a persistence identity; needed when a keyed frame
+    // is removed with keepPersistentSlots so scroll-restore style state survives removal.
+    private var persistentOrdinals: MutableList<Int>? = null
+
+    /** Lazily assigned namespace for component-scoped resource caches. */
+    internal var resourceNamespace: String? = null
+
+    /** Memoized output of this frame's subtree (skippable component / each row). */
+    internal var skipCache: FrameSkipCache? = null
     internal var keptGeneration: Int = -1
         private set
     internal var deactivated: Boolean = false
@@ -139,6 +149,11 @@ internal class Frame(
     }
 
     internal fun slotValueOrNull(ordinal: Int): Any? = slots.getOrNull(ordinal)
+
+    internal fun markPersistent(ordinal: Int) {
+        val list = persistentOrdinals ?: mutableListOf<Int>().also { persistentOrdinals = it }
+        if (ordinal !in list) list += ordinal
+    }
 
     /** Replaces a slot's holder (identity-keyed slots such as resources); disposes nothing. */
     internal fun setSlotValue(ordinal: Int, generation: Int, transient: Boolean, value: Any?) {
@@ -240,6 +255,53 @@ internal class Frame(
         map.remove(key)?.dispose(runtime)
     }
 
+    /**
+     * Removes keyed children matching [key] anywhere in this subtree (the public
+     * `disposeKeyScope` contract). With [keepPersistentSlots] the frame is retained but
+     * stripped: everything except persistence-addressed cells is disposed, so the state
+     * a router wants to restore (scroll positions) survives while the rest resets.
+     */
+    internal fun removeKeyedDescendants(key: Any, keepPersistentSlots: Boolean, runtime: KineticaRuntime) {
+        children?.let { entries ->
+            for (entry in entries) {
+                when (entry) {
+                    is Frame -> entry.removeKeyedDescendants(key, keepPersistentSlots, runtime)
+                    is HashMap<*, *> -> {
+                        val map = childMap(entry)
+                        val match = map[key]
+                        if (match != null) {
+                            if (keepPersistentSlots) {
+                                match.stripForPersistentRetention(runtime)
+                            } else {
+                                map.remove(key)?.dispose(runtime)
+                            }
+                        }
+                        map.values.forEach { it.removeKeyedDescendants(key, keepPersistentSlots, runtime) }
+                    }
+                    else -> {}
+                }
+            }
+        }
+        regions?.values?.forEach { it.removeKeyedDescendants(key, keepPersistentSlots, runtime) }
+    }
+
+    /** Disposes everything except persistence-addressed slots; children reset entirely. */
+    internal fun stripForPersistentRetention(runtime: KineticaRuntime) {
+        skipCache = null
+        forEachChildFrame { it.dispose(runtime) }
+        children = null
+        regions = null
+        val keep = persistentOrdinals
+        for (ordinal in slots.indices) {
+            val value = slots[ordinal] ?: continue
+            if (keep != null && ordinal in keep) continue
+            disposeFrameSlotValue(value)
+            slots[ordinal] = null
+        }
+        removeAllEvents(runtime)
+        deactivated = true
+    }
+
     // --- Lifecycle ---
 
     internal fun commitChecks(generation: Int, runtime: KineticaRuntime) {
@@ -288,6 +350,7 @@ internal class Frame(
     internal fun deactivate(runtime: KineticaRuntime) {
         if (deactivated) return
         deactivated = true
+        skipCache = null
         val transientFlags = growableTransient
         if (transientFlags != null) {
             for (ordinal in slots.indices) {
@@ -309,6 +372,7 @@ internal class Frame(
     }
 
     internal fun dispose(runtime: KineticaRuntime) {
+        skipCache = null
         forEachChildFrame { it.dispose(runtime) }
         children = null
         regions = null

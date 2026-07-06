@@ -16,22 +16,13 @@ public class Ref<T : Any> internal constructor(initial: T? = null) {
 }
 
 public fun <T : Any> ComponentScope.hostRef(ordinal: Int = -1): Ref<T> {
-    if (ordinal >= 0) {
-        return frameSlot(ordinal, transient = true) { Ref<T>() }
-    }
-    val key = nextSlotKey(null, SlotKind.HostRef)
-    registerSlot(SlotMetadata(key, slotId = null, persistent = false, transient = true))
-    return checkedSlot(key, Ref::class) { Ref<T>() }
+    if (ordinal < 0) throw MissingKineticaPluginException("hostRef")
+    return frameSlot(ordinal, transient = true) { Ref<T>() }
 }
 
 public fun <T : Any> ComponentScope.imperativeHandle(ordinal: Int = -1, factory: () -> T): Ref<T> {
-    val ref = if (ordinal >= 0) {
-        frameSlot(ordinal, transient = true) { Ref<T>() }
-    } else {
-        val key = nextSlotKey(null, SlotKind.Handle)
-        registerSlot(SlotMetadata(key, slotId = null, persistent = false, transient = true))
-        checkedSlot(key, Ref::class) { Ref<T>() }
-    }
+    if (ordinal < 0) throw MissingKineticaPluginException("imperativeHandle")
+    val ref = frameSlot(ordinal, transient = true) { Ref<T>() }
     ref.set(factory())
     return ref
 }

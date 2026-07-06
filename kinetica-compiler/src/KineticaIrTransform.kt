@@ -86,8 +86,12 @@ public class KineticaIrGenerationExtension(
             val framer = frameSymbols?.let {
                 KineticaFrameTransformer(file, pluginContext, it, pluginConfiguration.moduleId, ::report)
             }
-            // snapshot: hoisting appends file-level fields while we iterate declarations
-            file.declarations.filterIsInstance<IrSimpleFunction>().forEach { function ->
+            // snapshot: hoisting appends file-level fields while we iterate declarations.
+            // Class members are included: test methods and object members hold render {}
+            // entry lambdas that need region wrapping just like top-level functions.
+            val functions = mutableListOf<IrSimpleFunction>()
+            collectSimpleFunctions(file, functions)
+            functions.forEach { function ->
                 if (function.isUiComponentWithScopeReceiver()) {
                     templater?.transform(function)
                     hoister?.transform(function)
@@ -108,6 +112,19 @@ public class KineticaIrGenerationExtension(
                     "${file.fileEntry.name}: interned ${hoister.propsInterned} const props, " +
                         "hoisted ${hoister.hostsHoisted} static leaf hosts.",
                 )
+            }
+        }
+    }
+
+    private fun collectSimpleFunctions(
+        container: org.jetbrains.kotlin.ir.declarations.IrDeclarationContainer,
+        out: MutableList<IrSimpleFunction>,
+    ) {
+        container.declarations.forEach { declaration ->
+            when (declaration) {
+                is IrSimpleFunction -> out += declaration
+                is IrClass -> collectSimpleFunctions(declaration, out)
+                else -> {}
             }
         }
     }

@@ -149,10 +149,7 @@ public fun ComponentScope.button(
     emit(HostNode("button", props, collect(content), key?.toString(), semantics))
 }
 
-public fun ComponentScope.hostEvent(onEvent: () -> Unit): String =
-    registerHostEvent(-1) { onEvent() }
-
-public fun ComponentScope.hostEvent(ordinal: Int, onEvent: () -> Unit): String =
+public fun ComponentScope.hostEvent(ordinal: Int = -1, onEvent: () -> Unit): String =
     registerHostEvent(ordinal) { onEvent() }
 
 public fun ComponentScope.textInput(
@@ -206,8 +203,6 @@ private fun ComponentScope.registerHostEvent(
     role: Int = EVENT_ROLE_PRIMARY,
     callback: (Any?) -> Unit,
 ): String {
-    if (ordinal >= 0) {
-        return frameEvent(ordinal, role, callback)
-    }
-    return registerHostEvent(key = nextEventKey(SlotKind.HostEvent), callback = callback)
+    if (ordinal < 0) throw MissingKineticaPluginException("host event")
+    return frameEvent(ordinal, role, callback)
 }
