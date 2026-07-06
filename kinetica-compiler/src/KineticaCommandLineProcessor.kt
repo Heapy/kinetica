@@ -38,8 +38,9 @@ public class KineticaCommandLineProcessor : CommandLineProcessor {
         CliOption(
             optionName = KineticaCompilerContract.optionModuleId,
             valueDescription = "<id>",
-            description = "Stable Kinetica module id used as the first segment of generated SlotId values.",
-            required = true,
+            description = "Stable Kinetica module id used as the first segment of generated SlotId values. " +
+                "Defaults to the Kotlin module name of the compilation.",
+            required = false,
             allowMultipleOccurrences = false,
         ),
         CliOption(

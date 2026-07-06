@@ -1,5 +1,6 @@
 package io.heapy.kinetica.compiler
 
+import org.jetbrains.kotlin.config.CommonConfigurationKeys
 import org.jetbrains.kotlin.config.CompilerConfiguration
 import org.jetbrains.kotlin.extensions.ProcessSourcesBeforeCompilingExtension
 import org.jetbrains.kotlin.psi.KtFile
@@ -15,7 +16,9 @@ public data class KineticaCompilerPluginConfiguration(
     public companion object {
         public fun from(configuration: CompilerConfiguration): KineticaCompilerPluginConfiguration =
             KineticaCompilerPluginConfiguration(
-                moduleId = configuration.get(KineticaConfigurationKeys.moduleId) ?: "main",
+                moduleId = configuration.get(KineticaConfigurationKeys.moduleId)
+                    ?: configuration.get(CommonConfigurationKeys.MODULE_NAME)
+                    ?: "main",
                 serverSourceSet = configuration.get(KineticaConfigurationKeys.serverSourceSet) ?: "server",
                 clientSourceSet = configuration.get(KineticaConfigurationKeys.clientSourceSet) ?: "client",
                 transforms = configuration.get(KineticaConfigurationKeys.transforms) != "off",

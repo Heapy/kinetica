@@ -16,7 +16,7 @@ settings:
   kotlin:
       compilerPlugins:
         - id: io.heapy.kinetica.compiler
-          dependency: io.heapy.kinetica:kinetica-compiler:0.2.0
+          dependency: io.heapy.kinetica:kinetica-compiler:0.3.0
           options:
             moduleId: annotated
             sourcePipeline: psi

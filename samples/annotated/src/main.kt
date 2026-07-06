@@ -89,7 +89,7 @@ private fun verifyHoisting() {
 
 fun main() {
     check(KineticaGeneratedCompilerPluginId == "io.heapy.kinetica.compiler")
-    check(KineticaGeneratedCompilerPluginVersion == "0.2.0")
+    check(KineticaGeneratedCompilerPluginVersion == "0.3.0")
     check(KineticaGeneratedComponentTransforms.any { it.componentFqName == "app.annotated.AnnotatedApp" })
     check(KineticaGeneratedPreviews.any { it.componentFqName == "app.annotated.AnnotatedApp" })
 

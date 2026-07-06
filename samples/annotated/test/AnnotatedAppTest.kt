@@ -17,7 +17,7 @@ class AnnotatedAppTest {
     @Test
     fun compilerPluginGeneratesMetadataAndAnnotatedAppRenders() {
         assertEquals("io.heapy.kinetica.compiler", KineticaGeneratedCompilerPluginId)
-        assertEquals("0.2.0", KineticaGeneratedCompilerPluginVersion)
+        assertEquals("0.3.0", KineticaGeneratedCompilerPluginVersion)
         assertEquals(emptyList(), KineticaGeneratedServerActions)
         assertEquals(emptyList(), KineticaGeneratedServerActionStubs)
         assertEquals(emptyList(), KineticaGeneratedClientManifest.components)

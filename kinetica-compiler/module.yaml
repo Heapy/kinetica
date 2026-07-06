@@ -16,7 +16,7 @@ settings:
     enabled: true
     group: io.heapy.kinetica
     artifactId: kinetica-compiler
-    version: 0.2.0
+    version: 0.3.0
     publishSources: true
     pom:
       url: https://github.com/Heapy/kinetica
