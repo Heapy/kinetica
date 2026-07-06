@@ -18,6 +18,12 @@ public object KineticaConfigurationKeys {
     public val clientSourceSet: CompilerConfigurationKey<String> =
         CompilerConfigurationKey.create(KineticaCompilerContract.optionClientSourceSet)
 
+    public val transforms: CompilerConfigurationKey<String> =
+        CompilerConfigurationKey.create(KineticaCompilerContract.optionTransforms)
+
+    public val sourcePipeline: CompilerConfigurationKey<String> =
+        CompilerConfigurationKey.create(KineticaCompilerContract.optionSourcePipeline)
+
     public val compilerPlan: CompilerConfigurationKey<KineticaCompilerPlan> =
         CompilerConfigurationKey.create("kinetica compiler plan")
 
@@ -50,6 +56,20 @@ public class KineticaCommandLineProcessor : CommandLineProcessor {
             required = false,
             allowMultipleOccurrences = false,
         ),
+        CliOption(
+            optionName = KineticaCompilerContract.optionSourcePipeline,
+            valueDescription = "<psi|lightTree>",
+            description = "psi enables the JVM-only source-processing pipeline (scope-free components, generated registrations); default lightTree runs only the IR transforms and works on every backend.",
+            required = false,
+            allowMultipleOccurrences = false,
+        ),
+        CliOption(
+            optionName = KineticaCompilerContract.optionTransforms,
+            valueDescription = "<all|off>",
+            description = "Kill switch for the IR perf transforms (skipping/hoisting); metadata generation is unaffected.",
+            required = false,
+            allowMultipleOccurrences = false,
+        ),
     )
 
     override fun processOption(
@@ -57,7 +77,6 @@ public class KineticaCommandLineProcessor : CommandLineProcessor {
         value: String,
         configuration: CompilerConfiguration,
     ) {
-        configuration.useLightTree = false
         when (option.optionName) {
             KineticaCompilerContract.optionModuleId -> configuration.put(KineticaConfigurationKeys.moduleId, value)
             KineticaCompilerContract.optionServerSourceSet -> {
@@ -65,6 +84,18 @@ public class KineticaCommandLineProcessor : CommandLineProcessor {
             }
             KineticaCompilerContract.optionClientSourceSet -> {
                 configuration.put(KineticaConfigurationKeys.clientSourceSet, value)
+            }
+            KineticaCompilerContract.optionTransforms -> {
+                configuration.put(KineticaConfigurationKeys.transforms, value)
+            }
+            KineticaCompilerContract.optionSourcePipeline -> {
+                configuration.put(KineticaConfigurationKeys.sourcePipeline, value)
+                if (value == "psi") {
+                    // Must happen at option-processing time: the phased pipelines decide how
+                    // to materialize source files before plugin registrars run. Only the JVM
+                    // pipeline supports PSI sources; on JS this option must stay unset.
+                    configuration.useLightTree = false
+                }
             }
             else -> throw CliOptionProcessingException("Unknown Kinetica compiler option: ${option.optionName}")
         }

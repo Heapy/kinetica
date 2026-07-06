@@ -1,0 +1,22 @@
+product: js/app
+
+apply:
+  - ../../common.module-template.yaml
+
+repositories:
+  - mavenLocal
+
+dependencies:
+  - ../../kinetica-runtime
+
+settings:
+  kotlin:
+    compilerPlugins:
+      - id: io.heapy.kinetica.compiler
+        dependency: io.heapy.kinetica:kinetica-compiler:0.2.0
+        options:
+          moduleId: annotated-js
+          serverSourceSet: serverMain
+          clientSourceSet: clientMain
+
+description: "Kotlin/JS smoke for the Kinetica compiler plugin: proves the K2 JS pipeline runs the source transforms."

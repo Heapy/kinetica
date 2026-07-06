@@ -31,6 +31,18 @@ jobs:
             ./kotlin test -m "$module" --platform jvm
           done
 
+      # The compiler plugin resolves from the toolchain's own local repo (.kotlin/home/.m2),
+      # so it must be published before any plugin-enabled module compiles. The two annotated
+      # samples are the plugin's behavior gate: scope-free + receiver-style skip semantics on
+      # JVM, and the IR transform on the K2/JS pipeline.
+      - name: Compiler plugin samples (JVM + JS)
+        run: |
+          set -euo pipefail
+          ./kotlin publish mavenLocal -m kinetica-compiler
+          ./kotlin run -m annotated
+          ./kotlin build -m annotated-js
+          node build/tasks/_annotated-js_linkJs/annotated-js.mjs
+
       - name: Build JS modules
         run: |
           set -euo pipefail

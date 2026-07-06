@@ -2,10 +2,12 @@ package io.heapy.kinetica.compiler
 
 public object KineticaCompilerContract {
     public const val pluginId: String = "io.heapy.kinetica.compiler"
-    public const val pluginVersion: String = "0.1.0"
+    public const val pluginVersion: String = "0.2.0"
     public const val optionModuleId: String = "moduleId"
     public const val optionServerSourceSet: String = "serverSourceSet"
     public const val optionClientSourceSet: String = "clientSourceSet"
+    public const val optionTransforms: String = "transforms"
+    public const val optionSourcePipeline: String = "sourcePipeline"
 
     public val responsibilities: List<CompilerResponsibility> = listOf(
         CompilerResponsibility.SlotIdGeneration,

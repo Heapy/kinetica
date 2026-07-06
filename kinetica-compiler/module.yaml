@@ -16,7 +16,7 @@ settings:
     enabled: true
     group: io.heapy.kinetica
     artifactId: kinetica-compiler
-    version: 0.1.0
+    version: 0.2.0
 
 dependencies:
   - org.jetbrains.kotlin:kotlin-compiler-embeddable:2.4.0: compile-only

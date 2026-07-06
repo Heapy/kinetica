@@ -14,6 +14,7 @@ modules:
   - ./kinetica-test
   - ./kinetica-theme
   - ./samples/annotated
+  - ./samples/annotated-js
   - ./samples/browser-bench
   - ./samples/browser-counter
   - ./samples/browser-tests

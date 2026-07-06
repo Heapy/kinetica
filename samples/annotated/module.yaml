@@ -16,9 +16,10 @@ settings:
   kotlin:
       compilerPlugins:
         - id: io.heapy.kinetica.compiler
-          dependency: io.heapy.kinetica:kinetica-compiler:0.1.0
+          dependency: io.heapy.kinetica:kinetica-compiler:0.2.0
           options:
             moduleId: annotated
+            sourcePipeline: psi
             serverSourceSet: serverMain
             clientSourceSet: clientMain
 

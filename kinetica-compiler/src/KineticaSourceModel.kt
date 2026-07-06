@@ -9,6 +9,7 @@ public data class KineticaCompilerPluginConfiguration(
     val moduleId: String,
     val serverSourceSet: String,
     val clientSourceSet: String,
+    val transforms: Boolean = true,
 ) {
     public companion object {
         public fun from(configuration: CompilerConfiguration): KineticaCompilerPluginConfiguration =
@@ -16,6 +17,7 @@ public data class KineticaCompilerPluginConfiguration(
                 moduleId = configuration.get(KineticaConfigurationKeys.moduleId) ?: "main",
                 serverSourceSet = configuration.get(KineticaConfigurationKeys.serverSourceSet) ?: "server",
                 clientSourceSet = configuration.get(KineticaConfigurationKeys.clientSourceSet) ?: "client",
+                transforms = configuration.get(KineticaConfigurationKeys.transforms) != "off",
             )
     }
 }

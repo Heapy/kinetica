@@ -14,6 +14,7 @@ import org.jetbrains.kotlin.compiler.plugin.CompilerPluginRegistrar
 import org.jetbrains.kotlin.config.CommonConfigurationKeys
 import org.jetbrains.kotlin.config.CompilerConfiguration
 import org.jetbrains.kotlin.config.useLightTree
+import org.jetbrains.kotlin.backend.common.extensions.IrGenerationExtension
 import org.jetbrains.kotlin.extensions.ProcessSourcesBeforeCompilingExtension
 import org.jetbrains.kotlin.psi.KtPsiFactory
 import kotlin.io.path.createTempDirectory
@@ -37,6 +38,13 @@ class CompilerPluginWiringTest {
         processor.processOption(
             processor.pluginOptions.single { option -> option.optionName == KineticaCompilerContract.optionModuleId },
             "sample",
+            configuration,
+        )
+        assertTrue(configuration.useLightTree, "moduleId alone must not switch the source pipeline")
+
+        processor.processOption(
+            processor.pluginOptions.single { option -> option.optionName == KineticaCompilerContract.optionSourcePipeline },
+            "psi",
             configuration,
         )
 
@@ -64,7 +72,7 @@ class CompilerPluginWiringTest {
             configuration,
         )
 
-        assertFalse(configuration.useLightTree)
+        assertTrue(configuration.useLightTree, "source-set options must not switch the source pipeline")
         assertEquals("serverMain", configuration.get(KineticaConfigurationKeys.serverSourceSet))
         assertEquals("clientMain", configuration.get(KineticaConfigurationKeys.clientSourceSet))
 
@@ -134,6 +142,25 @@ class CompilerPluginWiringTest {
 
         val extension = storage.get(ProcessSourcesBeforeCompilingExtension.Companion).single()
         assertIs<KineticaProcessSourcesExtension>(extension)
+        val irExtension = storage.get(IrGenerationExtension.Companion).single()
+        assertIs<KineticaIrGenerationExtension>(irExtension)
+    }
+
+    @Test
+    @OptIn(CompilerConfiguration.Internals::class)
+    fun transformsKillSwitchDisablesIrExtension() {
+        val configuration = CompilerConfiguration().apply {
+            put(KineticaConfigurationKeys.moduleId, "sample")
+            put(KineticaConfigurationKeys.transforms, "off")
+        }
+        val storage = CompilerPluginRegistrar.ExtensionStorage()
+
+        storage.registerKineticaCompilerExtensions(configuration)
+
+        assertTrue(storage.get(IrGenerationExtension.Companion).isEmpty())
+        assertIs<KineticaProcessSourcesExtension>(
+            storage.get(ProcessSourcesBeforeCompilingExtension.Companion).single(),
+        )
     }
 
     @Test
