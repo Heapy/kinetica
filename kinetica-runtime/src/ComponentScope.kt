@@ -30,7 +30,7 @@ public class ComponentScope public constructor(
     private val errorBoundaryStack = mutableListOf<ErrorBoundaryState>()
     private val staticNodes = mutableMapOf<String, Node>()
     // Set by the each construct when it filled the current collect frame from index 0 with
-    // rows certified as "exactly one HostNode keyed by the row key"; consumed by host() to
+    // rows certified as "exactly one node keyed by the row key"; consumed by host() to
     // stamp NodeFlags.CHILDREN_KEYED. Identity-matched against the frame list, so a stale
     // record can never certify someone else's children.
     private var keyedEmissionFrame: MutableList<Node>? = null
@@ -694,7 +694,7 @@ public class ComponentScope public constructor(
                 }
                 outFrame += captured.nodes
                 rowCertified = captured.nodes.size == 1 &&
-                    (captured.nodes[0] as? HostNode)?.key == rowKey
+                    captured.nodes[0].reconcileKey == rowKey
                 rowFrame.skipCache = if (memoize && captured.memoizable) {
                     FrameSkipCache(
                         inputs = listOf(keyed.item),
@@ -734,8 +734,8 @@ public class ComponentScope public constructor(
     }
 
     /**
-     * True iff [children] is exactly the frame a certified each() just filled — every child a
-     * HostNode keyed by its unique row key, nothing emitted before or after. Consumed once.
+     * True iff [children] is exactly the frame a certified each() just filled — every child
+     * keyed by its unique row key, nothing emitted before or after. Consumed once.
      */
     internal fun consumeKeyedChildren(children: List<Node>): Boolean {
         val hit = keyedEmissionFrame === children && keyedEmissionEnd == children.size

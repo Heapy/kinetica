@@ -15,6 +15,7 @@ import io.heapy.kinetica.TemplateNode
 import io.heapy.kinetica.TextNode
 import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.materializeDeep
+import io.heapy.kinetica.reconcileKey
 import io.heapy.kinetica.toSafeHtml
 import kotlinx.serialization.json.JsonObject
 import org.w3c.dom.Document
@@ -725,7 +726,7 @@ public class BrowserKineticaApp(
         }
         val newKeys = HashSet<String>(next.size)
         for (node in next) {
-            val key = node.reconcileKey() ?: return false
+            val key = node.reconcileKey ?: return false
             if (!newKeys.add(key)) return false
         }
         return true
@@ -763,14 +764,14 @@ public class BrowserKineticaApp(
         val result = scratch.prepareResult(next.size)
 
         while (oldStart <= oldEnd && newStart <= newEnd &&
-            mounted[oldStart].reconcileKey() == next[newStart].reconcileKey()
+            mounted[oldStart].reconcileKey() == next[newStart].reconcileKey
         ) {
             result[newStart] = patch(mounted[oldStart], next[newStart], parent, childPathOf(parentPath, newStart))
             oldStart++
             newStart++
         }
         while (oldEnd >= oldStart && newEnd >= newStart &&
-            mounted[oldEnd].reconcileKey() == next[newEnd].reconcileKey()
+            mounted[oldEnd].reconcileKey() == next[newEnd].reconcileKey
         ) {
             result[newEnd] = patch(mounted[oldEnd], next[newEnd], parent, childPathOf(parentPath, newEnd))
             oldEnd--
@@ -808,7 +809,7 @@ public class BrowserKineticaApp(
             val keyToNewIndex = scratch.keyToNewIndex
             keyToNewIndex.clear()
             for (index in newStart..newEnd) {
-                keyToNewIndex[next[index].reconcileKey()!!] = index
+                keyToNewIndex[next[index].reconcileKey!!] = index
             }
             val sourceOldIndex = scratch.prepareSourceOldIndex(middleCount)
             for (oldIndex in oldStart..oldEnd) {
@@ -879,7 +880,7 @@ public class BrowserKineticaApp(
             oldKeys += mounted[index].reconcileKey() ?: return false
         }
         for (index in newStart..newEnd) {
-            if ((next[index].reconcileKey() ?: return false) in oldKeys) {
+            if ((next[index].reconcileKey ?: return false) in oldKeys) {
                 return false
             }
         }
@@ -1094,21 +1095,11 @@ private fun moveDom(mounted: Mounted, parent: Element, anchor: DomNode?) {
 
 private fun Mounted.reconcileKey(): String? =
     when (this) {
-        is MountedHost -> hostNode.key
-        is MountedTemplate -> templateNode.key
+        is MountedHost -> hostNode.reconcileKey
+        is MountedTemplate -> templateNode.reconcileKey
         is MountedText,
         is MountedClientRef,
         is MountedFragment,
-        -> null
-    }
-
-private fun Node.reconcileKey(): String? =
-    when (this) {
-        is HostNode -> key
-        is TemplateNode -> key
-        is FragmentNode,
-        is TextNode,
-        is ClientRef,
         -> null
     }
 

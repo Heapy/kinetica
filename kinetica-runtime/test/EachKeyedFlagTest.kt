@@ -5,7 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 
 /**
- * NodeFlags.CHILDREN_KEYED certification: `each` proves "every child is exactly one HostNode
+ * NodeFlags.CHILDREN_KEYED certification: `each` proves "every child is exactly one node
  * keyed by its unique row key" and `host` stamps the flag — renderers may then run keyed
  * reconciliation without re-scanning children. Anything the proof doesn't cover must stay
  * unflagged (a wrong flag would mis-reconcile), so the poisoning cases matter most.
@@ -16,6 +16,27 @@ import kotlin.test.assertIs
 private data class FlagItem(val id: Int, val label: String)
 
 private val flagItems = listOf(FlagItem(1, "one"), FlagItem(2, "two"), FlagItem(3, "three"))
+
+private val templateRowDefinition = TemplateDefinition(
+    id = "keyed-flag-row-template",
+    skeleton = HostNode(
+        tag = "tr",
+        children = listOf(TextNode("", semantics = null)),
+    ),
+    holes = listOf(TemplateHole(path = "0", kind = TemplateHoleKinds.Text)),
+)
+
+private fun templateRow(item: FlagItem): TemplateNode =
+    templateNode(templateRowDefinition, values = listOf(item.label), key = item.id)
+
+private fun skeletonKeyTemplateRow(item: FlagItem): TemplateNode =
+    templateNode(
+        definition = templateRowDefinition.copy(
+            id = "keyed-flag-row-template-${item.id}",
+            skeleton = templateRowDefinition.skeleton.copy(key = item.id.toString()),
+        ),
+        values = listOf(item.label),
+    )
 
 @UiComponent(skippable = false)
 private fun ComponentScope.KeyedRowsCertified() {
@@ -31,6 +52,42 @@ private fun ComponentScope.KeyedRowsNonMemoized() {
     host("tbody") {
         each(flagItems, key = { it.id }, memoize = false) { item ->
             host("tr", key = item.id) { text(item.label, semantics = null) }
+        }
+    }
+}
+
+@UiComponent(skippable = false)
+private fun ComponentScope.KeyedTemplateRowsCertified() {
+    host("tbody") {
+        each(flagItems, key = { it.id }) { item ->
+            emit(templateRow(item))
+        }
+    }
+}
+
+@UiComponent(skippable = false)
+private fun ComponentScope.KeyedTemplateRowsNonMemoized() {
+    host("tbody") {
+        each(flagItems, key = { it.id }, memoize = false) { item ->
+            emit(templateRow(item))
+        }
+    }
+}
+
+@UiComponent(skippable = false)
+private fun ComponentScope.SkeletonKeyTemplateRowsCertified() {
+    host("tbody") {
+        each(flagItems, key = { it.id }) { item ->
+            emit(skeletonKeyTemplateRow(item))
+        }
+    }
+}
+
+@UiComponent(skippable = false)
+private fun ComponentScope.SkeletonKeyTemplateRowsNonMemoized() {
+    host("tbody") {
+        each(flagItems, key = { it.id }, memoize = false) { item ->
+            emit(skeletonKeyTemplateRow(item))
         }
     }
 }
@@ -126,6 +183,65 @@ class EachKeyedFlagTest {
         render()
         // second render reuses cached rows; certification must come from the row cache
         assertEquals(NodeFlags.CHILDREN_KEYED, render().flags)
+    }
+
+    @Test
+    fun memoizedTemplateRowsCertifyTheParentHostOnFirstRender() {
+        assertEquals(NodeFlags.CHILDREN_KEYED, tbodyFlags { KeyedTemplateRowsCertified() })
+    }
+
+    @Test
+    fun memoizedTemplateRowsKeepTheFlagOnCachedRender() {
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+        fun render(): HostNode = runtime.render(scope) {
+            KeyedTemplateRowsCertified()
+        }.tree as HostNode
+        render()
+        // second render reuses cached rows; certification must come from the row cache
+        assertEquals(NodeFlags.CHILDREN_KEYED, render().flags)
+    }
+
+    @Test
+    fun nonMemoizedTemplateRowsAlsoCertify() {
+        assertEquals(NodeFlags.CHILDREN_KEYED, tbodyFlags { KeyedTemplateRowsNonMemoized() })
+    }
+
+    @Test
+    fun memoizedSkeletonKeyTemplateRowsCertifyTheParentHostOnFirstRender() {
+        assertEquals(NodeFlags.CHILDREN_KEYED, tbodyFlags { SkeletonKeyTemplateRowsCertified() })
+    }
+
+    @Test
+    fun memoizedSkeletonKeyTemplateRowsKeepTheFlagOnCachedRender() {
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+        fun render(): HostNode = runtime.render(scope) {
+            SkeletonKeyTemplateRowsCertified()
+        }.tree as HostNode
+        render()
+        // second render reuses cached rows; certification must come from the row cache
+        assertEquals(NodeFlags.CHILDREN_KEYED, render().flags)
+    }
+
+    @Test
+    fun nonMemoizedSkeletonKeyTemplateRowsCertify() {
+        assertEquals(NodeFlags.CHILDREN_KEYED, tbodyFlags { SkeletonKeyTemplateRowsNonMemoized() })
+    }
+
+    @Test
+    fun reconcileKeyCoversHostTemplateFallbackAndUnkeyedNodes() {
+        val skeletonKeyDefinition = templateRowDefinition.copy(
+            id = "reconcile-key-skeleton",
+            skeleton = templateRowDefinition.skeleton.copy(key = "skeleton"),
+        )
+
+        assertEquals("host", HostNode("tr", key = "host").reconcileKey)
+        assertEquals("template", templateNode(templateRowDefinition, values = listOf("row"), key = "template").reconcileKey)
+        assertEquals("skeleton", templateNode(skeletonKeyDefinition, values = listOf("row")).reconcileKey)
+        assertEquals(null, FragmentNode().reconcileKey)
+        assertEquals(null, TextNode("row", semantics = null).reconcileKey)
+        assertEquals(null, ClientRef("client").reconcileKey)
     }
 
     @Test
