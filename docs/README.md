@@ -18,6 +18,7 @@ server.
 
 ```sh
 cd bench && npm install && cd ..
+./kotlin publish mavenLocal -m kinetica-compiler   # mandatory plugin, resolved via mavenLocal
 node scripts/bundle-docs.mjs
 PORT=8080 ./kotlin run -m docs-site
 open http://127.0.0.1:8080/

@@ -9,6 +9,8 @@ stage="$repo_root/docs/.docker-stage"
 image="${IMAGE:-kinetica-docs}"
 
 cd "$repo_root"
+# The compiler plugin is mandatory for every module and resolves via mavenLocal.
+./kotlin publish mavenLocal -m kinetica-compiler
 ./kotlin package -m docs-site
 node scripts/bundle-docs.mjs
 
