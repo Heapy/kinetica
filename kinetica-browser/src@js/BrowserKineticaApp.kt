@@ -418,7 +418,7 @@ public class BrowserKineticaApp(
                 }
             name == "style" && (tag == "row" || tag == "column") -> {}
             isPublicBrowserAttribute(name, value) -> element.setAttribute(name, value)
-            isPublicBrowserAttribute(name, "") -> element.removeAttribute(name)
+            isRemovablePublicBrowserAttribute(name) -> element.removeAttribute(name)
             else -> {}
         }
     }
@@ -432,7 +432,7 @@ public class BrowserKineticaApp(
             name == "placeholder" && tag == "textInput" -> element.removeAttribute("placeholder")
             name == "direction" -> element.removeAttribute("dir")
             name == "style" && (tag == "row" || tag == "column") -> {}
-            isPublicBrowserAttribute(name, "") -> element.removeAttribute(name)
+            isRemovablePublicBrowserAttribute(name) -> element.removeAttribute(name)
             else -> {}
         }
     }

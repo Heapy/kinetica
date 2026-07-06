@@ -7,7 +7,33 @@ public fun browserTagNameFor(tag: String): String =
     when (tag) {
         "column", "row" -> "div"
         "textInput", "checkbox" -> "input"
-        else -> tag.takeIf(::isSafeBrowserName) ?: "div"
+        "a",
+        "article",
+        "button",
+        "div",
+        "form",
+        "h1",
+        "h2",
+        "h3",
+        "img",
+        "input",
+        "label",
+        "li",
+        "main",
+        "nav",
+        "ol",
+        "p",
+        "section",
+        "span",
+        "table",
+        "tbody",
+        "td",
+        "th",
+        "thead",
+        "tr",
+        "ul",
+        -> tag
+        else -> cachedBrowserTagNameFor(tag)
     }
 
 public fun browserRoleFor(role: Role): String? =
@@ -25,8 +51,20 @@ public fun browserRoleFor(role: Role): String? =
     }
 
 internal fun isPublicBrowserAttribute(name: String, value: String): Boolean =
-    isPublicBrowserAttributeName(name) &&
-        isSafeHtmlAttributeValue(name, value)
+    when {
+        isKnownValueSafePublicBrowserAttributeName(name) -> true
+        isKnownPrivateBrowserAttributeName(name) -> false
+        else -> isPublicBrowserAttributeName(name) &&
+            isSafeHtmlAttributeValue(name, value)
+    }
+
+internal fun isRemovablePublicBrowserAttribute(name: String): Boolean =
+    when {
+        isKnownValueSafePublicBrowserAttributeName(name) -> true
+        isKnownPrivateBrowserAttributeName(name) -> false
+        else -> isPublicBrowserAttributeName(name) &&
+            isSafeHtmlAttributeValue(name, "")
+    }
 
 internal fun browserInputTypeSupportsTextSelection(type: String?): Boolean =
     when (type?.lowercase()) {
@@ -50,7 +88,19 @@ private fun isPublicBrowserAttributeName(name: String): Boolean =
         }
     }
 
+private fun cachedBrowserTagNameFor(tag: String): String =
+    browserTagNameCache[tag]?.let { cached ->
+        cached
+    } ?: (tag.takeIf(::isSafeBrowserName) ?: "div").also { browserTagName ->
+        if (browserTagNameCache.size < BROWSER_TAG_NAME_CACHE_MAX_SIZE) {
+            browserTagNameCache[tag] = browserTagName
+        }
+    }
+
+private const val BROWSER_TAG_NAME_CACHE_MAX_SIZE = 128
 private const val PUBLIC_ATTRIBUTE_NAME_CACHE_MAX_SIZE = 128
+
+private val browserTagNameCache = mutableMapOf<String, String>()
 
 private val publicAttributeNameCache = mutableMapOf(
     "aria-hidden" to true,
@@ -64,13 +114,37 @@ private val publicAttributeNameCache = mutableMapOf(
 
 private fun isUncachedPublicBrowserAttributeName(name: String): Boolean =
     isSafeBrowserName(name) &&
-        name != "enabled" &&
-        name != "checked" &&
-        name != "value" &&
-        name != "direction" &&
-        !name.startsWith("event:") &&
-        !name.startsWith("frame:") &&
-        !name.startsWith("on", ignoreCase = true)
+        !isKnownPrivateBrowserAttributeName(name)
+
+private fun isKnownValueSafePublicBrowserAttributeName(name: String): Boolean =
+    when (name) {
+        "aria-description",
+        "aria-hidden",
+        "aria-label",
+        "class",
+        "data-id",
+        "data-kinetica-test-tag",
+        "data-testid",
+        "id",
+        "role",
+        "tabindex",
+        "title",
+        -> true
+        else -> false
+    }
+
+private fun isKnownPrivateBrowserAttributeName(name: String): Boolean =
+    when (name) {
+        "checked",
+        "direction",
+        "enabled",
+        "value",
+        -> true
+        else ->
+            name.startsWith("event:") ||
+                name.startsWith("frame:") ||
+                name.startsWith("on", ignoreCase = true)
+    }
 
 private fun isSafeBrowserName(name: String): Boolean =
     name.isNotEmpty() &&
