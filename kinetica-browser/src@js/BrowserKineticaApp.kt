@@ -145,9 +145,13 @@ public class BrowserKineticaApp(
             if (mounted != null && dispatchTo(mounted.hostNode, element, event)) {
                 return
             }
-            val templateEvent = candidate as? MountedTemplateEvent
-            if (templateEvent != null && dispatchTo(templateEvent, element, event)) {
-                return
+            val templateEvents = candidate as? MountedTemplateEvents
+            if (templateEvents != null) {
+                val propName = DelegatedEventPropNames[event.type]
+                val templateEvent = if (propName == null) null else templateEvents.byPropName[propName]
+                if (templateEvent != null && dispatchTo(templateEvent, element, event)) {
+                    return
+                }
             }
             if (element == rootElement) {
                 return
@@ -156,88 +160,63 @@ public class BrowserKineticaApp(
         }
     }
 
-    private fun dispatchTo(node: HostNode, element: Element, event: Event): Boolean =
-        when (event.type) {
+    private fun dispatchTo(node: HostNode, element: Element, event: Event): Boolean {
+        val propName = DelegatedEventPropNames[event.type] ?: return false
+        val eventId = node.props[propName] ?: return false
+        return when (event.type) {
             "click" -> {
-                val eventId = node.props["event:onClick"]
-                if (eventId == null) {
-                    false
-                } else {
-                    val enabled = node.props["enabled"]?.toBooleanStrictOrNull() ?: true
-                    if (enabled) {
-                        dispatchAndRender(eventId, Unit)
-                    }
-                    true
+                val enabled = node.props["enabled"]?.toBooleanStrictOrNull() ?: true
+                if (enabled) {
+                    dispatchAndRender(eventId, Unit)
                 }
+                true
             }
             "input" -> {
-                val eventId = node.props["event:onInput"]
-                if (eventId == null) {
-                    false
-                } else {
-                    dispatchAndRender(eventId, (element as HTMLInputElement).value)
-                    true
-                }
+                dispatchAndRender(eventId, (element as HTMLInputElement).value)
+                true
             }
             "change" -> {
-                val eventId = node.props["event:onToggle"]
-                if (eventId == null) {
-                    false
-                } else {
-                    dispatchAndRender(eventId, Unit)
-                    true
-                }
+                dispatchAndRender(eventId, Unit)
+                true
             }
             "keydown" -> {
-                val eventId = node.props["event:onSubmit"]
-                if (eventId == null) {
-                    false
-                } else {
-                    event.preventDefault()
-                    dispatchAndRender(eventId, Unit)
-                    true
-                }
+                event.preventDefault()
+                dispatchAndRender(eventId, Unit)
+                true
             }
             else -> false
         }
+    }
 
-    private fun dispatchTo(binding: MountedTemplateEvent, element: Element, event: Event): Boolean =
-        when (event.type) {
+    private fun dispatchTo(binding: MountedTemplateEvent, element: Element, event: Event): Boolean {
+        val propName = DelegatedEventPropNames[event.type] ?: return false
+        val eventId = binding.eventId ?: return false
+        if (binding.propName != propName) {
+            return false
+        }
+        return when (event.type) {
             "click" -> {
-                if (binding.propName != "event:onClick" || binding.eventId == null) {
-                    false
-                } else {
-                    dispatchAndRender(binding.eventId!!, Unit)
-                    true
+                if (element.getAttribute("disabled") == null) {
+                    dispatchAndRender(eventId, Unit)
                 }
+                true
             }
             "input" -> {
-                if (binding.propName != "event:onInput" || binding.eventId == null) {
-                    false
-                } else {
-                    dispatchAndRender(binding.eventId!!, (element as HTMLInputElement).value)
-                    true
-                }
+                dispatchAndRender(eventId, (element as HTMLInputElement).value)
+                true
             }
             "change" -> {
-                if (binding.propName != "event:onToggle" || binding.eventId == null) {
-                    false
-                } else {
-                    dispatchAndRender(binding.eventId!!, Unit)
-                    true
-                }
+                dispatchAndRender(eventId, Unit)
+                true
             }
             "keydown" -> {
-                if (binding.propName != "event:onSubmit" || binding.eventId == null) {
-                    false
-                } else {
-                    event.preventDefault()
-                    dispatchAndRender(binding.eventId!!, Unit)
-                    true
-                }
+                event.preventDefault()
+                dispatchAndRender(eventId, Unit)
+                true
             }
             else -> false
         }
+    }
 
     private fun dispatchAndRender(eventId: String, payload: Any?) {
         runtime.dispatch(eventId, payload)
@@ -408,7 +387,7 @@ public class BrowserKineticaApp(
             is MountedTemplate -> {
                 mounted.eventBindings.forEach { binding ->
                     if (binding != null) {
-                        binding.element.asDynamic().__kinetica = null
+                        removeTemplateEventBinding(binding)
                     }
                 }
                 parent.removeChild(mounted.root)
@@ -617,12 +596,21 @@ public class BrowserKineticaApp(
                 TemplateHoleKinds.Prop -> {
                     val element = dom as Element
                     val propName = hole.propName ?: return@forEachIndexed
-                    if (nextValue == null) {
-                        if (isRemovablePublicBrowserAttribute(propName)) {
-                            element.removeAttribute(propName)
+                    when {
+                        propName == "enabled" -> {
+                            if (nextValue?.toBooleanStrictOrNull() ?: true) {
+                                element.removeAttribute("disabled")
+                            } else {
+                                element.setAttribute("disabled", "")
+                            }
                         }
-                    } else if (isPublicBrowserAttribute(propName, nextValue)) {
-                        element.setAttribute(propName, nextValue)
+                        nextValue == null -> {
+                            if (isRemovablePublicBrowserAttribute(propName)) {
+                                element.removeAttribute(propName)
+                            }
+                        }
+                        isPublicBrowserAttribute(propName, nextValue) ->
+                            element.setAttribute(propName, nextValue)
                     }
                 }
                 TemplateHoleKinds.EventProp -> {
@@ -634,7 +622,7 @@ public class BrowserKineticaApp(
                         eventId = nextValue,
                     ).also { created ->
                         mounted.eventBindings[index] = created
-                        element.asDynamic().__kinetica = created
+                        templateEventContainer(element).byPropName[propName] = created
                     }
                     binding.eventId = nextValue
                 }
@@ -902,7 +890,7 @@ public class BrowserKineticaApp(
             is MountedTemplate -> {
                 mounted.eventBindings.forEach { binding ->
                     if (binding != null) {
-                        binding.element.asDynamic().__kinetica = null
+                        removeTemplateEventBinding(binding)
                     }
                 }
             }
@@ -996,6 +984,11 @@ private class MountedTemplate(
 ) : Mounted() {
     override val currentNode: Node get() = templateNode
 }
+
+private class MountedTemplateEvents(
+    val element: Element,
+    val byPropName: MutableMap<String, MountedTemplateEvent>,
+)
 
 private class MountedTemplateEvent(
     val element: Element,
@@ -1093,6 +1086,28 @@ private fun moveDom(mounted: Mounted, parent: Element, anchor: DomNode?) {
     }
 }
 
+private fun templateEventContainer(element: Element): MountedTemplateEvents {
+    val candidate: Any? = element.asDynamic().__kinetica
+    val existing = candidate as? MountedTemplateEvents
+    if (existing != null) {
+        return existing
+    }
+    return MountedTemplateEvents(element, mutableMapOf()).also { created ->
+        element.asDynamic().__kinetica = created
+    }
+}
+
+private fun removeTemplateEventBinding(binding: MountedTemplateEvent) {
+    val candidate: Any? = binding.element.asDynamic().__kinetica
+    val container = candidate as? MountedTemplateEvents ?: return
+    if (container.byPropName[binding.propName] === binding) {
+        container.byPropName.remove(binding.propName)
+    }
+    if (container.byPropName.isEmpty()) {
+        container.element.asDynamic().__kinetica = null
+    }
+}
+
 private fun Mounted.reconcileKey(): String? =
     when (this) {
         is MountedHost -> hostNode.reconcileKey
@@ -1109,7 +1124,13 @@ private fun textNeedsElement(node: TextNode): Boolean =
 private fun refreshChildPath(parent: String, index: Int): String =
     if (parent.isEmpty()) index.toString() else "$parent.$index"
 
-private val DelegatedEventTypes = listOf("click", "input", "change", "keydown")
+private val DelegatedEventPropNames = mapOf(
+    "click" to "event:onClick",
+    "input" to "event:onInput",
+    "change" to "event:onToggle",
+    "keydown" to "event:onSubmit",
+)
+private val DelegatedEventTypes: Set<String> = DelegatedEventPropNames.keys
 private const val KEYED_PATCH_SCRATCH_DEPTH = 4
 
 public data class BrowserUiSnapshot(

@@ -57,6 +57,9 @@ internal fun installTestDocument() {
               return escapeText(this._value);
             },
           });
+          TestText.prototype.cloneNode = function () {
+            return new TestText(this._value);
+          };
           function TestElement(tagName, ownerDocument) {
             var self = this;
             TestNode.call(this);
@@ -64,6 +67,11 @@ internal fun installTestDocument() {
             this.ownerDocument = ownerDocument;
             this._attributes = new Map();
             this._children = [];
+            this._listeners = new Map();
+            this.value = "";
+            this.checked = false;
+            this.placeholder = "";
+            this.type = "";
             this.childNodes = {
               item: function (index) {
                 return self._children[index] || null;
@@ -97,6 +105,11 @@ internal fun installTestDocument() {
               return this._children[0] || null;
             },
           });
+          Object.defineProperty(TestElement.prototype, "parentElement", {
+            get: function () {
+              return this.parentNode instanceof TestElement ? this.parentNode : null;
+            },
+          });
           Object.defineProperty(TestElement.prototype, "nextElementSibling", {
             get: function () {
               var sibling = this.nextSibling;
@@ -126,6 +139,22 @@ internal fun installTestDocument() {
             child.parentNode = null;
             return child;
           };
+          TestElement.prototype.cloneNode = function (deep) {
+            var clone = new TestElement(this.tagName.toLowerCase(), this.ownerDocument);
+            this._attributes.forEach(function (value, name) {
+              clone._attributes.set(name, value);
+            });
+            clone.value = this.value;
+            clone.checked = this.checked;
+            clone.placeholder = this.placeholder;
+            clone.type = this.type;
+            if (deep === true) {
+              this._children.forEach(function (child) {
+                clone.insertBefore(child.cloneNode(true), null);
+              });
+            }
+            return clone;
+          };
           TestElement.prototype.setAttribute = function (name, value) {
             this._attributes.set(String(name), String(value));
           };
@@ -135,8 +164,38 @@ internal fun installTestDocument() {
           TestElement.prototype.removeAttribute = function (name) {
             this._attributes.delete(String(name));
           };
-          TestElement.prototype.addEventListener = function () {};
-          TestElement.prototype.removeEventListener = function () {};
+          TestElement.prototype.addEventListener = function (type, listener) {
+            type = String(type);
+            var listeners = this._listeners.get(type);
+            if (listeners == null) {
+              listeners = [];
+              this._listeners.set(type, listeners);
+            }
+            listeners.push(listener);
+          };
+          TestElement.prototype.removeEventListener = function (type, listener) {
+            var listeners = this._listeners.get(String(type));
+            if (listeners == null) return;
+            var index = listeners.indexOf(listener);
+            if (index >= 0) listeners.splice(index, 1);
+          };
+          TestElement.prototype.dispatchEvent = function (event) {
+            if (event.target == null) event.target = this;
+            var current = event.target;
+            while (current != null) {
+              var listeners = current._listeners == null ? null : current._listeners.get(String(event.type));
+              if (listeners != null) {
+                listeners.slice().forEach(function (listener) {
+                  listener(event);
+                });
+              }
+              current = current.parentNode;
+            }
+            return event.defaultPrevented !== true;
+          };
+          TestElement.prototype.click = function () {
+            return this.dispatchEvent(globalThis.__kineticaTestEvent("click", null));
+          };
           TestElement.prototype.querySelector = function () {
             return null;
           };
@@ -190,7 +249,21 @@ internal fun installTestDocument() {
           };
           document.body = document.createElement("body");
           document.activeElement = document.body;
+          globalThis.__kineticaTestEvent = function (type, key) {
+            return {
+              type: String(type),
+              target: null,
+              key: key == null ? undefined : String(key),
+              defaultPrevented: false,
+              preventDefaultCalled: false,
+              preventDefault: function () {
+                this.defaultPrevented = true;
+                this.preventDefaultCalled = true;
+              },
+            };
+          };
           globalThis.Element = TestElement;
+          globalThis.HTMLInputElement = TestElement;
           globalThis.document = document;
         }());
         """,
@@ -199,3 +272,6 @@ internal fun installTestDocument() {
 
 internal fun testDocument(): dynamic =
     js("document")
+
+internal fun testDomEvent(type: String, key: String? = null): dynamic =
+    js("__kineticaTestEvent(type, key)")
