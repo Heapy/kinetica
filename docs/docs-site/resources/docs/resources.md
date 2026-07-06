@@ -79,10 +79,10 @@ errorBoundary(
 - `suspendSubtree(fallback) { … }` renders a subtree from `suspend` code — the streaming
   building block behind [server components](/docs/server-components).
 
-Boundaries render content and fallback in their own key scopes and are *cursor-neutral*: a
-fallback's state identity does not depend on where the content failed, and siblings after a
-boundary keep their state across error/pending/ready transitions — no matter how much of the
-content rendered before it threw.
+Boundaries render content and fallback in their own frames, so branch isolation is
+structural: a fallback's state identity does not depend on where the content failed, and
+siblings after a boundary keep their state across error/pending/ready transitions — no matter
+how much of the content rendered before it threw.
 
 ## Live demo
 

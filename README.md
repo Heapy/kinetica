@@ -61,10 +61,15 @@ Requires the Kotlin Toolchain CLI (`sdk install kotlintoolchain`); everything el
 provisioned by the `./kotlin` wrapper.
 
 ```sh
+./kotlin publish mavenLocal -m kinetica-compiler    # first: every module compiles with the plugin
 ./kotlin test -m kinetica-runtime --platform jvm    # module tests
 ./kotlin build -m browser-todo                      # a JS sample
 node scripts/verify-browser.mjs                     # Playwright verification (server on :4173)
 ```
+
+When working on `kinetica-compiler`: republishing the **same version** to the toolchain-local
+repo does not invalidate consumers' compilation caches — after `publish mavenLocal`, touch a
+source file in the module you are rebuilding (or bump the plugin version).
 
 CI runs JVM tests for all modules, builds the JS targets, and drives the browser + docs
 verification suites (`.github/workflows/ci.yml`). Pushes to `main` publish the docs image to

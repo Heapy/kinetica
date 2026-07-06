@@ -12,9 +12,10 @@ each(todos, key = { it.id }) { todo ->
 
 `each` renders a collection with **per-item identity**. The `key` does two jobs:
 
-1. **State identity.** Every item gets its own key scope: `state`, `event` and effect slots
+1. **State identity.** Every item gets its own frame: `state`, `event` and effect slots
    inside the item belong to that key. Reordering the list moves state with the item; removing
-   the item disposes its slots (and, in the browser, evicts its event handlers).
+   the item disposes its frame — state, effects and event handlers — and a key that later
+   returns starts fresh.
 2. **DOM identity.** Passing the same key to the emitted node (`host("li", key = todo.id)`) lets
    the browser renderer reconcile by key: reorders become element *moves* (computed with a
    longest-increasing-subsequence plan), not teardown-and-rebuild. Swapping two rows in a
@@ -56,9 +57,9 @@ Reverse moves the existing DOM elements — watch selection and element identity
 
 ## keyed
 
-`keyed(key) { … }` opens a key scope manually for a single subtree — useful when a component's
-identity should follow data rather than position (e.g. a detail panel keyed by the selected id,
-so switching ids resets its state deliberately).
+`keyed(key) { … }` gives a single subtree a frame per key — useful when a component's
+identity should follow data rather than the call site (e.g. a detail panel keyed by the
+selected id, so switching ids resets its state deliberately).
 
 ## lazyEach — windowed lists
 

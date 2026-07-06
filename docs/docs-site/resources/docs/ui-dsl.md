@@ -83,19 +83,19 @@ loadingBoundary(fallback = { text("Loading…") }) { ProfileCard() }
 
 ## Conditional subtrees
 
-Plain `if/else` works — different constructs can never corrupt each other's slots (they are
-kind-discriminated), and boundaries isolate their branches automatically. What positional slots
-do **not** give you is separate identity for the *same* construct across branches: two arms that
-each declare a keyless `state` at the same position share it. When each branch should keep its
-own state, give the branch its own key scope:
+Plain `if/else` just works: slot identity is the call site, so the two arms can never share
+or corrupt each other's state — each branch's `state`/effects live in their own slots, and
+boundaries isolate their branches structurally. A branch that stops rendering keeps its state
+cells (it picks up where it left off when it comes back) while its effects, refs and event
+registrations are disposed on the way out.
+
+`keyed` is for *dynamic* identity — one call site rendering different logical instances, where
+switching the key should deliberately reset state:
 
 ```kotlin
-if (editing) {
-    keyed("editor") { NoteEditor(note) }
-} else {
-    keyed("viewer") { NoteViewer(note) }
-}
+keyed(selectedNoteId) { NoteDetail(selectedNoteId) }
 ```
 
-`keyed` scopes every slot, event and effect inside it, exactly like an `each` row — see
+`keyed` gives every slot, event and effect inside it a frame per key, exactly like an `each`
+row — see
 [State & reactivity](/docs/state) for how slots are addressed.

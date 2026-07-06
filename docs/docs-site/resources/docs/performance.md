@@ -59,6 +59,12 @@ current 13-op headline is **1.20×** after adding the 10k-table partial operatio
    classification work, and the benchmark now loads Kinetica through a post-link esbuild production
    bundle instead of the Kotlin Toolchain preview multi-file graph. Startup is 22.6 ms with one JS
    file and an 82 KB gzip payload.
+7. **Frame ordinals (1.20× → 1.11×).** The compiler plugin became mandatory and slot identity
+   moved to compile time: every `state`/`derived`/effect call site gets a static ordinal in a
+   per-component frame, so the hot path reads slots by array index — no key strings, no
+   metadata maps — and commit-time eviction touches only re-rendered frames instead of
+   scanning all slots and events per render. swap1k (0.38×), select1k and swap10k run ahead
+   of React; the 10k partial operations remain the open item.
 
 The full root-cause analysis, phase gates and measurement methodology live in
 `perf-rewrite-design.md` at the repository root.
