@@ -10,6 +10,18 @@
   --code-bg: #eef2f6;
   --code-block-bg: #10151b;
   --code-block-ink: #d5dde6;
+  --code-keyword: #ff7b72;
+  --code-type: #d2a8ff;
+  --code-function: #79c0ff;
+  --code-string: #a5d6ff;
+  --code-number: #ffa657;
+  --code-literal: #ffab70;
+  --code-comment: #8b949e;
+  --code-operator: #ff7b72;
+  --code-property: #7ee787;
+  --code-tag: #7ee787;
+  --code-attribute: #d2a8ff;
+  --code-entity: #ffa657;
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
@@ -90,6 +102,18 @@ a:hover { text-decoration: underline; }
   font-size: 13px; line-height: 1.55; margin: 14px 0;
 }
 .content pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+.content pre .tok-keyword { color: var(--code-keyword); font-weight: 600; }
+.content pre .tok-type { color: var(--code-type); }
+.content pre .tok-function { color: var(--code-function); }
+.content pre .tok-string { color: var(--code-string); }
+.content pre .tok-number { color: var(--code-number); }
+.content pre .tok-boolean, .content pre .tok-null { color: var(--code-literal); }
+.content pre .tok-comment { color: var(--code-comment); font-style: italic; }
+.content pre .tok-operator { color: var(--code-operator); }
+.content pre .tok-punctuation { color: color-mix(in srgb, var(--code-block-ink) 76%, transparent); }
+.content pre .tok-property, .content pre .tok-tag { color: var(--code-property); }
+.content pre .tok-attribute { color: var(--code-attribute); }
+.content pre .tok-entity { color: var(--code-entity); }
 
 .content table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
 .content th, .content td { text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--border); }

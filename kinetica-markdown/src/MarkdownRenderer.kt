@@ -12,6 +12,8 @@ public data class MarkdownOptions(
      * unhandled directives render nothing.
      */
     val directive: (ComponentScope.(name: String, argument: String) -> Boolean)? = null,
+    /** Server-side fenced-code highlighter. Unsupported languages render as plain escaped text. */
+    val codeHighlighter: CodeHighlighter = MarkdownCodeHighlighter,
 )
 
 /** Parses [source] and emits it as Kinetica host nodes. */
@@ -42,12 +44,7 @@ private fun ComponentScope.renderBlock(block: MdBlock, options: MarkdownOptions)
 
         is MdParagraph -> host("p") { renderInlines(block.inlines) }
 
-        is MdCodeBlock -> host("pre") {
-            val props = block.language?.let { mapOf("class" to "language-$it") } ?: emptyMap()
-            host("code", props = props) {
-                text(block.code, semantics = null)
-            }
-        }
+        is MdCodeBlock -> highlightedCodeBlock(block.code, block.language, options.codeHighlighter)
 
         is MdList -> host(if (block.ordered) "ol" else "ul") {
             block.items.forEach { item ->
@@ -56,7 +53,14 @@ private fun ComponentScope.renderBlock(block: MdBlock, options: MarkdownOptions)
         }
 
         is MdQuote -> host("blockquote") {
-            markdownBlocks(block.blocks, MarkdownOptions(headingAnchors = false, directive = null))
+            markdownBlocks(
+                block.blocks,
+                MarkdownOptions(
+                    headingAnchors = false,
+                    directive = null,
+                    codeHighlighter = options.codeHighlighter,
+                ),
+            )
         }
 
         is MdRule -> host("hr")

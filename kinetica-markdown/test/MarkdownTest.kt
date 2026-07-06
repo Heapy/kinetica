@@ -45,6 +45,86 @@ class MarkdownTest {
     }
 
     @Test
+    fun kotlinCodeBlocksAreHighlightedOnTheServer() {
+        val html = render(
+            """
+            ```kotlin
+            fun greet(name: String) = "Hello, ${'$'}name"
+            ```
+            """.trimIndent(),
+        )
+        assertTrue("<span class=\"tok-keyword\">fun</span>" in html, html)
+        assertTrue("<span class=\"tok-function\">greet</span>" in html, html)
+        assertTrue("<span class=\"tok-type\">String</span>" in html, html)
+        assertTrue("<span class=\"tok-string\">\"Hello, ${'$'}name\"</span>" in html, html)
+    }
+
+    @Test
+    fun jsonCodeBlocksAreHighlightedOnTheServer() {
+        val html = render(
+            """
+            ```json
+            {"enabled": true, "count": 3, "items": null}
+            ```
+            """.trimIndent(),
+        )
+        assertTrue("<span class=\"tok-property\">\"enabled\"</span>" in html, html)
+        assertTrue("<span class=\"tok-boolean\">true</span>" in html, html)
+        assertTrue("<span class=\"tok-number\">3</span>" in html, html)
+        assertTrue("<span class=\"tok-null\">null</span>" in html, html)
+    }
+
+    @Test
+    fun htmlCodeBlocksAreHighlightedOnTheServer() {
+        val html = render(
+            """
+            ```html
+            <a href="/docs">Docs &amp; API</a>
+            ```
+            """.trimIndent(),
+        )
+        assertTrue("<span class=\"tok-tag\">a</span>" in html, html)
+        assertTrue("<span class=\"tok-attribute\">href</span>" in html, html)
+        assertTrue("<span class=\"tok-string\">\"/docs\"</span>" in html, html)
+        assertTrue("<span class=\"tok-entity\">&amp;amp;</span>" in html, html)
+    }
+
+    @Test
+    fun unsupportedCodeLanguagesFallBackToPlainCode() {
+        val html = render(
+            """
+            ```brainfuck
+            ++<--
+            ```
+            """.trimIndent(),
+        )
+        assertTrue("language-brainfuck" in html, html)
+        assertTrue("++&lt;--" in html, html)
+        assertTrue("tok-keyword" !in html, html)
+    }
+
+    @Test
+    fun codeHighlighterRegistryCanAddLanguages() {
+        val highlighter = CodeHighlighterRegistry(
+            languages = mapOf(
+                "sql" to LanguageCodeHighlighter { code ->
+                    listOf(CodeToken(code, CodeTokenKind.Keyword))
+                },
+            ),
+        )
+        val html = render(
+            """
+            ```sql
+            select 1
+            ```
+            """.trimIndent(),
+            MarkdownOptions(codeHighlighter = highlighter),
+        )
+        assertTrue("language-sql" in html, html)
+        assertTrue("<span class=\"tok-keyword\">select 1</span>" in html, html)
+    }
+
+    @Test
     fun listsLinksQuotesTablesAndRules() {
         val html = render(
             """

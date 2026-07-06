@@ -26,7 +26,7 @@ inside a router entry, be server-rendered, be snapshot-tested, and inherit page 
 | Headings `#`–`######` | h2+ get `id` anchors derived from their text |
 | Paragraphs, `**bold**`, `*italic*`, `` `code` `` | inline nesting supported |
 | Links `[label](href)` | hrefs pass the runtime's URL sanitizer — `javascript:` never renders |
-| Fenced code blocks ```` ```lang ```` | language lands as `class="language-…"` |
+| Fenced code blocks ```` ```lang ```` | server-side spans for Kotlin, JSON, and HTML; unsupported languages keep `class="language-…"` |
 | Lists `-` / `1.` | single level, continuation lines |
 | Blockquotes, `---` rules, tables | GFM-style pipe tables |
 | Directives `::: name argument` | extension point, see below |
