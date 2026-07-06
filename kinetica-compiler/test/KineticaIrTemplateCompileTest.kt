@@ -77,6 +77,45 @@ class KineticaIrTemplateCompileTest {
         }
     }
 
+    @Test
+    fun userPropsFunctionIsNotTreatedAsPropsOfTemplateInput() {
+        harness.compile(mapOf("app/UserPropsTemplate.kt" to USER_PROPS_TEMPLATE)).use { compiled ->
+            val facade = compiled.loadClass("app.UserPropsTemplateKt")
+            val rendered = renderUserProps(facade, "Inbox")
+            val materialized = if (rendered is TemplateNode) rendered.materialize() else rendered
+
+            assertEquals(
+                HostNode(
+                    tag = "span",
+                    props = mapOf("class" to "computed-x"),
+                    children = listOf(io.heapy.kinetica.TextNode("Inbox", semantics = null)),
+                    flags = NodeFlags.CHILDREN_SINGLE_TEXT,
+                ),
+                materialized,
+            )
+            compiled.assertTransformDidNotFire("emitted 1 template definitions")
+        }
+    }
+
+    @Test
+    fun textUsingContentLambdaReceiverIsNotLiftedIntoTemplateCallsite() {
+        harness.compile(mapOf("app/ReceiverTextTemplate.kt" to RECEIVER_TEXT_TEMPLATE)).use { compiled ->
+            compiled.assertTransformDidNotFire("emitted 1 template definitions")
+            val facade = compiled.loadClass("app.ReceiverTextTemplateKt")
+            val rendered = renderReceiverText(facade)
+
+            assertEquals(
+                HostNode(
+                    tag = "p",
+                    props = mapOf("class" to "x"),
+                    children = listOf(io.heapy.kinetica.TextNode("scope-text", semantics = null)),
+                    flags = NodeFlags.CHILDREN_SINGLE_TEXT,
+                ),
+                rendered,
+            )
+        }
+    }
+
     private fun renderLabel(facade: Class<*>, label: String): Node {
         val render = facade.getDeclaredMethod(
             "renderLabel",
@@ -108,6 +147,29 @@ class KineticaIrTemplateCompileTest {
         return render.invoke(null, runtime, scope, label, tag, className) as Node
     }
 
+    private fun renderUserProps(facade: Class<*>, label: String): Node {
+        val render = facade.getDeclaredMethod(
+            "renderUserProps",
+            KineticaRuntime::class.java,
+            ComponentScope::class.java,
+            String::class.java,
+        )
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+        return render.invoke(null, runtime, scope, label) as Node
+    }
+
+    private fun renderReceiverText(facade: Class<*>): Node {
+        val render = facade.getDeclaredMethod(
+            "renderReceiverText",
+            KineticaRuntime::class.java,
+            ComponentScope::class.java,
+        )
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+        return render.invoke(null, runtime, scope) as Node
+    }
+
     private companion object {
         private const val TEMPLATE_SAMPLE = """
             package app
@@ -130,6 +192,59 @@ class KineticaIrTemplateCompileTest {
             fun renderLabel(runtime: KineticaRuntime, scope: ComponentScope, label: String): Node =
                 runtime.render(scope) {
                     Label(label)
+                }.tree
+        """
+
+        private const val USER_PROPS_TEMPLATE = """
+            package app
+
+            import io.heapy.kinetica.ComponentScope
+            import io.heapy.kinetica.KineticaRuntime
+            import io.heapy.kinetica.Node
+            import io.heapy.kinetica.UiComponent
+            import io.heapy.kinetica.host
+            import io.heapy.kinetica.propsOf
+            import io.heapy.kinetica.text
+
+            fun myProps(name: String, value: String): Map<String, String> =
+                propsOf(name, "computed-" + value)
+
+            @UiComponent(skippable = false)
+            fun ComponentScope.UserProps(label: String) {
+                host("span", props = myProps("class", "x")) {
+                    text(label, semantics = null)
+                }
+            }
+
+            fun renderUserProps(runtime: KineticaRuntime, scope: ComponentScope, label: String): Node =
+                runtime.render(scope) {
+                    UserProps(label)
+                }.tree
+        """
+
+        private const val RECEIVER_TEXT_TEMPLATE = """
+            package app
+
+            import io.heapy.kinetica.ComponentScope
+            import io.heapy.kinetica.KineticaRuntime
+            import io.heapy.kinetica.Node
+            import io.heapy.kinetica.UiComponent
+            import io.heapy.kinetica.host
+            import io.heapy.kinetica.propsOf
+            import io.heapy.kinetica.text
+
+            fun ComponentScope.scopeExtension(): String = "scope-text"
+
+            @UiComponent(skippable = false)
+            fun ComponentScope.ReceiverText() {
+                host("p", props = propsOf("class", "x")) {
+                    text(scopeExtension(), semantics = null)
+                }
+            }
+
+            fun renderReceiverText(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                runtime.render(scope) {
+                    ReceiverText()
                 }.tree
         """
 

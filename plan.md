@@ -52,10 +52,12 @@ history of `perf-rewrite-design.md` (up to commit `7cfde69`).
 - Test: exit-group over `host("div") { text("Item") }` → after asLeaving patch, the DOM text is wrapped in `<span data-kinetica-leaving>` (runtime flags assertion + JS regression).
 
 ### KNT-0002 (was F2) — Template transform: props callee unchecked (wrong DOM)
+**Status:** Done (2026-07-07, codex TDD) — `propsOfFqName` added to `KineticaTemplateSymbols`; props branch requires it before `constPropsPairs` (hoister-mirrored). RED reproduced the wrong-DOM bake (`{class=x}` from `myProps`); compiler 62/62, runtime 181/181, both annotated samples green.
 - `kinetica-compiler/src/KineticaIrTemplate.kt` L179-183: the props branch accepts any `IrCall`. Require `propsArgument.symbol.owner.kotlinFqName == propsOf` (add `propsOfFqName` to `KineticaTemplateSymbols`; the hoister's check at `KineticaIrHoist.kt:124-125` is the model — implement via the shared helper from KNT-0017).
 - Test (harness): a component with `props = myProps("class", "x")` must NOT template (assert no "emitted N template definitions" message + rendered tree keeps computed props).
 
 ### KNT-0003 (was F3) — Template transform: unguarded expression lift (compiler ICE risk)
+**Status:** Done (2026-07-07, codex TDD) — `referencesLambdaLocalSymbol` walker: forbidden = content lambda's parameters (incl. extension receiver) + body IrVariables outside the value expression; value-internal declarations stay allowed; outer params never disqualify. RED reproduced the real ICE (`No mapping for symbol: ... $this$host`).
 - `KineticaIrTemplate.kt` `extractSingleTextTemplate` (L175-203): before lifting `textValue`, walk it for `IrGetValue`/receiver references to symbols declared inside the content lambda (the lambda's own parameters incl. its ComponentScope receiver, and any local declarations). Any hit → return null (callsite stays on the current path). Implementation: collect the lambda's `IrValueSymbol`s (its receiver/params + declarations directly inside it, EXCLUDING symbols declared within the value expression itself or nested lambdas' own params — over-disqualifying is safe, but outer component params/receiver must NOT disqualify or valid `text(label, semantics = null)` stops templating).
 - Test (harness): `host("p", props = propsOf("class","x")) { text(scopeExtension(), semantics = null) }` where `scopeExtension()` is a ComponentScope extension — must compile, not template, and render correctly.
 

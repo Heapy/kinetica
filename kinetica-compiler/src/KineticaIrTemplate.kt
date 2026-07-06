@@ -7,6 +7,7 @@ package io.heapy.kinetica.compiler
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
 import org.jetbrains.kotlin.backend.common.lower.DeclarationIrBuilder
 import org.jetbrains.kotlin.descriptors.DescriptorVisibilities
+import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.builders.declarations.buildField
 import org.jetbrains.kotlin.ir.builders.irCall
 import org.jetbrains.kotlin.ir.builders.irGetField
@@ -18,17 +19,23 @@ import org.jetbrains.kotlin.ir.declarations.IrField
 import org.jetbrains.kotlin.ir.declarations.IrFile
 import org.jetbrains.kotlin.ir.declarations.IrParameterKind
 import org.jetbrains.kotlin.ir.declarations.IrSimpleFunction
+import org.jetbrains.kotlin.ir.declarations.IrVariable
 import org.jetbrains.kotlin.ir.expressions.IrCall
 import org.jetbrains.kotlin.ir.expressions.IrConst
 import org.jetbrains.kotlin.ir.expressions.IrConstKind
 import org.jetbrains.kotlin.ir.expressions.IrExpression
 import org.jetbrains.kotlin.ir.expressions.IrFunctionExpression
+import org.jetbrains.kotlin.ir.expressions.IrGetValue
 import org.jetbrains.kotlin.ir.symbols.IrSimpleFunctionSymbol
+import org.jetbrains.kotlin.ir.symbols.IrValueSymbol
 import org.jetbrains.kotlin.ir.types.IrType
 import org.jetbrains.kotlin.ir.types.makeNullable
 import org.jetbrains.kotlin.ir.util.defaultType
 import org.jetbrains.kotlin.ir.util.kotlinFqName
 import org.jetbrains.kotlin.ir.visitors.IrElementTransformerVoid
+import org.jetbrains.kotlin.ir.visitors.IrVisitorVoid
+import org.jetbrains.kotlin.ir.visitors.acceptChildrenVoid
+import org.jetbrains.kotlin.ir.visitors.acceptVoid
 import org.jetbrains.kotlin.ir.visitors.transformChildrenVoid
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
@@ -42,6 +49,7 @@ internal class KineticaTemplateSymbols private constructor(
     val singleTextTemplateDefinition: IrSimpleFunctionSymbol,
     val listOf: IrSimpleFunctionSymbol,
     val propsOfFunctions: Collection<IrSimpleFunctionSymbol>,
+    val propsOfFqName: FqName,
     val templateDefinitionType: IrType,
 ) {
     companion object {
@@ -74,6 +82,7 @@ internal class KineticaTemplateSymbols private constructor(
                 singleTextTemplateDefinition = singleTextTemplateDefinition,
                 listOf = listOf,
                 propsOfFunctions = propsOfFunctions,
+                propsOfFqName = FqName("io.heapy.kinetica.propsOf"),
                 templateDefinitionType = templateDefinition.owner.defaultType,
             )
         }
@@ -178,7 +187,10 @@ internal class KineticaTemplateTransformer(
         if (tag.kind != IrConstKind.String) return null
         val props = when (val propsArgument = argumentOf("props")) {
             null -> return null
-            is IrCall -> propsArgument.constPropsPairs() ?: return null
+            is IrCall -> {
+                if (propsArgument.symbol.owner.kotlinFqName != symbols.propsOfFqName) return null
+                propsArgument.constPropsPairs() ?: return null
+            }
             else -> return null
         }
         if (argumentOf("frameProps") != null) return null
@@ -186,7 +198,8 @@ internal class KineticaTemplateTransformer(
         if (semantics != null && !semantics.isNullConst()) return null
         val key = argumentOf("key")
         if (key != null && !key.isNullConst()) return null
-        val textCall = (argumentOf("content") as? IrFunctionExpression)?.singleStatementCall() ?: return null
+        val content = argumentOf("content") as? IrFunctionExpression ?: return null
+        val textCall = content.singleStatementCall() ?: return null
         if (textCall.symbol.owner.kotlinFqName != TEXT_FQ) return null
         val strikethrough = textCall.argumentOf("strikethrough")
         if (strikethrough != null && !strikethrough.isFalseConst()) return null
@@ -195,6 +208,7 @@ internal class KineticaTemplateTransformer(
         if (!textCall.hasExplicitNullArgument("semantics")) return null
         val value = textCall.argumentOf("value") ?: return null
         if (value is IrConst && value.kind == IrConstKind.String) return null
+        if (content.referencesLambdaLocalSymbol(value)) return null
         return SingleTextTemplate(
             tag = tag.value as String,
             props = props,
@@ -205,6 +219,41 @@ internal class KineticaTemplateTransformer(
     private fun IrFunctionExpression.singleStatementCall(): IrCall? {
         val body = function.body as? org.jetbrains.kotlin.ir.expressions.IrBlockBody ?: return null
         return body.statements.singleOrNull() as? IrCall
+    }
+
+    private fun IrFunctionExpression.referencesLambdaLocalSymbol(value: IrExpression): Boolean {
+        val forbidden = mutableSetOf<IrValueSymbol>()
+        function.parameters.forEach { parameter ->
+            forbidden += parameter.symbol
+        }
+        function.body?.acceptVoid(object : IrVisitorVoid() {
+            override fun visitElement(element: IrElement) {
+                if (element !== value) {
+                    element.acceptChildrenVoid(this)
+                }
+            }
+
+            override fun visitVariable(declaration: IrVariable) {
+                forbidden += declaration.symbol
+                super.visitVariable(declaration)
+            }
+        })
+        var found = false
+        value.acceptVoid(object : IrVisitorVoid() {
+            override fun visitElement(element: IrElement) {
+                if (!found) {
+                    element.acceptChildrenVoid(this)
+                }
+            }
+
+            override fun visitGetValue(expression: IrGetValue) {
+                if (expression.symbol in forbidden) {
+                    found = true
+                }
+                super.visitGetValue(expression)
+            }
+        })
+        return found
     }
 
     private fun IrCall.argumentOf(name: String): IrExpression? {
