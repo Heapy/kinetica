@@ -14,6 +14,7 @@ import io.heapy.kinetica.event
 import io.heapy.kinetica.host
 import io.heapy.kinetica.state
 import io.heapy.kinetica.text
+import io.heapy.kinetica.UiComponent
 import kotlin.random.Random
 
 data class RowData(val id: Int, val label: String)
@@ -112,6 +113,10 @@ private class Animator {
 
 private var animTick = 0
 
+// @UiComponent enables IR const-props interning + leaf-host hoisting (td.col-rest,
+// span.remove-icon become shared singletons). requestRender is a function type, so the
+// component is not skippable — which also keeps each-row memoization intact.
+@UiComponent
 fun ComponentScope.BenchApp(requestRender: () -> Unit = {}) {
     var rows by state(key = "rows") { emptyList<RowData>() }
     val selection = state(key = "selection") { SelectionHolder() }.value
@@ -227,6 +232,7 @@ private fun updateTreeLeaves(node: TreeNodeData, tick: Int, counter: IntArray): 
     return node.copy(children = node.children.map { updateTreeLeaves(it, tick, counter) })
 }
 
+@UiComponent(skippable = false)
 private fun ComponentScope.treeNode(node: TreeNodeData, depth: Int) {
     host(
         "div",
@@ -242,6 +248,9 @@ private fun ComponentScope.treeNode(node: TreeNodeData, depth: Int) {
     }
 }
 
+// Zero stable inputs: the whole tree app is skippable, guarded by the runtime's cell
+// dependency + state-write-version tracking — the tree driver's four ops verify behavior.
+@UiComponent
 fun ComponentScope.TreeApp() {
     var tree by state(key = "tree") { TreeNodeData(id = 0, label = "empty", children = emptyList()) }
     var tick by state(key = "tick") { 0 }

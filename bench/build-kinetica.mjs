@@ -20,6 +20,9 @@ function run(cmd, args, cwd) {
 }
 
 const kotlin = process.platform === "win32" ? "kotlin.bat" : "./kotlin";
+// browser-bench compiles through the Kinetica compiler plugin, resolved from the
+// toolchain-local repo — publish it first so the bundle always uses the current plugin.
+run(kotlin, ["publish", "mavenLocal", "-m", "kinetica-compiler"], repoRoot);
 run(kotlin, ["build", "-m", "browser-bench"], repoRoot);
 
 if (!existsSync(linkEntry)) {

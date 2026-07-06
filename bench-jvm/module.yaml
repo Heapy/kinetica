@@ -3,8 +3,19 @@ product: jvm/app
 apply:
   - ../common.module-template.yaml
 
+repositories:
+  - mavenLocal
+
 dependencies:
   - ../kinetica-runtime
   - ../kinetica-markdown
+
+settings:
+  kotlin:
+    compilerPlugins:
+      - id: io.heapy.kinetica.compiler
+        dependency: io.heapy.kinetica:kinetica-compiler:0.2.0
+        options:
+          moduleId: bench-jvm
 
 description: "JVM microbenchmarks: reactive-core propagation, render-pipeline Node construction, and markdown SSR throughput. Writes bench/results/jvm/results.json."

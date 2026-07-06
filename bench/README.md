@@ -74,11 +74,14 @@ report/generate.mjs     ← results JSONs → report/index.html (self-contained 
 ```
 
 The Kinetica apps live outside this directory: `../samples/browser-bench/` (module
-`browser-bench`, built through `build-kinetica.mjs`: first `../kotlin build -m browser-bench`,
-then esbuild bundles/minifies the linked Kotlin/JS graph into
+`browser-bench`, built through `build-kinetica.mjs`: publishes the Kinetica compiler plugin
+to the toolchain-local repo, runs `../kotlin build -m browser-bench` (which compiles through
+that plugin — IR const-props interning + static leaf-host hoisting), then esbuild
+bundles/minifies the linked Kotlin/JS graph into
 `../build/tasks/_browser-bench_bundle/browser-bench.bundle.mjs`). Table app at
 `../samples/browser-bench/web/index.html`, tree app at the same page with `?app=tree`.
-Renderer performance work is planned in `../perf-rewrite-design.md`.
+`part-kinetica-preplugin-before.json` snapshots the last pre-plugin numbers. Renderer work:
+`../perf-rewrite-design.md`; compiler work: `../compiler-perf-design.md`.
 
 ## What is measured
 

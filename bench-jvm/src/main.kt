@@ -4,6 +4,7 @@ import io.heapy.kinetica.Cell
 import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.KineticaRuntime
 import io.heapy.kinetica.MutableCell
+import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.button
 import io.heapy.kinetica.derived
 import io.heapy.kinetica.each
@@ -81,6 +82,9 @@ private fun buildRows(count: Int, from: Int = 1): List<Row> =
 
 // The browser-bench table structure, minus DOM: measures host-DSL walking, Node
 // allocation and event registration — the create-op cost that P3 targets.
+// @UiComponent enables the IR hoisting/interning transforms (rows: List is unstable, so no
+// skippable wrap — which also keeps each-row memoization intact).
+@UiComponent
 private fun ComponentScope.benchTable(rows: List<Row>) {
     host("div") {
         host("table", props = propsOf("class", "test-data")) {

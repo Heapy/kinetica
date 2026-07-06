@@ -3,8 +3,19 @@ product: js/app
 apply:
   - ../../common.module-template.yaml
 
+repositories:
+  - mavenLocal
+
 dependencies:
   - ../../kinetica-browser
   - ../../kinetica-runtime
+
+settings:
+  kotlin:
+    compilerPlugins:
+      - id: io.heapy.kinetica.compiler
+        dependency: io.heapy.kinetica:kinetica-compiler:0.2.0
+        options:
+          moduleId: browser-bench
 
 description: "js-framework-benchmark style keyed table app for performance comparison."

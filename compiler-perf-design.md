@@ -1,6 +1,37 @@
 # Compiler plugin: perf transforms — implement, test, apply
 
-Status: plan · 2026-07-06 · owner: kinetica-compiler
+Status: K0–K3 implemented · 2026-07-06 · owner: kinetica-compiler
+
+**Implementation log (2026-07-06):**
+- **K0** — done, with a decisive finding that reversed the phase design: source rewriting
+  cannot serve K2/JS (see §K0), so the perf transforms moved to a new `IrGenerationExtension`
+  (`KineticaIrTransform.kt`). PSI source pipeline is opt-in per module (`sourcePipeline: psi`,
+  used by `samples/annotated`); `samples/annotated-js` proves the IR path on Kotlin/JS.
+  Plugin publishes as 0.2.0 to the toolchain-local repo (`.kotlin/home/.m2`); CI and
+  `bench/build-kinetica.mjs` publish before plugin-enabled builds.
+- **K1** — done: semantic stability inference on resolved IR types (primitives/String/enums/
+  val-only data classes/@Stable assertion; unknown or function types → unstable), receiver-style
+  `skippableNode` wrapping, `@UiComponent(skippable = false)` opt-out, `transforms=off` kill
+  switch, LOGGING diagnostics naming the unstable parameter. Skip semantics verified
+  behaviorally on JVM and JS (render-count flat on unchanged inputs, bumps on change).
+- **K2** — done at leaf scope (`KineticaIrHoist.kt`): const-`propsOf` interning + fully-static
+  leaf `host()` hoisting into file-level singletons, structurally deduplicated; verified by
+  cross-render reference-equality checks in both annotated samples. Whole-subtree hoisting
+  (static text children etc.) remains open — see §K2 follow-up.
+- **K3** — done: plugin applied to `bench-jvm` (`benchTable`) and `samples/browser-bench`
+  (`BenchApp` hoist-only — function-type param keeps it unskippable, which also avoids the
+  skippable-inside-each memoization conflict; `TreeApp` fully skippable; `treeNode` opted out).
+  All 13 browser ops, animation, memory hooks and all four tree ops pass through the
+  plugin-built bundle. Measured (M4 Max, quick passes): bench-jvm `render_create_1k`
+  2.731 → 2.675 ms (~2%, noise-level — JVM allocation is cheap); browser create-10k A/B via
+  the kill switch: 301.5 → 291.1 ms median, GC 118 → 113 ms (~3%, at the noise edge). The
+  narrow leaf-only scope explains the modest delta; the structural effect (reference-equal
+  leaves riding the `===` diff path) also isn't isolated by create ops. Bundle 76.9 → 77.4 KB
+  gz. Pre-plugin part snapshot: `bench/results/part-kinetica-preplugin-before.json`.
+  **Discovered constraint:** `skippableNode` inside a memoized `each` row calls
+  `markEachCapturesUnsafe()`, disabling row memoization — components inside keyed rows must
+  not be skippable until the runtime reconciles the two caches (tracked for K4/K5 planning).
+- **K4/K5** — not started.
 Companion to `perf-rewrite-design.md` (renderer, P0–P3 done, geomean 1.25×): every number in
 that story was measured **without** the plugin. This plan makes the compiler contribute, safely.
 
