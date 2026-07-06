@@ -72,6 +72,9 @@ jobs:
           npm install --no-audit --no-fund playwright
           npx playwright install --with-deps chromium
 
+      - name: Install bench Node dependencies
+        run: npm ci --prefix bench --no-audit --no-fund
+
       - name: Browser verification (samples)
         env:
           PLAYWRIGHT_IMPORT: ${{ github.workspace }}/.tools/playwright/node_modules/playwright/index.mjs
@@ -89,6 +92,7 @@ jobs:
         run: |
           set -euo pipefail
           ./kotlin package -m docs-site
+          node scripts/bundle-docs.mjs
           PORT=8080 java -jar build/tasks/_docs-site_executableJarJvm/docs-site-jvm-executable.jar &
           SITE_PID=$!
           for i in $(seq 1 60); do

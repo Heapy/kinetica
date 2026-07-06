@@ -29,6 +29,9 @@ jobs:
         id: image
         run: echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/kinetica-docs" >> "$GITHUB_OUTPUT"
 
+      - name: Install bench Node dependencies
+        run: npm ci --prefix bench --no-audit --no-fund
+
       - name: Stage image context
         run: STAGE_ONLY=1 ./docs/docker-build.sh
 
