@@ -413,6 +413,7 @@ public fun Node.asLeaving(): Node = when (this) {
         props = props.filterKeys { !it.startsWith("event:") },
         children = children.map { it.asLeaving() },
         semantics = semantics.copyLeaving(),
+        flags = flags.stripChildShapeFlagsForReplacedChildren(),
     )
     is TextNode -> copy(semantics = semantics.copyLeaving())
     is ClientRef -> copy(semantics = semantics.copyLeaving())

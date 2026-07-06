@@ -45,6 +45,7 @@ history of `perf-rewrite-design.md` (up to commit `7cfde69`).
 ## Correctness fixes (K5/K6 review)
 
 ### KNT-0001 (was F1) — Stale `CHILDREN_SINGLE_TEXT` flag: make the fast path self-defending + strip flags in `asLeaving`
+**Status:** Done (2026-07-07, codex TDD) — guard bails `patchSingleTextChild` on `wrapped`/`textNeedsElement`; `asLeaving` strips `CHILDREN_SINGLE_TEXT` via shared `stripChildShapeFlagsForReplacedChildren()` (Node.kt, next to NodeFlags); runtime flags test + JS DOM regression (leaving span wrap) green; DOM shim extracted to shared `kinetica-browser/test@js/TestDom.kt` for the upcoming renderer tickets.
 - `kinetica-browser/src@js/BrowserKineticaApp.kt` `patchSingleTextChild` (L684): add guards — bail to the slow path when `mountedText.wrapped` is true OR `textNeedsElement(nextText)` is true. This makes ANY lying/stale flag degrade safely instead of freezing text (covers future predicate drift too).
 - `kinetica-runtime/src/Boundary.kt` `asLeaving()` (L407-420; HostNode branch L412-416): the copy rewrites child semantics (leaving=true) so strip `CHILDREN_SINGLE_TEXT` from `flags` (keep `CHILDREN_KEYED` — keys are preserved by asLeaving).
 - Prefer a small shared helper that strips child-shape flags whenever a transform replaces children (asLeaving today; future transforms get it for free).

@@ -40,6 +40,9 @@ public object NodeFlags {
     public const val CHILDREN_SINGLE_TEXT: Int = 1 shl 1
 }
 
+internal fun Int.stripChildShapeFlagsForReplacedChildren(): Int =
+    this and NodeFlags.CHILDREN_SINGLE_TEXT.inv()
+
 @Serializable
 @SerialName("host")
 public data class HostNode(

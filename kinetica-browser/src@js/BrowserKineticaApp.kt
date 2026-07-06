@@ -685,6 +685,7 @@ public class BrowserKineticaApp(
     private fun patchSingleTextChild(mounted: MountedHost, next: HostNode): Boolean {
         val mountedText = mounted.children.singleOrNull() as? MountedText ?: return false
         val nextText = next.children.singleOrNull() as? TextNode ?: return false
+        if (mountedText.wrapped || textNeedsElement(nextText)) return false
         if (mountedText.textNode.value != nextText.value) {
             mountedText.dom.nodeValue = nextText.value
         }

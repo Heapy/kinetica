@@ -2,6 +2,7 @@ package io.heapy.kinetica
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 
 /**
  * NodeFlags.CHILDREN_KEYED certification: `each` proves "every child is exactly one HostNode
@@ -182,5 +183,25 @@ class EachKeyedFlagTest {
         assertEquals(0, renderFlags { host("p") { text("image", semantics = Semantics(role = Role.Image, label = "Image")) } })
         assertEquals(0, renderFlags { host("p") { text("deleted", strikethrough = true, semantics = null) } })
         assertEquals(0, renderFlags { host("p") { text("one", semantics = null); text("two", semantics = null) } })
+    }
+
+    @Test
+    fun asLeavingStripsSingleTextFlagButKeepsKeyedFlag() {
+        val singleText = HostNode(
+            tag = "div",
+            children = listOf(TextNode("Item", semantics = null)),
+            flags = NodeFlags.CHILDREN_SINGLE_TEXT,
+        )
+        val keyed = HostNode(
+            tag = "div",
+            children = listOf(HostNode("span", key = "item")),
+            flags = NodeFlags.CHILDREN_KEYED,
+        )
+
+        val leavingSingleText = assertIs<HostNode>(singleText.asLeaving())
+        val leavingKeyed = assertIs<HostNode>(keyed.asLeaving())
+
+        assertEquals(0, leavingSingleText.flags and NodeFlags.CHILDREN_SINGLE_TEXT)
+        assertEquals(NodeFlags.CHILDREN_KEYED, leavingKeyed.flags and NodeFlags.CHILDREN_KEYED)
     }
 }
