@@ -55,7 +55,9 @@ public fun ComponentScope.host(
             }
         }
     }
-    emit(HostNode(tag, mergedProps, collect(content), key?.toString(), semantics))
+    val children = collect(content)
+    val flags = if (consumeKeyedChildren(children)) NodeFlags.CHILDREN_KEYED else 0
+    emit(HostNode(tag, mergedProps, children, key?.toString(), semantics, flags))
 }
 
 public fun ComponentScope.column(

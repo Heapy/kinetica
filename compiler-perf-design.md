@@ -40,7 +40,25 @@ Status: K0–K3 implemented · 2026-07-06 · owner: kinetica-compiler
   render-phase writes, nested each) are never cached. Covered by
   `SkippableEachCompositionTest`; the smoke test's old "any state write re-renders" assertion
   was updated to the precise contract.
-- **K4/K5** — not started.
+- **K4** — done (2026-07-06), with a design deviation and an honest null result. Deviation:
+  the flag SETTING moved from the compiler to the runtime — a sound static proof of "all
+  children uniquely keyed" is impossible in general (key collisions aren't statically
+  decidable), while `each` has exactly that knowledge at O(1) amortized cost:
+  `keyedLastWins` guarantees unique row keys, each row certifies "exactly one HostNode keyed
+  by the row key" (cached in `EachRowCache`), and `host()` stamps
+  `NodeFlags.CHILDREN_KEYED` when certified rows are its entire child list (frame-identity
+  consumption; any emission before/after poisons the flag). The browser renderer runs keyed
+  reconciliation directly when both sides carry the flag, skipping `shouldReconcileKeyed`'s
+  O(children) scan + two per-patch hash sets. The compiler side stays on the K2
+  IrGenerationExtension unchanged. PROPS_STATIC was dropped: K2's interning already gives
+  O(1) props equality via identity inside the existing `!=` guard.
+  Measured: **no significant win on M4 Max** — select10k unchanged at noise level, and a 4×
+  CPU-throttled A/B gave 47.4 vs 48.7 ms (~3%, within stddev). The reconcile-prep scan was
+  NOT the 10k-partials tax the plan assumed; that cost lives in paint at scale and the patch
+  loop itself. The change stays (strictly less work + allocation per patch, matters more on
+  weaker hardware) with 9 certification tests (`EachKeyedFlagTest`), 151 runtime tests green.
+- **K5** — not started. Next-target note from K4's measurements: the 10k-partial costs are
+  dominated by paint/patch-loop, not reconcile prep — profile before assuming.
 Companion to `perf-rewrite-design.md` (renderer, P0–P3 done, current 13-op geomean 1.35×):
 every number in that story was measured **without** the plugin. This plan makes the compiler
 contribute, safely.

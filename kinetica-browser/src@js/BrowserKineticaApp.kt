@@ -7,6 +7,7 @@ import io.heapy.kinetica.HostNode
 import io.heapy.kinetica.KineticaJson
 import io.heapy.kinetica.KineticaRuntime
 import io.heapy.kinetica.Node
+import io.heapy.kinetica.NodeFlags
 import io.heapy.kinetica.Semantics
 import io.heapy.kinetica.TextNode
 import io.heapy.kinetica.toSafeHtml
@@ -375,7 +376,15 @@ public class BrowserKineticaApp(
                 }
             }
         }
-        patchChildren(element, mounted.children, next.children, appendAnchor = null, parentPath = path)
+        patchChildren(
+            element,
+            mounted.children,
+            next.children,
+            appendAnchor = null,
+            parentPath = path,
+            prevFlags = previous.flags,
+            nextFlags = next.flags,
+        )
     }
 
     private fun patchProps(element: Element, tag: String, old: Map<String, String>, new: Map<String, String>) {
@@ -482,8 +491,16 @@ public class BrowserKineticaApp(
         next: List<Node>,
         appendAnchor: DomNode?,
         parentPath: String,
+        prevFlags: Int = 0,
+        nextFlags: Int = 0,
     ) {
-        if (shouldReconcileKeyed(mounted, next)) {
+        // CHILDREN_KEYED on both sides is a construction-time proof that every child is a
+        // uniquely-keyed HostNode, so the O(children) verification scan (two hash sets per
+        // patch — the dominant bookkeeping cost of partial ops on big tables) is skipped.
+        val certifiedKeyed = prevFlags and NodeFlags.CHILDREN_KEYED != 0 &&
+            nextFlags and NodeFlags.CHILDREN_KEYED != 0 &&
+            mounted.isNotEmpty() && next.isNotEmpty()
+        if (certifiedKeyed || shouldReconcileKeyed(mounted, next)) {
             patchKeyedChildren(parent, mounted, next, appendAnchor, parentPath)
         } else {
             patchPositionalChildren(parent, mounted, next, appendAnchor, parentPath)

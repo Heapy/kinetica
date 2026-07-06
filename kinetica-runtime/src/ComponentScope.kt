@@ -44,6 +44,12 @@ public class ComponentScope public constructor(
     private val eachCaches = mutableMapOf<String, EachCallsiteCache>()
     private val eachOrdinals = mutableMapOf<String, Int>()
     private val eachCaptures = mutableListOf<EachRowCapture>()
+    // Set by renderEach when an each() filled the current collect frame from index 0 with
+    // rows certified as "exactly one HostNode keyed by the row key"; consumed by host() to
+    // stamp NodeFlags.CHILDREN_KEYED. Identity-matched against the frame list, so a stale
+    // record can never certify someone else's children.
+    private var keyedEmissionFrame: MutableList<Node>? = null
+    private var keyedEmissionEnd = 0
     private val exitGroupStack = mutableListOf<ExitGroupState>()
     // The joined key-scope prefix is maintained incrementally: it is read several times
     // per row (slot/event/effect keys, callsite ids), and rejoining the stack per read
@@ -716,13 +722,22 @@ public class ComponentScope public constructor(
         // its own rows still memoize independently.
         markEachCapturesUnsafe()
         val keyedItems = keyedLastWins(items, key)
+        val frame = nodeStack.last()
+        val frameStart = frame.size
+        var allRowsCertified = true
         if (!memoize) {
             keyedItems.forEach { keyed ->
                 val itemKey = keyed.key
+                val rowStart = frame.size
                 withKeyScope(itemKey) {
                     content(keyed.item)
                 }
+                if (allRowsCertified) {
+                    allRowsCertified = frame.size == rowStart + 1 &&
+                        (frame[rowStart] as? HostNode)?.key == itemKey.toString()
+                }
             }
+            recordKeyedEmission(frame, frameStart, allRowsCertified && keyedItems.isNotEmpty())
             return
         }
         val callsite = eachCallsite()
@@ -733,15 +748,18 @@ public class ComponentScope public constructor(
             val rowKey = itemKey.toString()
             pushKeyScope(rowKey)
             try {
-                if (emitCachedEachRow(callsite, rowKey, item)) {
+                val rowCertified = if (emitCachedEachRow(callsite, rowKey, item)) {
                     reused += 1
+                    callsite.rows[rowKey]?.certifiedKeyedHost == true
                 } else {
                     captureEachRow(callsite, rowKey, item, content)
                 }
+                allRowsCertified = allRowsCertified && rowCertified
             } finally {
                 popKeyScope()
             }
         }
+        recordKeyedEmission(frame, frameStart, allRowsCertified && keyedItems.isNotEmpty())
         evictRemovedEachRows(callsite)
         if (reused > 0) {
             runtime.record(
@@ -804,7 +822,7 @@ public class ComponentScope public constructor(
         rowKey: String,
         item: T,
         content: ComponentScope.(T) -> Unit,
-    ) {
+    ): Boolean {
         val capture = EachRowCapture()
         val slotCursorBefore = slotCursor
         val eventCursorBefore = eventCursor
@@ -825,6 +843,7 @@ public class ComponentScope public constructor(
         }
         nodeStack.last() += nodes
         dependencies.forEach(ReadTracking::record)
+        val certifiedKeyedHost = nodes.size == 1 && (nodes[0] as? HostNode)?.key == rowKey
         if (capture.memoizable) {
             callsite.rows[rowKey] = EachRowCache(
                 item = item,
@@ -835,12 +854,33 @@ public class ComponentScope public constructor(
                 slotCursorDelta = slotCursor - slotCursorBefore,
                 eventCursorDelta = eventCursor - eventCursorBefore,
                 renderGeneration = callsite.renderGeneration,
+                certifiedKeyedHost = certifiedKeyedHost,
             )
         } else {
             // The row may have been cached in an earlier render and only now turned
             // non-memoizable (e.g. a conditional effect); a stale entry must not revive.
             callsite.rows.remove(rowKey)
         }
+        return certifiedKeyedHost
+    }
+
+    private fun recordKeyedEmission(frame: MutableList<Node>, frameStart: Int, certified: Boolean) {
+        if (frameStart == 0 && certified && frame.isNotEmpty()) {
+            keyedEmissionFrame = frame
+            keyedEmissionEnd = frame.size
+        } else {
+            keyedEmissionFrame = null
+        }
+    }
+
+    /**
+     * True iff [children] is exactly the frame a certified each() just filled — every child a
+     * HostNode keyed by its unique row key, nothing emitted before or after. Consumed once.
+     */
+    internal fun consumeKeyedChildren(children: List<Node>): Boolean {
+        val hit = keyedEmissionFrame === children && keyedEmissionEnd == children.size
+        keyedEmissionFrame = null
+        return hit
     }
 
     private fun contextReadsUnchanged(reads: List<EachContextRead>): Boolean =
@@ -920,6 +960,7 @@ public class ComponentScope public constructor(
         val slotCursorDelta: Int,
         val eventCursorDelta: Int,
         var renderGeneration: Int,
+        val certifiedKeyedHost: Boolean,
     ) {
         fun dependenciesUnchanged(): Boolean =
             dependencies.all { (dependency, version) -> dependency.version == version }

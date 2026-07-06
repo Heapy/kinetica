@@ -17,6 +17,23 @@ public data class FragmentNode(
     override val semantics: Semantics? = null,
 ) : Node
 
+/**
+ * Structural facts about a [HostNode] proven at construction time, so renderers can skip
+ * re-deriving them on every patch. `0` (the default, and the value for any hand-built node)
+ * means "unknown" — renderers must fall back to their existing checks.
+ */
+public object NodeFlags {
+    /**
+     * Every child is a [HostNode] carrying a non-null key, and the keys are unique. Set only
+     * by the `each` -> `host` cooperation in the render DSL: `each` certifies that every row
+     * emitted exactly one host keyed by that row's (deduplicated, hence unique) row key, and
+     * `host` stamps the flag when those rows are its entire child list. A renderer seeing the
+     * flag on both the previous and next node may run keyed reconciliation directly instead
+     * of scanning all children (two hash sets per patch — the 10k-table partial-op tax).
+     */
+    public const val CHILDREN_KEYED: Int = 1
+}
+
 @Serializable
 @SerialName("host")
 public data class HostNode(
@@ -25,6 +42,7 @@ public data class HostNode(
     val children: List<Node> = emptyList(),
     val key: String? = null,
     override val semantics: Semantics? = null,
+    val flags: Int = 0,
 ) : Node
 
 @Serializable
