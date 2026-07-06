@@ -86,8 +86,11 @@ try {
     if (!res.ok) throw new Error(`/docs/${slug} -> ${res.status}`);
     const body = await res.text();
     if (!body.includes("<h1>")) throw new Error(`/docs/${slug} has no h1`);
+    if (body.includes("&lt;!-- code:") || body.includes("code: kinetica-")) {
+      throw new Error(`/docs/${slug} leaks a source-link comment into the rendered page`);
+    }
   }
-  console.log(`OK   ${slugs.length + 1} pages server-render`);
+  console.log(`OK   ${slugs.length + 1} pages server-render, source-link comments stay invisible`);
 
   const demoHtml = await fetch(`${base}/examples/server-components`).then((r) => r.text());
   await verifyStaticAsset(extractAsset(home, /href="([^"]*\/assets\/site\.css\?hash=[0-9a-f]+)"/, "site.css"));
@@ -151,6 +154,43 @@ try {
     stack, { timeout: 10_000 },
   );
   console.log("OK   resource-fetch example loads per-session data, surfaces the backend NPE, retries clean");
+
+  // live example: effect-timer ticks while running and stops cleanly
+  const timer = '[data-example="effect-timer"]';
+  await page.goto(`${base}/docs/effects`, { waitUntil: "networkidle" });
+  await page.waitForSelector(`${timer} [data-testid="timer-toggle"]`, { timeout: 10_000 });
+  await page.click(`${timer} [data-testid="timer-toggle"]`);
+  await page.waitForFunction(
+    (sel) => {
+      const value = document.querySelector(`${sel} .ex-value`)?.textContent ?? "";
+      return value !== "0.0s" && /\ds$/.test(value);
+    },
+    timer, { timeout: 10_000 },
+  );
+  await page.click(`${timer} [data-testid="timer-toggle"]`);
+  const stoppedAt = await page.$eval(`${timer} .ex-value`, (n) => n.textContent);
+  await page.waitForTimeout(400);
+  const stillAt = await page.$eval(`${timer} .ex-value`, (n) => n.textContent);
+  if (stoppedAt !== stillAt) throw new Error(`timer kept ticking after stop: ${stoppedAt} -> ${stillAt}`);
+  console.log("OK   effect-timer example ticks via watch and stops on cancel");
+
+  // live example: form-signup validates then submits
+  const form = '[data-example="form-signup"]';
+  await page.goto(`${base}/docs/forms`, { waitUntil: "networkidle" });
+  await page.waitForSelector(`${form} [data-testid="signup-submit"]`, { timeout: 10_000 });
+  await page.click(`${form} [data-testid="signup-submit"]`);
+  await page.waitForFunction(
+    (sel) => document.querySelector(sel)?.textContent?.includes("Required"),
+    form, { timeout: 10_000 },
+  );
+  await page.fill(`${form} [data-testid="signup-email"]`, "ada@lovelace.dev");
+  await page.fill(`${form} [data-testid="signup-password"]`, "analytical-engine");
+  await page.click(`${form} [data-testid="signup-submit"]`);
+  await page.waitForFunction(
+    (sel) => document.querySelector(sel)?.textContent?.includes("Signed up"),
+    form, { timeout: 10_000 },
+  );
+  console.log("OK   form-signup example blocks invalid submits and accepts valid ones");
 
   // server-components demo: hydration island + typed action + stream
   await page.goto(`${base}/examples/server-components`, { waitUntil: "networkidle" });

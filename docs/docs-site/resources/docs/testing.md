@@ -1,9 +1,13 @@
 # Testing
 
+<!-- code: kinetica-test/src/KineticaTest.kt -->
+
 Because rendering produces a value, components test **headlessly** — no DOM, no browser, no
 emulator. `kinetica-test` drives components the way a user would and asserts on trees.
 
 ## The harness
+
+<!-- code: kinetica-test/src/KineticaTest.kt (KineticaTest.render, TestRoot, hasTestTag, hasRole, hasLabel, hasText) -->
 
 ```kotlin
 val root = KineticaTest.render {
@@ -27,6 +31,8 @@ Interactions dispatch through the real event pipeline: `click(matcher)`, `input(
 
 ## Async: the suspend harness
 
+<!-- code: kinetica-test/src/KineticaTest.kt (renderSuspend, SuspendTestRoot.awaitIdle, advanceTimeBy), kinetica-runtime/src/KineticaRuntime.kt (advanceVirtualTimeBy) -->
+
 ```kotlin
 val root = KineticaTest.renderSuspend {
     loadingBoundary(fallback = { text("Loading") }) {
@@ -46,6 +52,8 @@ sleeping.
 
 ## Snapshots
 
+<!-- code: kinetica-test/src/KineticaTest.kt (treeSnapshot, htmlSnapshot, assertTreeSnapshot, assertHtmlSnapshot) -->
+
 Two canonical serializations, both stable and diff-friendly:
 
 ```kotlin
@@ -57,6 +65,8 @@ root.assertHtmlSnapshot(expected)
 
 ## The journal in tests
 
+<!-- code: kinetica-test/src/KineticaTest.kt (TestRoot.journal), kinetica-runtime/src/Journal.kt (JournalEntry, JournalKind) -->
+
 Every test root records the full execution journal — assert on causality itself:
 
 ```kotlin
@@ -65,6 +75,8 @@ assertEquals("cell write", commit.attributes["cause"])
 ```
 
 ## Browser-level verification
+
+<!-- code: samples/browser-tests/src/main.kt, scripts/verify-browser.mjs -->
 
 For renderer behavior that only exists in a real DOM (focus, patched-element identity, input
 cursors), the repo runs Playwright against browser-executed self-tests

@@ -48,16 +48,21 @@ created by the script.
 DOCS_BASE_URL=http://127.0.0.1:8080 node docs/verify-docs.mjs
 ```
 
-Checks: all pages server-render, the live counter/keyed-list examples mount and react, the
-resource-fetch demo on `/docs/resources` loads its per-visitor session stack, surfaces the
-backend's intentional `NullPointerException` for "Java" through the error boundary and recovers
-on retry, and the server-components demo hydrates its island, receives the streamed patch, and
-dispatches the typed add-to-cart action.
+Checks: all pages server-render with no source-link comment leaking into the HTML, the live
+counter/keyed-list/effect-timer/form-signup examples mount and react, the resource-fetch demo
+on `/docs/resources` loads its per-visitor session stack, surfaces the backend's intentional
+`NullPointerException` for "Java" through the error boundary and recovers on retry, and the
+server-components demo hydrates its island, receives the streamed patch, and dispatches the
+typed add-to-cart action.
 
 ## Adding a page
 
 1. Write `docs/docs-site/resources/docs/<slug>.md`.
 2. Register the slug in `DocPages` (`docs/docs-site/src/Pages.kt`) — order defines the sidebar.
-3. Embed live examples with a `::: example <name>` line; implement the name in
+3. Link every section to the code it documents with an HTML comment right under the heading:
+   `<!-- code: kinetica-runtime/src/ComponentScope.kt (state, derived) -->`. Comments are
+   skipped by the markdown parser and never render; they keep prose and implementation
+   cross-checkable.
+4. Embed live examples with a `::: example <name>` line; implement the name in
    `docs/docs-client/src/main.kt`.
-4. `node scripts/bundle-docs.mjs && ./kotlin build -m docs-site && PORT=8080 ./kotlin run -m docs-site`.
+5. `node scripts/bundle-docs.mjs && ./kotlin build -m docs-site && PORT=8080 ./kotlin run -m docs-site`.

@@ -1,10 +1,14 @@
 # Motion
 
+<!-- code: kinetica-motion/src/Motion.kt, kinetica-runtime/src/Boundary.kt (FrameValue) -->
+
 Animation in Kinetica keeps the value-tree model intact: animated numbers are **frame values** —
 mutable floats that live *outside* the node tree and bind to nodes via `frameProps`. A running
 animation never re-renders components; it only updates frame bindings.
 
 ## Frame values
+
+<!-- code: kinetica-runtime/src/Boundary.kt (FrameValue, frameValue), kinetica-runtime/src/HostDsl.kt (host frameProps) -->
 
 ```kotlin
 val opacity = frameValue(0f)                     // runtime primitive
@@ -23,6 +27,8 @@ renderer-agnostic like everything else in the tree.
 
 ## Animated values
 
+<!-- code: kinetica-motion/src/Motion.kt (AnimatedFloat, animate, AnimationSpec, Easing) -->
+
 ```kotlin
 val scale = animate(
     initial = 0f,
@@ -33,13 +39,14 @@ val scale = animate(
 host("div", frameProps = mapOf("scale" to scale.frameValue)) { … }
 
 scale.animateTo(0.5f)                            // retarget mid-flight
-scale.interrupt(0f, AnimationSpec.Tween(120))    // replace spec and target
+scale.interrupt(0f, AnimationSpec.Tween(120))    // retarget with a new spec
 scale.snapTo(1f)                                 // jump, no animation
 scale.advanceBy(16)                              // advance the clock by one frame
 ```
 
 Specs: `Tween(durationMillis, easing)` with `Linear / EaseIn / EaseOut / EaseInOut`, and
-physical `Spring(stiffness, dampingRatio, visibilityThreshold)`. `animate()` survives
+spring-like `Spring(stiffness, dampingRatio, visibilityThreshold)` (integrated as an
+exponential-decay approximation, not full spring physics). `animate()` survives
 re-renders — calling it again with a new `target` retargets the existing animation instead of
 restarting it.
 
@@ -49,6 +56,8 @@ why animations are deterministic in tests: `advanceBy(100)` twice lands exactly 
 end state.
 
 ## Enter & exit
+
+<!-- code: kinetica-motion/src/Motion.kt (enterTransition, exitTransition), kinetica-runtime/src/Boundary.kt (exitGroup, onExit, asLeaving) -->
 
 ```kotlin
 val enter = enterTransition()                    // 0 -> 1, 180ms ease-out by default
@@ -66,6 +75,8 @@ before the subtree unmounts — the runtime retains the leaving tree, marks it w
 semantics, and force-completes after a debug timeout if an animation stalls.
 
 ## Drag gestures
+
+<!-- code: kinetica-motion/src/Motion.kt (DragGesture, dragGesture, frameProps) -->
 
 ```kotlin
 val drag = dragGesture(onEnd = { offset -> settle(offset) })

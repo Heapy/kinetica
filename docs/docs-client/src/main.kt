@@ -15,6 +15,12 @@ import io.heapy.kinetica.derived
 import io.heapy.kinetica.each
 import io.heapy.kinetica.errorBoundary
 import io.heapy.kinetica.event
+import io.heapy.kinetica.forms.field
+import io.heapy.kinetica.forms.formState
+import io.heapy.kinetica.forms.minLength
+import io.heapy.kinetica.forms.required
+import io.heapy.kinetica.forms.textInput
+import io.heapy.kinetica.forms.validators
 import io.heapy.kinetica.host
 import io.heapy.kinetica.loadingBoundary
 import io.heapy.kinetica.resource
@@ -45,17 +51,29 @@ fun main() {
         val name = container.getAttribute("data-example") ?: continue
         val slot = container.querySelector(".live-example-slot") ?: continue
         slot.textContent = ""
-        val app = mountKineticaApp(slot, KineticaRuntime(debug = false)) {
+        val runtime = KineticaRuntime(debug = false)
+        val app = mountKineticaApp(slot, runtime) {
             when (name) {
                 "counter" -> CounterExample()
                 "keyed-list" -> KeyedListExample()
                 "input-mirror" -> InputMirrorExample()
                 "resource-fetch" -> ResourceFetchExample()
+                "effect-timer" -> EffectTimerExample()
+                "form-signup" -> FormSignupExample()
                 else -> text("Unknown example: $name")
             }
         }
         keepAsyncWorkRendered(container, app)
+        if (name == "effect-timer") {
+            // The stopwatch keeps a watch running between events, so awaitIdle (which waits
+            // for full quiescence) can't pump its ticks — drive them with a coarse interval.
+            scheduleIntervalRender { if (runtime.hasPendingInvalidation) app.render() }
+        }
     }
+}
+
+private fun scheduleIntervalRender(callback: () -> Unit) {
+    js("setInterval(function () { callback(); }, 100)")
 }
 
 /**
@@ -145,6 +163,111 @@ private fun ComponentScope.KeyedListExample() {
         host("p", props = mapOf("class" to "ex-note")) {
             text(
                 "Rows are keyed by id: reversing moves the same DOM elements instead of recreating them.",
+                semantics = null,
+            )
+        }
+    }
+}
+
+@UiComponent
+private fun ComponentScope.EffectTimerExample() {
+    var running by state { false }
+    var ticks by state { 0 }
+
+    watch(source = { running }) { active ->
+        if (active) {
+            while (true) {
+                delay(100)
+                ticks += 1
+            }
+        }
+    }
+
+    host("div", props = mapOf("class" to "ex")) {
+        host("p", props = mapOf("class" to "ex-value")) {
+            text("${ticks / 10}.${ticks % 10}s", semantics = null)
+        }
+        host("div", props = mapOf("class" to "ex-row")) {
+            button(
+                onClick = event { running = !running },
+                semantics = Semantics(role = Role.Button, testTag = "timer-toggle"),
+            ) {
+                text(if (running) "Stop" else "Start", semantics = null)
+            }
+            button(onClick = event { running = false; ticks = 0 }, enabled = ticks != 0) {
+                text("Reset", semantics = null)
+            }
+        }
+        host("p", props = mapOf("class" to "ex-note")) {
+            text(
+                "Start flips one cell; a watch on it loops while it is true. " +
+                    "Stop writes it back — the runtime cancels the previous watch block.",
+                semantics = null,
+            )
+        }
+    }
+}
+
+@UiComponent
+private fun ComponentScope.FormSignupExample() {
+    val form = formState()
+    val email = field(form, "email", initial = { "" }) { value ->
+        validators(required(), minLength(3)).validate(value)
+    }
+    val password = field(form, "password", initial = { "" }) { value ->
+        minLength(8).validate(value)
+    }
+    var submitAttempt by state { 0 }
+    var submitted by state { false }
+
+    watch(source = { submitAttempt }) { attempt ->
+        if (attempt > 0) {
+            submitted = form.submit {
+                delay(150) // a real app would call its API here
+            }
+        }
+    }
+
+    host("div", props = mapOf("class" to "ex")) {
+        textInput(
+            email,
+            placeholder = "Email",
+            semantics = Semantics(role = Role.TextInput, testTag = "signup-email", focusable = true),
+        )
+        textInput(
+            password,
+            placeholder = "Password (8+ characters)",
+            semantics = Semantics(role = Role.TextInput, testTag = "signup-password", focusable = true),
+        )
+        val errors = form.errors()
+        if (errors.isNotEmpty()) {
+            host("ul", props = mapOf("class" to "ex-list")) {
+                each(errors.entries.toList(), key = { it.key }) { (name, message) ->
+                    host("li", props = mapOf("class" to "ex-error"), key = name) {
+                        text("$name: $message", semantics = null)
+                    }
+                }
+            }
+        }
+        host("div", props = mapOf("class" to "ex-row")) {
+            button(
+                onClick = event { submitAttempt += 1 },
+                enabled = !form.isSubmitting,
+                semantics = Semantics(role = Role.Button, testTag = "signup-submit"),
+            ) {
+                text(if (form.isSubmitting) "Signing up…" else "Sign up", semantics = null)
+            }
+            button(onClick = event { form.reset(); submitted = false }, semantics = null) {
+                text("Reset", semantics = null)
+            }
+        }
+        host("p", props = mapOf("class" to "ex-note")) {
+            text(
+                when {
+                    submitted -> "Signed up — every validator passed, so form.submit ran its block."
+                    submitAttempt > 0 -> "Not submitted: fix the errors above and try again."
+                    else -> "A never-validated form is not valid; submit validates every field first."
+                },
                 semantics = null,
             )
         }

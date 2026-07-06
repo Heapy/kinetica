@@ -1,16 +1,25 @@
 # Getting started
 
+<!-- code: project.yaml, kotlin (wrapper CLI) -->
+
 Kinetica builds with the JetBrains Kotlin Toolchain (the Amper successor): declarative YAML
 modules, a `./kotlin` wrapper CLI, no Gradle.
 
 ## Project layout
 
+<!-- code: samples/browser-counter/module.yaml, common.module-template.yaml (compiler plugin wiring), kinetica-runtime/src/HostDsl.kt -->
+
 A project is a `project.yaml` listing modules; a module is a directory with a `module.yaml`.
-A minimal browser app:
+A minimal browser app (the `apply` template wires the **mandatory**
+[compiler plugin](/docs/compiler-plugin) — without it every `state`/`event` call throws
+`MissingKineticaPluginException` at runtime):
 
 ```yaml
 # module.yaml
 product: js/app
+
+apply:
+  - ../../common.module-template.yaml   # registers io.heapy.kinetica:kinetica-compiler
 
 dependencies:
   - ../../kinetica-browser
@@ -46,6 +55,8 @@ fun main() {
 
 ## Build and run
 
+<!-- code: kotlin (wrapper CLI), scripts/verify-browser.mjs -->
+
 ```
 ./kotlin build -m my-app        # emits build/tasks/_my-app_linkJs/my-app.mjs
 ./kotlin test -m my-module      # run a module's tests
@@ -57,6 +68,8 @@ open the page. JVM apps (`product: jvm/app`) run with `./kotlin run -m my-server
 an executable jar with `./kotlin package`.
 
 ## Components are plain functions
+
+<!-- code: kinetica-runtime/src/Annotations.kt (UiComponent), kinetica-runtime/src/ComponentScope.kt (state, each) -->
 
 There is no component class and no special file type. A component is a function with
 `ComponentScope` as receiver that *emits* nodes:
@@ -77,6 +90,8 @@ gets its own slot automatically. Lists still key their rows explicitly:
 `each(items, key = { … })`.
 
 ## Mounting choices
+
+<!-- code: kinetica-browser/src@js/BrowserKineticaApp.kt (mountKineticaApp), kinetica-runtime/src/KineticaRuntime.kt (render), kinetica-test/src/KineticaTest.kt (KineticaTest.render) -->
 
 | Entry point | Use for |
 |-------------|---------|

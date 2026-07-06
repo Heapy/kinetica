@@ -1,5 +1,7 @@
 # Kinetica
 
+<!-- code: kinetica-runtime/src/Node.kt (Node), kinetica-runtime/src/KineticaRuntime.kt (render) -->
+
 Kinetica is a Kotlin UI framework built around one idea: **the UI is a value**. Every render
 produces an immutable, serializable `Node` tree. Because the tree is a value, you get things most
 frameworks bolt on afterwards, for free and by construction: headless testing, HTML server
@@ -31,19 +33,23 @@ fun main() {
 
 ## Design pillars
 
+<!-- code: kinetica-runtime/src/Node.kt, kinetica-runtime/src/Cell.kt, kinetica-runtime/src/Journal.kt (JournalReplay), kinetica-runtime/src/KineticaRuntime.kt (replay) -->
+
 - **`Node` is a serializable value.** Trees can be asserted in tests, snapshotted, sent over the
   wire as server components, and diffed for minimal DOM patches.
 - **One UI loop, atomic commit.** An event runs, cells update, one render commits synchronously.
   No tearing, no partially applied states, no scheduling heuristics to debug.
-- **One reactive primitive.** `state`, `derived`, `store`, contexts and resources are all cells
-  with dependency tracking. Effects are explicit (`watch`, `launchEffect`) — no auto-tracking
-  surprises.
+- **One reactive primitive.** `state`, `derived` and `store` are all cells with dependency
+  tracking, and resources cache through the same machinery. Effects are explicit
+  (`watch`, `launchEffect`) — no auto-tracking surprises.
 - **Linear causality.** The runtime journals every event, cell write, render cause and effect.
   `replay()` reconstructs state at any point. Debuggability outranks features.
 - **Batteries included.** Router, forms, motion, data/offline, persistence, theming, markdown and
   a test harness are first-party modules with the same conventions.
 
 ## Where things run
+
+<!-- code: kinetica-browser/src@js/BrowserKineticaApp.kt, kinetica-runtime/src/ServerComponents.kt, kinetica-test/src/KineticaTest.kt -->
 
 | Target | Module | What you get |
 |--------|--------|--------------|
@@ -52,6 +58,8 @@ fun main() {
 | Headless | `kinetica-test` | Render, click, input and snapshot components without any DOM |
 
 ## Reading order
+
+<!-- code: docs/docs-site/src/Pages.kt (DocPages) -->
 
 Start with [Getting started](/docs/getting-started), then the Core section in order:
 [State & reactivity](/docs/state), [UI DSL](/docs/ui-dsl), [Lists & keys](/docs/lists-and-keys),
