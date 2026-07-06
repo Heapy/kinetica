@@ -223,32 +223,37 @@ private fun ComponentScope.ExitWithoutOnExitApp() {
     }
 }
 
-private var exitFirstGate = CompletableDeferred<Unit>()
-private var exitSecondGate = CompletableDeferred<Unit>()
+// The non-awaiting JS runner interleaves async tests, so the two async exit tests must not
+// share the visibility flag (or gates) through top-level vars — they live in a per-test
+// probe passed as a component parameter.
+private class ExitProbe {
+    var visible = true
+    val firstGate = CompletableDeferred<Unit>()
+    val secondGate = CompletableDeferred<Unit>()
+    val neverGate = CompletableDeferred<Unit>()
+}
 
 @UiComponent(skippable = false)
-private fun ComponentScope.ExitTwoCallbacksApp() {
-    exitGroup(key = "panel", visible = exitPanelVisible) {
+private fun ComponentScope.ExitTwoCallbacksApp(probe: ExitProbe) {
+    exitGroup(key = "panel", visible = probe.visible) {
         onExit {
-            exitFirstGate.await()
+            probe.firstGate.await()
             complete()
             complete()
         }
         onExit {
-            exitSecondGate.await()
+            probe.secondGate.await()
             complete()
         }
         text("Panel", semantics = Semantics(testTag = "panel"))
     }
 }
 
-private var exitNeverGate = CompletableDeferred<Unit>()
-
 @UiComponent(skippable = false)
-private fun ComponentScope.ExitTimeoutApp() {
-    exitGroup(key = "panel", visible = exitPanelVisible) {
+private fun ComponentScope.ExitTimeoutApp(probe: ExitProbe) {
+    exitGroup(key = "panel", visible = probe.visible) {
         onExit {
-            exitNeverGate.await()
+            probe.neverGate.await()
             complete()
         }
         text("Panel", semantics = Semantics(testTag = "panel"))
@@ -658,19 +663,17 @@ class RuntimeSmokeSlotsTest {
     fun exitGroupWaitsForAllOnExitCallbacksBeforeDisposal() = runTest {
         val runtime = KineticaRuntime(exitTimeoutMillis = null)
         val scope = ComponentScope(runtime)
-        exitPanelVisible = true
-        exitFirstGate = CompletableDeferred()
-        exitSecondGate = CompletableDeferred()
+        val probe = ExitProbe()
 
-        fun render(): Node = runtime.render(scope) { ExitTwoCallbacksApp() }.tree
+        fun render(): Node = runtime.render(scope) { ExitTwoCallbacksApp(probe) }.tree
 
         assertIs<TextNode>(render())
 
-        exitPanelVisible = false
+        probe.visible = false
         assertIs<TextNode>(render())
         assertTrue(scope.isLeaving("panel"))
 
-        exitFirstGate.complete(Unit)
+        probe.firstGate.complete(Unit)
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
                 while (
@@ -686,7 +689,7 @@ class RuntimeSmokeSlotsTest {
         }
         assertTrue(scope.isLeaving("panel"))
 
-        exitSecondGate.complete(Unit)
+        probe.secondGate.complete(Unit)
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
                 while (scope.isLeaving("panel")) {
@@ -695,20 +698,20 @@ class RuntimeSmokeSlotsTest {
             }
         }
         assertEquals(FragmentNode(), render())
+        scope.dispose()
     }
 
     @Test
     fun exitGroupTimeoutCompletesUnfinishedExitCallback() = runTest {
         val runtime = KineticaRuntime(exitTimeoutMillis = 25)
         val scope = ComponentScope(runtime)
-        exitPanelVisible = true
-        exitNeverGate = CompletableDeferred()
+        val probe = ExitProbe()
 
-        fun render(): Node = runtime.render(scope) { ExitTimeoutApp() }.tree
+        fun render(): Node = runtime.render(scope) { ExitTimeoutApp(probe) }.tree
 
         assertIs<TextNode>(render())
 
-        exitPanelVisible = false
+        probe.visible = false
         val leaving = assertIs<TextNode>(render())
         assertTrue(leaving.semantics?.leaving == true)
         assertTrue(scope.isLeaving("panel"))
@@ -729,6 +732,8 @@ class RuntimeSmokeSlotsTest {
                     entry.attributes["key"] == "panel"
             },
         )
+        // The never-completed onExit coroutine must not survive into later test windows.
+        scope.dispose()
     }
 
     @Test

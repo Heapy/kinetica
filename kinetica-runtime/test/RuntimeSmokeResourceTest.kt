@@ -114,35 +114,26 @@ private fun ComponentScope.SmokeInFlightResources() {
     }
 }
 
-private data class SmokeStaleOverwriteKey(val id: Int) : ResourceKey
+// The barebones Node runner does not await runTest promises, so async tests in one file
+// run interleaved. The two stale-load tests used to share gate/loads/current vars; those
+// collaborators now live in a per-test probe (with a per-test resource key) passed as a
+// component parameter.
+private data class SmokeStaleKey(val id: Int) : ResourceKey
 
-private var smokeStaleOverwriteKey = SmokeStaleOverwriteKey(0)
-private var smokeStaleGateHolder = CompletableDeferred<String>()
-private var smokeStaleLoads = 0
-private var smokeStaleCurrent: Resource<String>? = null
-
-@UiComponent(skippable = false)
-private fun ComponentScope.SmokeStaleOverwriteProbe() {
-    loadingBoundary(fallback = { text("Loading") }) {
-        val value = resource(smokeStaleOverwriteKey) {
-            smokeStaleLoads += 1
-            smokeStaleGateHolder.await()
-        }.also { smokeStaleCurrent = it }.read()
-        text(value)
-    }
+private class StaleProbe(salt: Int) {
+    val key = SmokeStaleKey(salt)
+    var gate = CompletableDeferred<String>()
+    var loads = 0
+    var current: Resource<String>? = null
 }
 
-private data class SmokeStaleTerminalKey(val id: Int) : ResourceKey
-
-private var smokeStaleTerminalKey = SmokeStaleTerminalKey(0)
-
 @UiComponent(skippable = false)
-private fun ComponentScope.SmokeStaleTerminalProbe() {
+private fun ComponentScope.SmokeStaleResource(probe: StaleProbe) {
     loadingBoundary(fallback = { text("Loading") }) {
-        val value = resource(smokeStaleTerminalKey) {
-            smokeStaleLoads += 1
-            smokeStaleGateHolder.await()
-        }.also { smokeStaleCurrent = it }.read()
+        val value = resource(probe.key) {
+            probe.loads += 1
+            probe.gate.await()
+        }.also { probe.current = it }.read()
         text(value)
     }
 }
@@ -358,16 +349,19 @@ private fun ComponentScope.SmokePartialContentBoundary() {
     }
 }
 
-private var smokeSubtreeRelease = CompletableDeferred<Unit>()
+// Shared by the two suspendSubtree tests below that used to race on one release gate.
+private class SubtreeProbe {
+    val release = CompletableDeferred<Unit>()
+}
 
 @UiComponent(skippable = false)
-private fun ComponentScope.SmokeSuspendSubtreeApp() {
+private fun ComponentScope.SmokeSuspendSubtreeApp(probe: SubtreeProbe) {
     column {
         text("Before")
         suspendSubtree(
             fallback = { text("Loading async") },
         ) {
-            smokeSubtreeRelease.await()
+            probe.release.await()
             text("Async ready")
         }
         text("After")
@@ -400,14 +394,14 @@ private fun ComponentScope.SmokeSuspendSubtreeCancellable() {
 }
 
 @UiComponent(skippable = false)
-private fun ComponentScope.SmokeSuspendSubtreeFailing() {
+private fun ComponentScope.SmokeSuspendSubtreeFailing(probe: SubtreeProbe) {
     errorBoundary(
         fallback = { error, _, _ -> text("Async error: ${error.message}") },
     ) {
         suspendSubtree(
             fallback = { text("Loading async") },
         ) {
-            smokeSubtreeRelease.await()
+            probe.release.await()
             error("bad async")
         }
     }
@@ -652,34 +646,31 @@ class RuntimeSmokeResourceTest {
     fun staleResourceCompletionCannotOverwriteFreshLoadAfterInvalidation() = runTest {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
-        smokeStaleOverwriteKey = SmokeStaleOverwriteKey(runtime.hashCode() + scope.hashCode())
-        val staleGate = CompletableDeferred<String>()
-        smokeStaleGateHolder = staleGate
-        smokeStaleLoads = 0
-        smokeStaleCurrent = null
+        val probe = StaleProbe(runtime.hashCode() + scope.hashCode())
+        val staleGate = probe.gate
 
         suspend fun awaitLoads(expected: Int) {
             withContext(Dispatchers.Default) {
                 withTimeout(2_000) {
-                    while (smokeStaleLoads < expected) {
+                    while (probe.loads < expected) {
                         delay(10)
                     }
                 }
             }
         }
 
-        fun render(): Node = runtime.render(scope) { SmokeStaleOverwriteProbe() }.tree
+        fun render(): Node = runtime.render(scope) { SmokeStaleResource(probe) }.tree
 
         assertEquals("Loading", render().findText().value)
         awaitLoads(1)
-        assertEquals(1, smokeStaleLoads)
+        assertEquals(1, probe.loads)
 
-        smokeStaleCurrent!!.invalidate()
+        probe.current!!.invalidate()
         val freshGate = CompletableDeferred<String>()
-        smokeStaleGateHolder = freshGate
+        probe.gate = freshGate
         assertEquals("Loading", render().findText().value)
         awaitLoads(2)
-        assertEquals(2, smokeStaleLoads)
+        assertEquals(2, probe.loads)
 
         freshGate.complete("fresh")
         withContext(Dispatchers.Default) {
@@ -699,22 +690,20 @@ class RuntimeSmokeResourceTest {
         }
 
         assertEquals("fresh", render().findText().value)
-        assertEquals(2, smokeStaleLoads)
+        assertEquals(2, probe.loads)
+        scope.dispose()
     }
 
     @Test
     fun staleResourceFailuresAndCancellationsCannotOverwriteFreshLoads() = runTest {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
-        smokeStaleTerminalKey = SmokeStaleTerminalKey(runtime.hashCode() + scope.hashCode())
-        smokeStaleGateHolder = CompletableDeferred()
-        smokeStaleLoads = 0
-        smokeStaleCurrent = null
+        val probe = StaleProbe(runtime.hashCode() + scope.hashCode())
 
         suspend fun awaitLoads(expected: Int) {
             withContext(Dispatchers.Default) {
                 withTimeout(2_000) {
-                    while (smokeStaleLoads < expected) {
+                    while (probe.loads < expected) {
                         delay(10)
                     }
                 }
@@ -727,22 +716,22 @@ class RuntimeSmokeResourceTest {
             }
         }
 
-        fun render(): Node = runtime.render(scope) { SmokeStaleTerminalProbe() }.tree
+        fun render(): Node = runtime.render(scope) { SmokeStaleResource(probe) }.tree
 
         assertEquals("Loading", render().findText().value)
         awaitLoads(1)
 
-        val staleFailure = smokeStaleGateHolder
-        smokeStaleCurrent!!.invalidate()
-        smokeStaleGateHolder = CompletableDeferred()
+        val staleFailure = probe.gate
+        probe.current!!.invalidate()
+        probe.gate = CompletableDeferred()
         assertEquals("Loading", render().findText().value)
         awaitLoads(2)
 
         staleFailure.completeExceptionally(IllegalStateException("stale failure"))
         yieldDefaultDispatcher()
-        assertIs<ResourceState.Loading>(smokeStaleCurrent!!.state)
+        assertIs<ResourceState.Loading>(probe.current!!.state)
 
-        smokeStaleGateHolder.complete("fresh")
+        probe.gate.complete("fresh")
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
                 runtime.awaitIdle()
@@ -750,31 +739,32 @@ class RuntimeSmokeResourceTest {
         }
         assertEquals("fresh", render().findText().value)
 
-        smokeStaleCurrent!!.invalidate()
-        smokeStaleGateHolder = CompletableDeferred()
+        probe.current!!.invalidate()
+        probe.gate = CompletableDeferred()
         assertEquals("fresh", render().findText().value)
-        assertIs<ResourceState.Loading>(smokeStaleCurrent!!.state)
+        assertIs<ResourceState.Loading>(probe.current!!.state)
         awaitLoads(3)
 
-        val staleCancellation = smokeStaleGateHolder
-        smokeStaleCurrent!!.invalidate()
-        smokeStaleGateHolder = CompletableDeferred()
+        val staleCancellation = probe.gate
+        probe.current!!.invalidate()
+        probe.gate = CompletableDeferred()
         assertEquals("fresh", render().findText().value)
-        assertIs<ResourceState.Loading>(smokeStaleCurrent!!.state)
+        assertIs<ResourceState.Loading>(probe.current!!.state)
         awaitLoads(4)
 
         staleCancellation.completeExceptionally(CancellationException("stale cancellation"))
         yieldDefaultDispatcher()
-        assertIs<ResourceState.Loading>(smokeStaleCurrent!!.state)
+        assertIs<ResourceState.Loading>(probe.current!!.state)
 
-        smokeStaleGateHolder.complete("fresh after cancellation")
+        probe.gate.complete("fresh after cancellation")
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
                 runtime.awaitIdle()
             }
         }
         assertEquals("fresh after cancellation", render().findText().value)
-        assertEquals(4, smokeStaleLoads)
+        assertEquals(4, probe.loads)
+        scope.dispose()
     }
 
     @Test
@@ -1086,13 +1076,13 @@ class RuntimeSmokeResourceTest {
     fun suspendSubtreeCommitsFallbackThenReadyNodeWithoutBlockingSiblings() = runTest {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
-        smokeSubtreeRelease = CompletableDeferred()
+        val probe = SubtreeProbe()
 
-        fun render(): Node = runtime.render(scope) { SmokeSuspendSubtreeApp() }.tree
+        fun render(): Node = runtime.render(scope) { SmokeSuspendSubtreeApp(probe) }.tree
 
         assertEquals(listOf("Before", "Loading async", "After"), render().findTexts().map { it.value })
 
-        smokeSubtreeRelease.complete(Unit)
+        probe.release.complete(Unit)
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
                 runtime.awaitIdle()
@@ -1102,6 +1092,7 @@ class RuntimeSmokeResourceTest {
         assertTrue(runtime.hasPendingInvalidation)
         assertEquals(listOf("Before", "Async ready", "After"), render().findTexts().map { it.value })
         assertTrue(runtime.journal().any { it.kind == JournalKind.DeferredSubtree && it.message == "suspend subtree ready" })
+        scope.dispose()
     }
 
 
@@ -1136,13 +1127,13 @@ class RuntimeSmokeResourceTest {
     fun suspendSubtreeErrorsRenderNearestErrorBoundaryFallback() = runTest {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
-        smokeSubtreeRelease = CompletableDeferred()
+        val probe = SubtreeProbe()
 
-        fun render(): Node = runtime.render(scope) { SmokeSuspendSubtreeFailing() }.tree
+        fun render(): Node = runtime.render(scope) { SmokeSuspendSubtreeFailing(probe) }.tree
 
         assertEquals("Loading async", render().findText().value)
 
-        smokeSubtreeRelease.complete(Unit)
+        probe.release.complete(Unit)
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
                 runtime.awaitIdle()
@@ -1152,6 +1143,7 @@ class RuntimeSmokeResourceTest {
         assertTrue(runtime.hasPendingInvalidation)
         assertEquals("Async error: bad async", render().findText().value)
         assertTrue(runtime.journal().any { it.kind == JournalKind.DeferredSubtree && it.message == "suspend subtree failed" })
+        scope.dispose()
     }
 
     @Test

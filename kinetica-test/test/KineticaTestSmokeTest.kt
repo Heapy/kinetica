@@ -169,15 +169,14 @@ class KineticaTestSmokeTest {
 
     @Test
     fun headlessRootDisposeCancelsEffects() = runTest {
-        effectStarted = CompletableDeferred()
-        effectDisposed = CompletableDeferred()
+        val probe = EffectSignalsProbe()
         val root = KineticaTest.render {
-            DisposeSignalsApp()
+            DisposeSignalsApp(probe)
         }
 
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
-                effectStarted.await()
+                probe.started.await()
             }
         }
 
@@ -185,20 +184,20 @@ class KineticaTestSmokeTest {
 
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
-                effectDisposed.await()
+                probe.disposed.await()
             }
         }
     }
 
     @Test
     fun headlessRootDisposeStopsSharedStoreInvalidationsFromRevivingRoot() = runTest {
-        sharedStore = store("before")
+        val probe = SharedStoreProbe()
         val root = KineticaTest.render {
-            SharedStoreApp()
+            SharedStoreApp(probe)
         }
 
         root.dispose()
-        sharedStore.value = "after"
+        probe.store.value = "after"
 
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
@@ -213,13 +212,13 @@ class KineticaTestSmokeTest {
 
     @Test
     fun suspendRootDisposeStopsSharedStoreInvalidationsFromRevivingRoot() = runTest {
-        sharedStore = store("before")
+        val probe = SharedStoreProbe()
         val root = KineticaTest.renderSuspend {
-            SharedStoreApp()
+            SharedStoreApp(probe)
         }
 
         root.dispose()
-        sharedStore.value = "after"
+        probe.store.value = "after"
 
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
@@ -250,9 +249,9 @@ class KineticaTestSmokeTest {
 
     @Test
     fun headlessRootAwaitIdleDoesNotBlockOnLongLivedDisposeEffects() = runTest {
-        effectStarted = CompletableDeferred()
+        val probe = EffectSignalsProbe()
         val root = KineticaTest.render {
-            LongLivedEffectApp()
+            LongLivedEffectApp(probe)
         }
 
         withContext(Dispatchers.Default) {
@@ -261,7 +260,7 @@ class KineticaTestSmokeTest {
             }
         }
 
-        assertTrue(effectStarted.isCompleted)
+        assertTrue(probe.started.isCompleted)
         root.dispose()
     }
 
@@ -286,9 +285,18 @@ class KineticaTestSmokeTest {
 private data class TestResourceKey(val id: String) : ResourceKey
 
 private var renderCount = 0
-private var effectStarted = CompletableDeferred<Unit>()
-private var effectDisposed = CompletableDeferred<Unit>()
-private var sharedStore = store("before")
+
+// The barebones Node runner does not await runTest promises, so async tests of this file
+// run interleaved. Effect gates and the shared store are per-test probes passed as
+// component parameters — never shared top-level vars.
+private class EffectSignalsProbe {
+    val started = CompletableDeferred<Unit>()
+    val disposed = CompletableDeferred<Unit>()
+}
+
+private class SharedStoreProbe {
+    val store = store("before")
+}
 
 @UiComponent
 private fun ComponentScope.StatusButtonApp() {
@@ -375,27 +383,27 @@ private fun ComponentScope.LoadingToReadyApp() {
     text(status)
 }
 
-@UiComponent
-private fun ComponentScope.DisposeSignalsApp() {
+@UiComponent(skippable = false)
+private fun ComponentScope.DisposeSignalsApp(probe: EffectSignalsProbe) {
     launchEffect {
-        effectStarted.complete(Unit)
-        awaitDispose { effectDisposed.complete(Unit) }
+        probe.started.complete(Unit)
+        awaitDispose { probe.disposed.complete(Unit) }
     }
     text("Running")
 }
 
-@UiComponent
-private fun ComponentScope.LongLivedEffectApp() {
+@UiComponent(skippable = false)
+private fun ComponentScope.LongLivedEffectApp(probe: EffectSignalsProbe) {
     launchEffect {
-        effectStarted.complete(Unit)
+        probe.started.complete(Unit)
         awaitDispose()
     }
     text("Running")
 }
 
-@UiComponent
-private fun ComponentScope.SharedStoreApp() {
-    text("Shared: ${sharedStore.value}")
+@UiComponent(skippable = false)
+private fun ComponentScope.SharedStoreApp(probe: SharedStoreProbe) {
+    text("Shared: ${probe.store.value}")
 }
 
 @UiComponent

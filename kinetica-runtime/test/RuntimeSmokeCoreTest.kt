@@ -193,50 +193,54 @@ private fun ComponentScope.SmokeLaunchOnce() {
     text("Effect")
 }
 
-private var smokeEffectVisible = true
-private var smokeEffectStarted = CompletableDeferred<Unit>()
-private var smokeEffectDisposed = CompletableDeferred<Unit>()
-
-@UiComponent(skippable = false)
-private fun ComponentScope.SmokeCancellableEffect() {
-    if (smokeEffectVisible) {
-        launchEffect {
-            smokeEffectStarted.complete(Unit)
-            awaitDispose { smokeEffectDisposed.complete(Unit) }
-        }
-    }
-    text("Visible: $smokeEffectVisible")
+// The non-awaiting JS runner interleaves async tests, so the effect visibility flag and
+// start/dispose gates shared by the three cancellation tests live in a per-test probe
+// passed as a component parameter (see the watch tests below for the pattern).
+private class EffectProbe {
+    var visible = true
+    val started = CompletableDeferred<Unit>()
+    val disposed = CompletableDeferred<Unit>()
+    var listState = lazyListState(firstVisibleIndex = 0, visibleCount = 1)
+    var ref: Ref<String>? = null
 }
 
 @UiComponent(skippable = false)
-private fun ComponentScope.SmokeDefaultCleanupEffect() {
-    if (smokeEffectVisible) {
+private fun ComponentScope.SmokeCancellableEffect(probe: EffectProbe) {
+    if (probe.visible) {
         launchEffect {
-            smokeEffectStarted.complete(Unit)
+            probe.started.complete(Unit)
+            awaitDispose { probe.disposed.complete(Unit) }
+        }
+    }
+    text("Visible: ${probe.visible}")
+}
+
+@UiComponent(skippable = false)
+private fun ComponentScope.SmokeDefaultCleanupEffect(probe: EffectProbe) {
+    if (probe.visible) {
+        launchEffect {
+            probe.started.complete(Unit)
             awaitDispose()
         }
     }
-    text("Visible: $smokeEffectVisible")
+    text("Visible: ${probe.visible}")
 }
 
 // --- visibleOnlyLazyEachDisposesEffectsAndRefsForHiddenItems ---
 
-private var smokeLazyEffectListState = lazyListState(firstVisibleIndex = 0, visibleCount = 1)
-private var smokeLazyEffectRef: Ref<String>? = null
-
 @UiComponent(skippable = false)
-private fun ComponentScope.SmokeLazyEffectRows() {
+private fun ComponentScope.SmokeLazyEffectRows(probe: EffectProbe) {
     lazyEach(
         items = lazyItems(listOf("one", "two")),
         key = { item -> item },
         retain = RetainPolicy.VisibleOnly,
-        state = smokeLazyEffectListState,
+        state = probe.listState,
     ) { item ->
         if (item == "one") {
-            smokeLazyEffectRef = imperativeHandle { "handle" }
+            probe.ref = imperativeHandle { "handle" }
             launchEffect {
-                smokeEffectStarted.complete(Unit)
-                awaitDispose { smokeEffectDisposed.complete(Unit) }
+                probe.started.complete(Unit)
+                awaitDispose { probe.disposed.complete(Unit) }
             }
         }
         text(item)
@@ -1004,46 +1008,44 @@ class RuntimeSmokeCoreTest {
     fun launchEffectIsCancelledWhenDeclarationLeavesRender() = runTest {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
-        smokeEffectVisible = true
-        smokeEffectStarted = CompletableDeferred()
-        smokeEffectDisposed = CompletableDeferred()
+        val probe = EffectProbe()
 
-        fun render(): Node = runtime.render(scope) { SmokeCancellableEffect() }.tree
+        fun render(): Node = runtime.render(scope) { SmokeCancellableEffect(probe) }.tree
 
         render()
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
-                smokeEffectStarted.await()
+                probe.started.await()
             }
         }
 
-        smokeEffectVisible = false
+        probe.visible = false
         render()
 
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
-                smokeEffectDisposed.await()
+                probe.disposed.await()
             }
         }
+        scope.dispose()
     }
 
     @Test
     fun launchEffectAwaitDisposeDefaultCleanupCancelsCleanly() = runTest {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
-        smokeEffectVisible = true
-        smokeEffectStarted = CompletableDeferred()
+        val probe = EffectProbe()
 
-        fun render(): Node = runtime.render(scope) { SmokeDefaultCleanupEffect() }.tree
+        fun render(): Node = runtime.render(scope) { SmokeDefaultCleanupEffect(probe) }.tree
 
         render()
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
-                smokeEffectStarted.await()
+                probe.started.await()
             }
         }
 
-        smokeEffectVisible = false
+        probe.visible = false
         assertEquals("Visible: false", render().findText().value)
 
         withContext(Dispatchers.Default) {
@@ -1051,38 +1053,37 @@ class RuntimeSmokeCoreTest {
                 runtime.awaitIdle()
             }
         }
+        scope.dispose()
     }
 
     @Test
     fun visibleOnlyLazyEachDisposesEffectsAndRefsForHiddenItems() = runTest {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
-        smokeEffectStarted = CompletableDeferred()
-        smokeEffectDisposed = CompletableDeferred()
-        smokeLazyEffectListState = lazyListState(firstVisibleIndex = 0, visibleCount = 1)
-        smokeLazyEffectRef = null
+        val probe = EffectProbe()
 
         fun render() {
-            runtime.render(scope) { SmokeLazyEffectRows() }
+            runtime.render(scope) { SmokeLazyEffectRows(probe) }
         }
 
         render()
-        assertEquals("handle", smokeLazyEffectRef?.current)
+        assertEquals("handle", probe.ref?.current)
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
-                smokeEffectStarted.await()
+                probe.started.await()
             }
         }
 
-        smokeLazyEffectListState = smokeLazyEffectListState.scrollTo(firstVisibleIndex = 1)
+        probe.listState = probe.listState.scrollTo(firstVisibleIndex = 1)
         render()
 
-        assertEquals(null, smokeLazyEffectRef?.current)
+        assertEquals(null, probe.ref?.current)
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
-                smokeEffectDisposed.await()
+                probe.disposed.await()
             }
         }
+        scope.dispose()
     }
 
     @Test
