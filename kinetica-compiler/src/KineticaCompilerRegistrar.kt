@@ -6,6 +6,7 @@ import org.jetbrains.kotlin.compiler.plugin.CompilerPluginRegistrar
 import org.jetbrains.kotlin.config.CommonConfigurationKeys
 import org.jetbrains.kotlin.config.CompilerConfiguration
 import org.jetbrains.kotlin.extensions.ProcessSourcesBeforeCompilingExtension
+import org.jetbrains.kotlin.fir.extensions.FirExtensionRegistrarAdapter
 
 public class KineticaCompilerRegistrar : CompilerPluginRegistrar() {
     override val pluginId: String = KineticaCompilerContract.pluginId
@@ -28,6 +29,9 @@ public fun CompilerPluginRegistrar.ExtensionStorage.registerKineticaCompilerExte
         ProcessSourcesBeforeCompilingExtension.Companion.registerExtension(
             KineticaProcessSourcesExtension(pluginConfiguration),
         )
+    }
+    if (pluginConfiguration.checks != "off") {
+        FirExtensionRegistrarAdapter.registerExtension(KineticaFirExtensionRegistrar())
     }
     if (pluginConfiguration.transforms) {
         IrGenerationExtension.registerExtension(

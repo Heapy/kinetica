@@ -8,6 +8,7 @@ public object KineticaCompilerContract {
     public const val optionClientSourceSet: String = "clientSourceSet"
     public const val optionTransforms: String = "transforms"
     public const val optionSourcePipeline: String = "sourcePipeline"
+    public const val optionChecks: String = "checks"
 
     public val responsibilities: List<CompilerResponsibility> = listOf(
         CompilerResponsibility.SlotIdGeneration,

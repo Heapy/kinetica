@@ -12,6 +12,7 @@ public data class KineticaCompilerPluginConfiguration(
     val clientSourceSet: String,
     val transforms: Boolean = true,
     val sourcePipeline: String = "lightTree",
+    val checks: String = "off",
 ) {
     public companion object {
         public fun from(configuration: CompilerConfiguration): KineticaCompilerPluginConfiguration =
@@ -23,6 +24,7 @@ public data class KineticaCompilerPluginConfiguration(
                 clientSourceSet = configuration.get(KineticaConfigurationKeys.clientSourceSet) ?: "client",
                 transforms = configuration.get(KineticaConfigurationKeys.transforms) != "off",
                 sourcePipeline = configuration.get(KineticaConfigurationKeys.sourcePipeline) ?: "lightTree",
+                checks = configuration.get(KineticaConfigurationKeys.checks) ?: "off",
             )
     }
 }

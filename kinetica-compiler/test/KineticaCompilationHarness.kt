@@ -1,24 +1,16 @@
 package io.heapy.kinetica.compiler
 
-import org.jetbrains.kotlin.cli.common.CLIConfigurationKeys
-import org.jetbrains.kotlin.cli.common.config.KotlinSourceRoot
+import org.jetbrains.kotlin.cli.common.ExitCode
+import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSourceLocation
 import org.jetbrains.kotlin.cli.common.messages.MessageCollector
-import org.jetbrains.kotlin.K1Deprecation
-import org.jetbrains.kotlin.cli.create
-import org.jetbrains.kotlin.cli.jvm.compiler.EnvironmentConfigFiles
-import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
-import org.jetbrains.kotlin.cli.jvm.compiler.KotlinToJVMBytecodeCompiler
-import org.jetbrains.kotlin.cli.jvm.config.JvmClasspathRoot
-import org.jetbrains.kotlin.com.intellij.openapi.application.ApplicationManager
-import org.jetbrains.kotlin.com.intellij.openapi.util.Disposer
-import org.jetbrains.kotlin.compiler.plugin.CompilerPluginRegistrar
-import org.jetbrains.kotlin.config.CommonConfigurationKeys
-import org.jetbrains.kotlin.config.CompilerConfiguration
-import org.jetbrains.kotlin.config.JVMConfigurationKeys
+import org.jetbrains.kotlin.cli.jvm.K2JVMCompiler
+import org.jetbrains.kotlin.config.Services
 import java.io.File
 import java.net.URLClassLoader
+import java.util.jar.JarEntry
+import java.util.jar.JarOutputStream
 import kotlin.io.path.createDirectories
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.writeText
@@ -27,12 +19,65 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 internal class KineticaCompilationHarness {
-    @OptIn(CompilerConfiguration.Internals::class, K1Deprecation::class)
     fun compile(
         sources: Map<String, String>,
         moduleName: String = "test",
         transforms: String = "on",
+        checks: String = "off",
     ): CompiledKineticaModule {
+        val result = compileInternal(sources, moduleName, transforms, checks)
+        if (!result.success || result.messages.any { it.severity.isError }) {
+            fail(
+                buildString {
+                    appendLine("Compilation failed.")
+                    result.messages.forEach { message ->
+                        appendLine("${message.severity}: ${message.message}")
+                    }
+                },
+            )
+        }
+        return CompiledKineticaModule(
+            outputDir = result.outputDir,
+            messages = result.messages,
+            classLoader = URLClassLoader(
+                arrayOf(result.outputDir.toURI().toURL()),
+                Thread.currentThread().contextClassLoader,
+            ),
+        )
+    }
+
+    /** Compiles sources expected to violate the Kinetica FIR rules; returns all messages. */
+    fun compileExpectingErrors(
+        sources: Map<String, String>,
+        moduleName: String = "test",
+        checks: String = "error",
+    ): List<RecordedCompilerMessage> {
+        val result = compileInternal(sources, moduleName, transforms = "on", checks = checks)
+        assertTrue(
+            !result.success || result.messages.any { it.severity.isError },
+            "Expected compilation errors, but compilation succeeded. Messages:\n" +
+                result.messages.joinToString("\n") { "${it.severity}: ${it.message}" },
+        )
+        return result.messages
+    }
+
+    private class InternalCompilationResult(
+        val success: Boolean,
+        val outputDir: File,
+        val messages: List<RecordedCompilerMessage>,
+    )
+
+    /**
+     * Runs the real CLI entry (K2JVMCompiler) with the plugin passed via -Xplugin — the
+     * exact loading path production builds use, including FIR extension registration,
+     * which the legacy in-process KotlinCoreEnvironment entry point never bridged.
+     */
+    private fun compileInternal(
+        sources: Map<String, String>,
+        moduleName: String,
+        transforms: String,
+        checks: String,
+    ): InternalCompilationResult {
         val root = createTempDirectory(prefix = "kinetica-compile-")
         val sourceRoot = root.resolve("src").createDirectories()
         val outputDir = root.resolve("out").createDirectories()
@@ -42,56 +87,24 @@ internal class KineticaCompilationHarness {
             file.writeText(text.trimIndent())
         }
 
-        val disposable = Disposer.newDisposable()
-        val ideaHome = root.resolve("idea").createDirectories()
-        val previousIdeaHome = System.setProperty("idea.home.path", ideaHome.toString())
-        val previousIdeaConfig = System.setProperty("idea.config.path", ideaHome.resolve("config").toString())
-        val previousIdeaSystem = System.setProperty("idea.system.path", ideaHome.resolve("system").toString())
         val collector = RecordingMessageCollector()
-        try {
-            val configuration = CompilerConfiguration.create(messageCollector = collector).apply {
-                put(CommonConfigurationKeys.MODULE_NAME, moduleName)
-                put(JVMConfigurationKeys.OUTPUT_DIRECTORY, outputDir.toFile())
-                put(KineticaConfigurationKeys.moduleId, moduleName)
-                put(KineticaConfigurationKeys.transforms, transforms)
-                add(CLIConfigurationKeys.CONTENT_ROOTS, KotlinSourceRoot(sourceRoot.toString(), isCommon = false, hmppModuleName = null))
-                compilerClasspath().forEach { file ->
-                    add(CLIConfigurationKeys.CONTENT_ROOTS, JvmClasspathRoot(file))
-                }
-                add(CompilerPluginRegistrar.COMPILER_PLUGIN_REGISTRARS, KineticaCompilerRegistrar())
-            }
-            val environment = KotlinCoreEnvironment.createForProduction(
-                disposable,
-                configuration,
-                EnvironmentConfigFiles.JVM_CONFIG_FILES,
+        val arguments = K2JVMCompilerArguments().apply {
+            freeArgs = listOf(sourceRoot.toString())
+            destination = outputDir.toString()
+            classpath = compilerClasspath().joinToString(File.pathSeparator) { it.absolutePath }
+            this.moduleName = moduleName
+            pluginClasspaths = arrayOf(pluginJar.absolutePath)
+            pluginOptions = arrayOf(
+                "plugin:${KineticaCompilerContract.pluginId}:${KineticaCompilerContract.optionModuleId}=$moduleName",
+                "plugin:${KineticaCompilerContract.pluginId}:${KineticaCompilerContract.optionTransforms}=$transforms",
+                "plugin:${KineticaCompilerContract.pluginId}:${KineticaCompilerContract.optionChecks}=$checks",
             )
-            val success = KotlinToJVMBytecodeCompiler.compileBunchOfSources(environment)
-            if (!success || collector.hasErrors()) {
-                fail(
-                    buildString {
-                        appendLine("Compilation failed.")
-                        collector.messages.forEach { message ->
-                            appendLine("${message.severity}: ${message.message}")
-                        }
-                    },
-                )
-            }
-        } finally {
-            restoreSystemProperty("idea.system.path", previousIdeaSystem)
-            restoreSystemProperty("idea.config.path", previousIdeaConfig)
-            restoreSystemProperty("idea.home.path", previousIdeaHome)
-            ApplicationManager.getApplication()?.runWriteAction {
-                Disposer.dispose(disposable)
-            } ?: Disposer.dispose(disposable)
         }
-
-        return CompiledKineticaModule(
+        val exitCode = K2JVMCompiler().exec(collector, Services.EMPTY, arguments)
+        return InternalCompilationResult(
+            success = exitCode == ExitCode.OK,
             outputDir = outputDir.toFile(),
             messages = collector.messages,
-            classLoader = URLClassLoader(
-                arrayOf(outputDir.toUri().toURL()),
-                Thread.currentThread().contextClassLoader,
-            ),
         )
     }
 
@@ -104,6 +117,44 @@ internal class KineticaCompilationHarness {
             .filter { it.exists() }
             .distinctBy { it.absoluteFile.normalize() }
             .toList()
+
+    private companion object {
+        /**
+         * The plugin jar for -Xplugin, built once per test JVM from the classpath entry
+         * holding the plugin classes, with the META-INF/services registrations included
+         * (they may live in a separate resources classpath entry).
+         */
+        private val pluginJar: File by lazy {
+            val location = File(KineticaCompilerRegistrar::class.java.protectionDomain.codeSource.location.toURI())
+            val serviceNames = listOf(
+                "org.jetbrains.kotlin.compiler.plugin.CompilerPluginRegistrar",
+                "org.jetbrains.kotlin.compiler.plugin.CommandLineProcessor",
+            )
+            if (location.isFile) {
+                return@lazy location
+            }
+            val jarFile = File.createTempFile("kinetica-compiler-plugin", ".jar")
+            jarFile.deleteOnExit()
+            JarOutputStream(jarFile.outputStream()).use { jar ->
+                location.walkTopDown().filter { it.isFile }.forEach { file ->
+                    jar.putNextEntry(JarEntry(file.relativeTo(location).invariantSeparatorsPath))
+                    file.inputStream().use { it.copyTo(jar) }
+                    jar.closeEntry()
+                }
+                val classLoader = KineticaCompilerRegistrar::class.java.classLoader
+                serviceNames.forEach { serviceName ->
+                    if (!location.resolve("META-INF/services/$serviceName").isFile) {
+                        val resource = classLoader.getResource("META-INF/services/$serviceName")
+                            ?: error("Missing service registration for $serviceName on the test classpath")
+                        jar.putNextEntry(JarEntry("META-INF/services/$serviceName"))
+                        resource.openStream().use { it.copyTo(jar) }
+                        jar.closeEntry()
+                    }
+                }
+            }
+            jarFile
+        }
+    }
 }
 
 internal class CompiledKineticaModule(
