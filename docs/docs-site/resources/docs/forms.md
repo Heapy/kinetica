@@ -61,6 +61,6 @@ through an `if (form.isValid) submit()` guard.
 For quick cases there is a `textInput` overload bound to any `var` via property reference:
 
 ```kotlin
-var query by state(key = "query") { "" }
+var query by state { "" }
 textInput(::query, placeholder = "Search")
 ```

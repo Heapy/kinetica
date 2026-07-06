@@ -64,7 +64,7 @@ so switching ids resets its state deliberately).
 
 ```kotlin
 val items = lazyItems(allRows, estimatedSize = allRows.size)
-var scroll by state(key = "scroll") { LazyListState(firstVisibleIndex = 0, visibleCount = 40) }
+var scroll by state { LazyListState(firstVisibleIndex = 0, visibleCount = 40) }
 
 lazyEach(items, key = { it.id }, state = scroll, retain = RetainPolicy.Keyed) { row ->
     RowView(row)

@@ -18,6 +18,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-kinetica
 
+      # The plugin is mandatory for every module (slot ordinals are compiler-assigned),
+      # and it resolves from the toolchain's own local repo (.kotlin/home/.m2) — so it must
+      # be built and published before anything else compiles.
+      - name: Publish compiler plugin
+        run: |
+          set -euo pipefail
+          ./kotlin test -m kinetica-compiler --platform jvm
+          ./kotlin publish mavenLocal -m kinetica-compiler
+
       # JVM tests for every module with a JVM-testable surface.
       # (Android/native targets are out of CI scope for now: they need SDK/host toolchains.)
       - name: JVM tests
@@ -25,20 +34,18 @@ jobs:
           set -euo pipefail
           for module in kinetica-runtime kinetica-markdown kinetica-router kinetica-forms \
                         kinetica-motion kinetica-persist kinetica-theme kinetica-data \
-                        kinetica-test kinetica-compiler server-components-shared \
+                        kinetica-test server-components-shared \
                         server-components todo; do
             echo "=== $module"
             ./kotlin test -m "$module" --platform jvm
           done
 
-      # The compiler plugin resolves from the toolchain's own local repo (.kotlin/home/.m2),
-      # so it must be published before any plugin-enabled module compiles. The two annotated
-      # samples are the plugin's behavior gate: scope-free + receiver-style skip semantics on
-      # JVM, and the IR transform on the K2/JS pipeline.
+      # The two annotated samples are the plugin's behavior gate: scope-free +
+      # receiver-style semantics on JVM, and the IR frame/skip transforms on the K2/JS
+      # pipeline.
       - name: Compiler plugin samples (JVM + JS)
         run: |
           set -euo pipefail
-          ./kotlin publish mavenLocal -m kinetica-compiler
           ./kotlin run -m annotated
           ./kotlin build -m annotated-js
           node build/tasks/_annotated-js_linkJs/annotated-js.mjs
@@ -55,8 +62,8 @@ jobs:
       - name: Browser-runtime JS tests
         run: node build/tasks/_kinetica-browser_linkJsTest/kinetica-browser_test.mjs
 
-      # The slot-collision bug class is silent on JS (mangled property reads instead of a
-      # ClassCastException), so the runtime and test-kit suites must run on Node too.
+      # Frame storage and the IR ordinal emission must behave identically on the JS
+      # backend, so the runtime and test-kit suites run on Node too.
       - name: Runtime & test-kit JS tests
         run: |
           set -euo pipefail

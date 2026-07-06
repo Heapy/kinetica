@@ -9,6 +9,7 @@
 ```kotlin
 import io.heapy.kinetica.markdown.markdown
 
+@UiComponent
 fun ComponentScope.Article(source: String) {
     host("article") {
         markdown(source)

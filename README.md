@@ -7,8 +7,9 @@ patches by diffing values. One UI loop, synchronous atomic commits, explicit eff
 causality.
 
 ```kotlin
+@UiComponent
 fun ComponentScope.Counter() {
-    var count by state(key = "count") { 0 }
+    var count by state { 0 }
     column {
         text("Clicked $count times")
         button(onClick = event { count += 1 }) { text("Increment") }
@@ -17,6 +18,11 @@ fun ComponentScope.Counter() {
 
 fun main() = mountKineticaApp("#app") { Counter() }
 ```
+
+Kinetica is **compiler-plugin-only**: the K2 plugin assigns every `state`/`derived`/effect
+call site a static slot ordinal in a per-component frame, so state identity is decided at
+compile time — no keys to pass, no positional-collision bug class, and the render hot path
+reads slots by array index.
 
 ## Documentation
 
@@ -41,7 +47,7 @@ See [`docs/README.md`](docs/README.md).
 | `kinetica-browser` | retained-mode DOM renderer (keyed LIS diffing, event delegation) |
 | `kinetica-router` / `-forms` / `-motion` / `-data` / `-persist` / `-theme` / `-markdown` | first-party batteries |
 | `kinetica-test` | headless component test harness |
-| `kinetica-compiler` | K2 compiler plugin (`@UiComponent`, slot ids, server/client boundary) |
+| `kinetica-compiler` | K2 compiler plugin — mandatory: frame/slot ordinals, skip transform, FIR authoring rules, server/client boundary |
 | `samples/` | browser apps, server-components demo, annotated (compiler-plugin) sample |
 | `docs/` | the documentation site + Docker packaging |
 | `bench/` | js-framework-benchmark harness vs React/Preact/Vue/Svelte/vanilla — 13 keyed-table ops, GC accounting, scaling curves, sustained updates, deep-tree suite, memory/leak probes ([guide](bench/README.md)) |
