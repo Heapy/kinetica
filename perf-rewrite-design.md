@@ -1,8 +1,9 @@
 # Kinetica renderer performance — rewrite design
 
-Status: in progress · 2026-07-05 · **P0, P1 and P2 landed and measured — geomean 15.2× → 1.42×, see §8. Next: P3 packaging.**
+Status: in progress · 2026-07-05 · **P0–P2 + allocation hygiene landed and measured — geomean 15.2× → 1.29×, tied with React; see §8. Next: P3 packaging.**
 Evidence: `bench/results/results.json`, report `bench/report/index.html`
-(https://claude.ai/code/artifact/6d768a3a-100d-476d-a5a9-989627f2d15d), CPU profiles below.
+(full-run report: https://claude.ai/code/artifact/168ad7db-9368-40ca-8c62-66088e99811a,
+earlier: https://claude.ai/code/artifact/6d768a3a-100d-476d-a5a9-989627f2d15d), CPU profiles below.
 
 ## 1. Summary
 
@@ -376,6 +377,22 @@ stay green).
   creates flat within noise (create-1k 50.9→53.5 ± 5.5, create-10k 461→474 ± 14), clear
   6.9→8.1 (pays one cache-eviction sweep). **Geomean 1.93× → 1.42×** — the ≤2× gate holds with
   margin; remaining gap is create-op Node construction and toolchain packaging (P3).
+
+  **Status 2026-07-05 (later) — P2 allocation hygiene landed**, attacking the profile's largest
+  JS self-time bucket (Kotlin stdlib map/hash work on the create path): array-backed `PropMap` +
+  `propsOf()` for small prop sets (identity-fast key scan, full Map contract vs `mapOf`);
+  `host()` stops copying props when there are no frame bindings; `button`/`textInput`/`checkbox`/
+  `row` build props without hash maps; the key-scope prefix is maintained incrementally instead
+  of list-copy + `joinToString` per read (5–6 reads per row per render); `renderEach` iterates
+  the deduped key map directly; the browser mount path drops its intermediate filtered prop map.
+  Measured on a FULL fresh 6-framework run (all parts re-benched back to back, median ms):
+  create-1k 53.5→**43.5**, replace 53.6→**43.5**, create-10k 474→**301** (React 313 — Kinetica
+  now ahead on create-10k), append 52.0→**45.8**; partials unchanged (select 7.8, swap 8.3,
+  remove 8.9, update 9.9, clear 7.4). **Geomean 1.42× → 1.29× — statistically tied with React
+  (1.29×)**; Preact/Vue 1.11×, Svelte 1.08×, vanilla 1.03×. Measurement caveat learned the hard
+  way: on battery below ~10% macOS low-power throttling floors every headless-Chrome op at
+  ~2 vsyncs (~30 ms) — React included — so benches are only valid on AC power (verified with a
+  React canary before this run).
 - **P3 — packaging** (any time after P0): bundle script, bundled bench variant, report update.
 
 Sequencing rationale: P0 is independent and de-risks the numbers; P1 is where the architecture

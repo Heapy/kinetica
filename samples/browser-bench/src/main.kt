@@ -3,6 +3,7 @@ package app.browser.bench
 import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.KineticaRuntime
 import io.heapy.kinetica.MutableCell
+import io.heapy.kinetica.propsOf
 import io.heapy.kinetica.Role
 import io.heapy.kinetica.Semantics
 import io.heapy.kinetica.browser.mountKineticaApp
@@ -92,9 +93,9 @@ fun ComponentScope.BenchApp() {
     }
 
     host("div") {
-        host("div", props = mapOf("class" to "jumbotron")) {
+        host("div", props = propsOf("class", "jumbotron")) {
             host("h1") { text("Kinetica (keyed)", semantics = null) }
-            host("div", props = mapOf("class" to "toolbar")) {
+            host("div", props = propsOf("class", "toolbar")) {
                 toolbarButton("run", "Create 1,000 rows", run)
                 toolbarButton("runlots", "Create 10,000 rows", runLots)
                 toolbarButton("add", "Append 1,000 rows", add)
@@ -103,29 +104,29 @@ fun ComponentScope.BenchApp() {
                 toolbarButton("swaprows", "Swap Rows", swapRows)
             }
         }
-        host("table", props = mapOf("class" to "test-data")) {
+        host("table", props = propsOf("class", "test-data")) {
             host("tbody") {
                 each(rows, key = { it.id }) { row ->
                     val isSelected = state(key = "selected") { false }
                     val danger = if (isSelected.value) "danger" else ""
-                    host("tr", props = mapOf("class" to danger, "data-id" to row.id.toString()), key = row.id) {
-                        host("td", props = mapOf("class" to "col-id")) {
+                    host("tr", props = propsOf("class", danger, "data-id", row.id.toString()), key = row.id) {
+                        host("td", props = propsOf("class", "col-id")) {
                             text(row.id.toString(), semantics = null)
                         }
-                        host("td", props = mapOf("class" to "col-label")) {
+                        host("td", props = propsOf("class", "col-label")) {
                             button(onClick = event { selection.select(isSelected) }, semantics = null) {
                                 text(row.label, semantics = null)
                             }
                         }
-                        host("td", props = mapOf("class" to "col-remove")) {
+                        host("td", props = propsOf("class", "col-remove")) {
                             button(
                                 onClick = event { rows = rows.filterNot { it.id == row.id } },
                                 semantics = null,
                             ) {
-                                host("span", props = mapOf("class" to "remove-icon", "aria-hidden" to "true"))
+                                host("span", props = propsOf("class", "remove-icon", "aria-hidden", "true"))
                             }
                         }
-                        host("td", props = mapOf("class" to "col-rest"))
+                        host("td", props = propsOf("class", "col-rest"))
                     }
                 }
             }

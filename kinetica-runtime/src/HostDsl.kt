@@ -43,10 +43,17 @@ public fun ComponentScope.host(
     key: Any? = null,
     content: ComponentScope.() -> Unit = {},
 ) {
-    val mergedProps = props.toMutableMap()
-    frameProps.forEach { (property, value) ->
-        mergedProps["frame:$property"] = value.id
-        mergedProps["frame:$property:value"] = value.value.toString()
+    // Without frame bindings the caller's map is emitted as-is: HostNode treats props as
+    // an immutable value, and copying every node's props dominated the create profile.
+    val mergedProps = if (frameProps.isEmpty()) {
+        props
+    } else {
+        props.toMutableMap().also { merged ->
+            frameProps.forEach { (property, value) ->
+                merged["frame:$property"] = value.id
+                merged["frame:$property:value"] = value.value.toString()
+            }
+        }
     }
     emit(HostNode(tag, mergedProps, collect(content), key?.toString(), semantics))
 }
@@ -67,7 +74,7 @@ public fun ComponentScope.row(
     emit(
         HostNode(
             tag = "row",
-            props = mapOf("direction" to currentLayoutDirection().name),
+            props = propsOf("direction", currentLayoutDirection().name),
             children = collect(content),
             key = key?.toString(),
             semantics = semantics,
@@ -90,9 +97,11 @@ public fun ComponentScope.button(
     key: Any? = null,
     content: ComponentScope.() -> Unit,
 ) {
-    val props = mutableMapOf("enabled" to enabled.toString())
-    if (onClick != null) {
-        props["event:onClick"] = registerHostEvent { onClick() }
+    val enabledValue = if (enabled) "true" else "false"
+    val props = if (onClick == null) {
+        propsOf("enabled", enabledValue)
+    } else {
+        propsOf("enabled", enabledValue, "event:onClick", registerHostEvent { onClick() })
     }
     emit(HostNode("button", props, collect(content), key?.toString(), semantics))
 }
@@ -105,21 +114,25 @@ public fun ComponentScope.textInput(
     semantics: Semantics? = Semantics(role = Role.TextInput, focusable = true),
     key: Any? = null,
 ) {
-    val props = mutableMapOf(
-        "value" to value,
-    )
+    val buffer = arrayOfNulls<String>(8)
+    var count = 0
+    buffer[count++] = "value"
+    buffer[count++] = value
     if (placeholder != null) {
-        props["placeholder"] = placeholder
+        buffer[count++] = "placeholder"
+        buffer[count++] = placeholder
     }
     if (onInput != null) {
-        props["event:onInput"] = registerHostEvent { payload ->
+        buffer[count++] = "event:onInput"
+        buffer[count++] = registerHostEvent { payload ->
             onInput(payload?.toString().orEmpty())
         }
     }
     if (onSubmit != null) {
-        props["event:onSubmit"] = registerHostEvent { onSubmit() }
+        buffer[count++] = "event:onSubmit"
+        buffer[count++] = registerHostEvent { onSubmit() }
     }
-    emit(HostNode("textInput", props, key = key?.toString(), semantics = semantics))
+    emit(HostNode("textInput", propsFromBuffer(buffer, count), key = key?.toString(), semantics = semantics))
 }
 
 public fun ComponentScope.checkbox(
@@ -128,9 +141,11 @@ public fun ComponentScope.checkbox(
     semantics: Semantics? = Semantics(role = Role.Checkbox, focusable = true),
     key: Any? = null,
 ) {
-    val props = mutableMapOf("checked" to checked.toString())
-    if (onToggle != null) {
-        props["event:onToggle"] = registerHostEvent { onToggle() }
+    val checkedValue = if (checked) "true" else "false"
+    val props = if (onToggle == null) {
+        propsOf("checked", checkedValue)
+    } else {
+        propsOf("checked", checkedValue, "event:onToggle", registerHostEvent { onToggle() })
     }
     emit(HostNode("checkbox", props, key = key?.toString(), semantics = semantics))
 }

@@ -642,9 +642,11 @@ public class BrowserKineticaApp(
         if (!runtime.debug) "" else refreshChildPath(parent, index)
 
     private fun Element.applyPublicProps(node: HostNode) {
-        node.props
-            .filter { (name, value) -> isPublicBrowserAttribute(name, value) }
-            .forEach { (name, value) -> setAttribute(name, value) }
+        node.props.forEach { (name, value) ->
+            if (isPublicBrowserAttribute(name, value)) {
+                setAttribute(name, value)
+            }
+        }
     }
 
     private fun Element.applyFlex(direction: String) {

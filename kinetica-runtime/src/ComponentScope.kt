@@ -46,7 +46,11 @@ public class ComponentScope public constructor(
     private val eachOrdinals = mutableMapOf<String, Int>()
     private val eachCaptures = mutableListOf<EachRowCapture>()
     private val exitGroupStack = mutableListOf<ExitGroupState>()
-    private val keyScopeStack = mutableListOf<String>()
+    // The joined key-scope prefix is maintained incrementally: it is read several times
+    // per row (slot/event/effect keys, callsite ids), and rejoining the stack per read
+    // was a top allocation source on list-heavy renders.
+    private val keyScopeParents = mutableListOf<String>()
+    private var keyScopePrefixValue = ""
     private val stateWriteVersion = atomic(0L)
     private var slotCursor = 0
     private var eventCursor = 0
@@ -241,28 +245,39 @@ public class ComponentScope public constructor(
         withSuspendKeyScope(key, content)
     }
 
+    internal fun pushKeyScope(key: String) {
+        keyScopeParents += keyScopePrefixValue
+        keyScopePrefixValue = if (keyScopePrefixValue.isEmpty()) key else "$keyScopePrefixValue/$key"
+    }
+
+    internal fun popKeyScope() {
+        keyScopePrefixValue = keyScopeParents.removeAt(keyScopeParents.lastIndex)
+    }
+
     internal fun withKeyScope(key: Any, content: ComponentScope.() -> Unit) {
-        keyScopeStack += key.toString()
+        pushKeyScope(key.toString())
         try {
             content()
         } finally {
-            keyScopeStack.removeAt(keyScopeStack.lastIndex)
+            popKeyScope()
         }
     }
 
     internal suspend fun withSuspendKeyScope(key: Any, content: suspend ComponentScope.() -> Unit) {
-        keyScopeStack += key.toString()
+        pushKeyScope(key.toString())
         try {
             content()
         } finally {
-            keyScopeStack.removeAt(keyScopeStack.lastIndex)
+            popKeyScope()
         }
     }
 
-    internal fun keyScopePrefix(extraKey: Any? = null): String {
-        val keys = if (extraKey == null) keyScopeStack else keyScopeStack + extraKey.toString()
-        return keys.joinToString(separator = "/")
-    }
+    internal fun keyScopePrefix(extraKey: Any? = null): String =
+        when {
+            extraKey == null -> keyScopePrefixValue
+            keyScopePrefixValue.isEmpty() -> extraKey.toString()
+            else -> "$keyScopePrefixValue/$extraKey"
+        }
 
     private fun scopedComponentCacheKey(componentId: String): String {
         val prefix = keyScopePrefix()
@@ -374,7 +389,8 @@ public class ComponentScope public constructor(
         eachOrdinals.clear()
         eachCaptures.clear()
         exitGroupStack.clear()
-        keyScopeStack.clear()
+        keyScopeParents.clear()
+        keyScopePrefixValue = ""
         layoutEffects.clear()
         postCommitEffects.clear()
         nodeStack.clear()
@@ -637,26 +653,29 @@ public class ComponentScope public constructor(
         // cursors) that must run every render, so it disqualifies enclosing row captures;
         // its own rows still memoize independently.
         markEachCapturesUnsafe()
-        val keyedItems = keyedLastWins(items, key)
+        val keyedItems = keyedLastWinsMap(items, key)
         if (!memoize) {
-            keyedItems.forEach { keyed ->
-                withKeyScope(keyed.key) {
-                    content(keyed.item)
+            keyedItems.forEach { (itemKey, item) ->
+                withKeyScope(itemKey) {
+                    content(item)
                 }
             }
             return
         }
         val callsite = eachCallsite()
         var reused = 0
-        keyedItems.forEach { keyed ->
-            val rowKey = keyed.key.toString()
+        keyedItems.forEach { (itemKey, item) ->
+            val rowKey = itemKey.toString()
             callsite.seenKeys += rowKey
-            withKeyScope(keyed.key) {
-                if (emitCachedEachRow(callsite, rowKey, keyed.item)) {
+            pushKeyScope(rowKey)
+            try {
+                if (emitCachedEachRow(callsite, rowKey, item)) {
                     reused += 1
                 } else {
-                    captureEachRow(callsite, rowKey, keyed.item, content)
+                    captureEachRow(callsite, rowKey, item, content)
                 }
+            } finally {
+                popKeyScope()
             }
         }
         evictRemovedEachRows(callsite)
@@ -1118,7 +1137,13 @@ private data class KeyedItem<T>(
 private fun <T> ComponentScope.keyedLastWins(
     items: Iterable<T>,
     key: (T) -> Any,
-): List<KeyedItem<T>> {
+): List<KeyedItem<T>> =
+    keyedLastWinsMap(items, key).map { (itemKey, item) -> KeyedItem(itemKey, item) }
+
+private fun <T> ComponentScope.keyedLastWinsMap(
+    items: Iterable<T>,
+    key: (T) -> Any,
+): LinkedHashMap<Any, T> {
     val keyedItems = linkedMapOf<Any, T>()
     items.forEach { item ->
         val itemKey = key(item)
@@ -1130,7 +1155,7 @@ private fun <T> ComponentScope.keyedLastWins(
         }
         keyedItems[itemKey] = item
     }
-    return keyedItems.map { (itemKey, item) -> KeyedItem(itemKey, item) }
+    return keyedItems
 }
 
 private fun ComponentScope.duplicateKey(key: Any) {
