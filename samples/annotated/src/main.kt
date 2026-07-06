@@ -41,6 +41,48 @@ fun ComponentScope.ItemBadge(item: Item) {
     }
 }
 
+
+// --- K2 hoisting: static leaf hosts become shared singletons; const props are interned ---
+
+@UiComponent(skippable = false)
+fun ComponentScope.HoistProbe(label: String) {
+    host("span", props = propsOf("class", "chip"))
+    host("p", props = propsOf("class", "labeled")) {
+        text(label, semantics = null)
+    }
+}
+
+private fun findHost(node: io.heapy.kinetica.Node, tag: String): io.heapy.kinetica.HostNode? {
+    if (node is io.heapy.kinetica.HostNode) {
+        if (node.tag == tag) return node
+        node.children.forEach { child -> findHost(child, tag)?.let { return it } }
+    }
+    if (node is io.heapy.kinetica.FragmentNode) {
+        node.children.forEach { child -> findHost(child, tag)?.let { return it } }
+    }
+    return null
+}
+
+private fun verifyHoisting() {
+    val runtime = io.heapy.kinetica.KineticaRuntime(debug = false)
+    val scope = ComponentScope(runtime)
+    var label = "one"
+    fun render() = runtime.render(scope) { HoistProbe(label) }.tree
+    val first = render()
+    label = "two"
+    val second = render()
+
+    val chip1 = checkNotNull(findHost(first, "span")) { "chip missing in $first" }
+    val chip2 = checkNotNull(findHost(second, "span")) { "chip missing in $second" }
+    check(chip1 === chip2) { "static leaf host must be hoisted to a shared instance" }
+
+    val p1 = checkNotNull(findHost(first, "p"))
+    val p2 = checkNotNull(findHost(second, "p"))
+    check(p1 !== p2) { "dynamic host must be rebuilt per render" }
+    check(p1.props === p2.props) { "const props must be interned to a shared instance" }
+    check(findHost(second, "p")!!.children.isNotEmpty()) { "dynamic child lost" }
+}
+
 fun main() {
     check(KineticaGeneratedCompilerPluginId == "io.heapy.kinetica.compiler")
     check(KineticaGeneratedCompilerPluginVersion == "0.2.0")
@@ -72,5 +114,6 @@ fun main() {
     item = Item(1, "Archive")
     render()
     check(badgeRenders == 2) { "expected re-render on changed input, got $badgeRenders renders" }
-    println("annotated OK: skip semantics verified on JVM ($badgeRenders badge renders)")
+    verifyHoisting()
+    println("annotated OK: skip + hoist semantics verified on JVM ($badgeRenders badge renders)")
 }

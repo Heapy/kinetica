@@ -75,14 +75,32 @@ public class KineticaIrGenerationExtension(
 ) : IrGenerationExtension {
     override fun generate(moduleFragment: IrModuleFragment, pluginContext: IrPluginContext) {
         val symbols = KineticaIrSymbols.resolve(pluginContext) ?: return
+        val hoistSymbols = KineticaHoistSymbols.resolve(pluginContext)
         val stability = KineticaStability()
         moduleFragment.files.forEach { file ->
-            // snapshot: the transform appends nothing, but avoid concurrent modification anyway
+            val hoister = hoistSymbols?.let { KineticaHoistTransformer(file, pluginContext, it) }
+            // snapshot: hoisting appends file-level fields while we iterate declarations
             file.declarations.filterIsInstance<IrSimpleFunction>().forEach { function ->
+                if (hoister != null && function.isUiComponentWithScopeReceiver()) {
+                    hoister.transform(function)
+                }
                 transformComponent(function, symbols, stability, pluginContext)
+            }
+            if (hoister != null && (hoister.propsInterned > 0 || hoister.hostsHoisted > 0)) {
+                report(
+                    "${file.fileEntry.name}: interned ${hoister.propsInterned} const props, " +
+                        "hoisted ${hoister.hostsHoisted} static leaf hosts.",
+                )
             }
         }
     }
+
+    private fun IrSimpleFunction.isUiComponentWithScopeReceiver(): Boolean =
+        annotations.any { it.type.classOrNull?.owner?.kotlinFqName == UI_COMPONENT_FQ } &&
+            parameters.any {
+                it.kind == IrParameterKind.ExtensionReceiver &&
+                    it.type.classOrNull?.owner?.kotlinFqName == COMPONENT_SCOPE_FQ
+            }
 
     private fun transformComponent(
         function: IrSimpleFunction,
