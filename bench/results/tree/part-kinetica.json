@@ -1,0 +1,116 @@
+{
+  "meta": {
+    "date": "2026-07-06T02:32:55.094Z",
+    "chromium": "149.0.7827.55",
+    "warmup": 3,
+    "samples": 10,
+    "totalNodes": 1555,
+    "cpuThrottle": null
+  },
+  "treeBenchmarks": [
+    {
+      "id": "t1_createTree",
+      "label": "create tree (1555 nodes)"
+    },
+    {
+      "id": "t2_updateLeaves",
+      "label": "update every 10th leaf"
+    },
+    {
+      "id": "t3_reverseTop",
+      "label": "reverse top-level subtrees"
+    },
+    {
+      "id": "t4_noopRender",
+      "label": "no-op re-render (data unchanged)"
+    }
+  ],
+  "tree": {
+    "kinetica": {
+      "t1_createTree": {
+        "samples": [
+          16.51,
+          19.03,
+          17.14,
+          17.88,
+          17.44,
+          19.32,
+          16.3,
+          13.93,
+          17.84,
+          18.88
+        ],
+        "median": 17.64,
+        "mean": 17.43,
+        "stddev": 1.52,
+        "min": 13.93,
+        "max": 19.32,
+        "gcMedianMs": 0,
+        "pageErrors": 0
+      },
+      "t2_updateLeaves": {
+        "samples": [
+          6.79,
+          7.07,
+          6.93,
+          7.4,
+          6.44,
+          8.13,
+          7.55,
+          6.76,
+          6.02,
+          9.65
+        ],
+        "median": 7,
+        "mean": 7.27,
+        "stddev": 0.97,
+        "min": 6.02,
+        "max": 9.65,
+        "gcMedianMs": 0,
+        "pageErrors": 0
+      },
+      "t3_reverseTop": {
+        "samples": [
+          8.54,
+          9.28,
+          13.22,
+          11.02,
+          8.83,
+          8.9,
+          12.41,
+          10.52,
+          10.02,
+          8.06
+        ],
+        "median": 9.65,
+        "mean": 10.08,
+        "stddev": 1.63,
+        "min": 8.06,
+        "max": 13.22,
+        "gcMedianMs": 0,
+        "pageErrors": 0
+      },
+      "t4_noopRender": {
+        "samples": [
+          7.03,
+          7.3,
+          6.46,
+          4.42,
+          5.26,
+          7.32,
+          7.43,
+          7.09,
+          6.74,
+          5.55
+        ],
+        "median": 6.89,
+        "mean": 6.46,
+        "stddev": 0.98,
+        "min": 4.42,
+        "max": 7.43,
+        "gcMedianMs": 0,
+        "pageErrors": 0
+      }
+    }
+  }
+}
