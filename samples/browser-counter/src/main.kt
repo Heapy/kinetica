@@ -3,6 +3,7 @@ package app.browser.counter
 import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.Role
 import io.heapy.kinetica.Semantics
+import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.browser.mountKineticaApp
 import io.heapy.kinetica.button
 import io.heapy.kinetica.column
@@ -11,8 +12,9 @@ import io.heapy.kinetica.row
 import io.heapy.kinetica.state
 import io.heapy.kinetica.text
 
+@UiComponent
 fun ComponentScope.CounterApp() {
-    var count by state(key = "count") { 0 }
+    var count by state { 0 }
 
     column(semantics = Semantics(testTag = "counter-app")) {
         text("Kinetica Counter")

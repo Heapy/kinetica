@@ -1,18 +1,25 @@
 package app.browser.bench
 
 import io.heapy.kinetica.ComponentScope
+import io.heapy.kinetica.HostNode
 import io.heapy.kinetica.KineticaRuntime
 import io.heapy.kinetica.MutableCell
 import io.heapy.kinetica.propsOf
 import io.heapy.kinetica.Role
 import io.heapy.kinetica.Semantics
+import io.heapy.kinetica.TemplateDefinition
+import io.heapy.kinetica.TemplateHole
+import io.heapy.kinetica.TemplateHoleKinds
+import io.heapy.kinetica.TextNode
 import io.heapy.kinetica.browser.BrowserKineticaApp
 import io.heapy.kinetica.browser.mountKineticaApp
 import io.heapy.kinetica.button
 import io.heapy.kinetica.each
 import io.heapy.kinetica.event
 import io.heapy.kinetica.host
+import io.heapy.kinetica.hostEvent
 import io.heapy.kinetica.state
+import io.heapy.kinetica.templateNode
 import io.heapy.kinetica.text
 import io.heapy.kinetica.UiComponent
 
@@ -53,6 +60,8 @@ private fun buildData(count: Int): List<RowData> {
     }
 }
 
+// onClick is a function type (unstable input), so the IR transform never wraps this skippable.
+@UiComponent
 private fun ComponentScope.toolbarButton(tag: String, label: String, onClick: () -> Unit) {
     button(
         onClick = onClick,
@@ -123,14 +132,63 @@ private class Animator {
 
 private var animTick = 0
 
+private val BenchRowTemplate = TemplateDefinition(
+    id = "browser-bench-row-v1",
+    skeleton = HostNode(
+        tag = "tr",
+        props = propsOf("class", "", "data-id", ""),
+        children = listOf(
+            HostNode(
+                tag = "td",
+                props = propsOf("class", "col-id"),
+                children = listOf(TextNode("", semantics = null)),
+            ),
+            HostNode(
+                tag = "td",
+                props = propsOf("class", "col-label"),
+                children = listOf(
+                    HostNode(
+                        tag = "button",
+                        children = listOf(TextNode("", semantics = null)),
+                    ),
+                ),
+            ),
+            HostNode(
+                tag = "td",
+                props = propsOf("class", "col-remove"),
+                children = listOf(
+                    HostNode(
+                        tag = "button",
+                        children = listOf(
+                            HostNode(
+                                tag = "span",
+                                props = propsOf("class", "remove-icon", "aria-hidden", "true"),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            HostNode(tag = "td", props = propsOf("class", "col-rest")),
+        ),
+    ),
+    holes = listOf(
+        TemplateHole(path = "", kind = TemplateHoleKinds.Prop, propName = "class"),
+        TemplateHole(path = "", kind = TemplateHoleKinds.Prop, propName = "data-id"),
+        TemplateHole(path = "0.0", kind = TemplateHoleKinds.Text),
+        TemplateHole(path = "1.0", kind = TemplateHoleKinds.EventProp, propName = "event:onClick"),
+        TemplateHole(path = "1.0.0", kind = TemplateHoleKinds.Text),
+        TemplateHole(path = "2.0", kind = TemplateHoleKinds.EventProp, propName = "event:onClick"),
+    ),
+)
+
 // @UiComponent enables IR const-props interning + leaf-host hoisting (td.col-rest,
 // span.remove-icon become shared singletons). requestRender is a function type, so the
 // component is not skippable — which also keeps each-row memoization intact.
 @UiComponent
 fun ComponentScope.BenchApp(requestRender: () -> Unit = {}) {
-    var rows by state(key = "rows") { emptyList<RowData>() }
-    val selection = state(key = "selection") { SelectionHolder() }.value
-    val animator = state(key = "animator") { Animator() }.value
+    var rows by state { emptyList<RowData>() }
+    val selection = state { SelectionHolder() }.value
+    val animator = state { Animator() }.value
 
     val run = event { rows = buildData(1_000); selection.clear() }
     val runLots = event { rows = buildData(10_000); selection.clear() }
@@ -180,27 +238,18 @@ fun ComponentScope.BenchApp(requestRender: () -> Unit = {}) {
         host("table", props = propsOf("class", "test-data")) {
             host("tbody") {
                 each(rows, key = { it.id }) { row ->
-                    val isSelected = state(key = "selected") { false }
+                    val isSelected = state { false }
                     val danger = if (isSelected.value) "danger" else ""
-                    host("tr", props = propsOf("class", danger, "data-id", row.id.toString()), key = row.id) {
-                        host("td", props = propsOf("class", "col-id")) {
-                            text(row.id.toString(), semantics = null)
-                        }
-                        host("td", props = propsOf("class", "col-label")) {
-                            button(onClick = event { selection.select(isSelected) }, semantics = null) {
-                                text(row.label, semantics = null)
-                            }
-                        }
-                        host("td", props = propsOf("class", "col-remove")) {
-                            button(
-                                onClick = event { rows = rows.filterNot { it.id == row.id } },
-                                semantics = null,
-                            ) {
-                                host("span", props = propsOf("class", "remove-icon", "aria-hidden", "true"))
-                            }
-                        }
-                        host("td", props = propsOf("class", "col-rest"))
-                    }
+                    val id = row.id.toString()
+                    val select = hostEvent(onEvent = event { selection.select(isSelected) })
+                    val remove = hostEvent(onEvent = event { rows = rows.filterNot { it.id == row.id } })
+                    emit(
+                        templateNode(
+                            definition = BenchRowTemplate,
+                            values = listOf(danger, id, id, select, row.label, remove),
+                            key = row.id,
+                        ),
+                    )
                 }
             }
         }
@@ -262,8 +311,8 @@ private fun ComponentScope.treeNode(node: TreeNodeData, depth: Int) {
 // dependency + state-write-version tracking — the tree driver's four ops verify behavior.
 @UiComponent
 fun ComponentScope.TreeApp() {
-    var tree by state(key = "tree") { TreeNodeData(id = 0, label = "empty", children = emptyList()) }
-    var tick by state(key = "tick") { 0 }
+    var tree by state { TreeNodeData(id = 0, label = "empty", children = emptyList()) }
+    var tick by state { 0 }
 
     val run = event { tree = buildTree() }
     val update = event {

@@ -4,6 +4,7 @@ import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.MutableCell
 import io.heapy.kinetica.Role
 import io.heapy.kinetica.Semantics
+import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.state
 import io.heapy.kinetica.store
 import io.heapy.kinetica.textInput
@@ -14,9 +15,9 @@ public fun interface FieldValidator<T> {
     public suspend fun validate(value: T): String?
 }
 
-public class FormState internal constructor(
-    private val fields: MutableMap<String, FieldState<*>> = mutableMapOf(),
-) {
+public class FormState internal constructor() {
+    private val fields: MutableMap<String, FieldState<*>> = mutableMapOf()
+
     public val isValid: Boolean
         get() = fields.values.all { it.isValid }
 
@@ -62,8 +63,27 @@ public class FormState internal constructor(
         fields.values.forEach { it.reset() }
     }
 
-    internal fun register(name: String, field: FieldState<*>) {
-        fields[name] = field
+    /**
+     * Per-field identity lives here, not in slots: the field's cells are created once per
+     * (form, name) with scope-free [store] cells, so field registration is legal anywhere —
+     * including loops — and a field's lifetime is exactly its form's lifetime.
+     */
+    internal fun <T> field(
+        name: String,
+        initial: () -> T,
+        validator: FieldValidator<T>,
+    ): FieldState<T> {
+        val existing = fields[name]
+        if (existing != null) {
+            @Suppress("UNCHECKED_CAST")
+            val field = existing as FieldState<T>
+            field.updateValidator(validator)
+            return field
+        }
+        val initialValue = initial()
+        val created = FieldState(name, store(initialValue), initialValue, validator)
+        fields[name] = created
+        return created
     }
 }
 
@@ -145,25 +165,30 @@ public operator fun <T> FieldState<T>.setValue(
     set(next)
 }
 
-public fun ComponentScope.formState(key: String = "form"): FormState =
-    state(key = key) { FormState() }.value
+/**
+ * A hook holding the whole form in one slot at this call site. Distinct forms come from
+ * distinct call sites (or a surrounding `keyed {}`), not string keys: per-field identity
+ * lives inside [FormState], keyed by field name.
+ */
+@UiComponent
+public fun ComponentScope.formState(): FormState =
+    state { FormState() }.value
 
+/**
+ * Registers (or retrieves) the [name] field of [form]. Slot-free: field cells live inside
+ * the form, so this may be called anywhere the form is in hand, loops included. The
+ * [validator] is refreshed every call so it can capture current render inputs;
+ * [initial] runs only when the field is first created.
+ */
 public fun <T> ComponentScope.field(
     form: FormState,
     name: String,
     initial: () -> T,
     validator: suspend (T) -> String? = { null },
-): FieldState<T> {
-    val initialValue = initial()
-    val value = state(key = "field:$name") { initialValue }
-    val field = state(key = "fieldState:$name") {
-        FieldState(name, value, initialValue, FieldValidator { value -> validator(value) })
-    }.value
-    field.updateValidator(FieldValidator { value -> validator(value) })
-    form.register(name, field)
-    return field
-}
+): FieldState<T> =
+    form.field(name, initial, FieldValidator { value -> validator(value) })
 
+@UiComponent
 public fun ComponentScope.textInput(
     field: FieldState<String>,
     placeholder: String? = null,
@@ -179,6 +204,7 @@ public fun ComponentScope.textInput(
     )
 }
 
+@UiComponent
 public fun ComponentScope.textInput(
     value: KMutableProperty0<String>,
     placeholder: String? = null,

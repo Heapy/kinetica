@@ -78,3 +78,52 @@ errorBoundary(
 - `loadingBoundary` catches pending resources. Boundaries nest arbitrarily; the nearest one wins.
 - `suspendSubtree(fallback) { … }` renders a subtree from `suspend` code — the streaming
   building block behind [server components](/docs/server-components).
+
+Boundaries render content and fallback in their own frames, so branch isolation is
+structural: a fallback's state identity does not depend on where the content failed, and
+siblings after a boundary keep their state across error/pending/ready transitions — no matter
+how much of the content rendered before it threw.
+
+## Live demo
+
+The stack builder below runs the whole loop against this documentation server. The list is a
+`resource` whose loader fetches `GET /demo/api/stack`; adding a language runs an `action` that
+`POST`s it and invalidates the resource key, so readers refetch. Every visitor gets their own
+server-side session — the stack you build here is yours alone.
+
+::: example resource-fetch
+
+The backend has opinions. Try adding **Java** — the server throws a
+`java.lang.NullPointerException`. Try **JavaScript** — you get
+`TypeError: undefined is not a function`. The failed submission never reaches your stack: the
+error propagates from the action into the nearest `errorBoundary`, and *Try again* clears it,
+handing your input back for another attempt.
+
+The client code is the loop from this page, verbatim:
+
+```kotlin
+data object TeamStackKey : ResourceKey
+
+val stack = resource(TeamStackKey, scope = CacheScope.Component) {
+    fetchStack()                                     // GET /demo/api/stack
+}
+val addLanguage = action(invalidates = { _: String -> listOf(TeamStackKey) }) { language ->
+    submitLanguage(language)                         // POST /demo/api/stack
+}
+
+errorBoundary(
+    fallback = { error, _, retry ->
+        text(error.message ?: "Unknown failure")     // the backend's NPE, verbatim
+        button(onClick = event { retry.retry() }) { text("Try again") }
+    },
+) {
+    watch(source = { submission }) { current ->      // submit clicks land here
+        if (current.tick > 0) addLanguage(current.language)
+    }
+    loadingBoundary(fallback = { text("Loading your stack…") }) {
+        val languages = stack.read()
+        each(languages, key = { it }) { language -> text(language) }
+        // …input + Add button…
+    }
+}
+```

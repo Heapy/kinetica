@@ -22,9 +22,9 @@ try {
 }
 
 async function verifyBrowserTests() {
-  const expectedBrowserSelfTests = 10;
+  const expectedBrowserSelfTests = 15;
   const page = await newPage("browser-tests");
-  await page.goto(`${baseUrl}/samples/browser-tests/web/index.html`, { waitUntil: "networkidle" });
+  await page.goto(`${baseUrl}/samples/browser-tests/web/index.html`, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(
     (expected) => {
       const statuses = [...document.querySelectorAll("#results [data-status]")].map((node) =>

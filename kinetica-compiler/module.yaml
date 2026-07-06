@@ -12,11 +12,12 @@ settings:
     apiVersion: 2.4
     optIns:
       - org.jetbrains.kotlin.compiler.plugin.ExperimentalCompilerApi
+      - org.jetbrains.kotlin.ir.symbols.UnsafeDuringIrConstructionAPI
   publishing:
     enabled: true
     group: io.heapy.kinetica
     artifactId: kinetica-compiler
-    version: 0.2.0
+    version: 0.3.0
     publishSources: true
     pom:
       url: https://github.com/Heapy/kinetica
@@ -31,6 +32,7 @@ dependencies:
   - org.jetbrains.kotlin:kotlin-compiler-embeddable:2.4.0: compile-only
 
 test-dependencies:
+  - ../kinetica-runtime
   - org.jetbrains.kotlin:kotlin-compiler-embeddable:2.4.0
 
 description: "Kinetica compiler-plugin contract module for K2 responsibilities and generated metadata."

@@ -122,6 +122,36 @@ try {
   );
   console.log("OK   keyed-list example reorders");
 
+  // live example: resource-fetch loads the per-session stack, fails on Java, recovers on retry
+  const stack = '[data-example="resource-fetch"]';
+  await page.goto(`${base}/docs/resources`, { waitUntil: "networkidle" });
+  await page.waitForSelector(`${stack} li`, { timeout: 10_000 });
+  await page.fill(`${stack} input`, "Rust");
+  await page.click(`${stack} [data-testid="stack-add"]`);
+  await page.waitForFunction(
+    (sel) => Array.from(document.querySelectorAll(`${sel} li`))
+      .some((li) => li.textContent?.includes("Rust")),
+    stack, { timeout: 10_000 },
+  );
+  await page.fill(`${stack} input`, "Java");
+  await page.click(`${stack} [data-testid="stack-add"]`);
+  await page.waitForFunction(
+    (sel) => document.querySelector(sel)?.textContent?.includes("NullPointerException"),
+    stack, { timeout: 10_000 },
+  );
+  await page.click(`${stack} [data-testid="stack-retry"]`);
+  await page.waitForFunction(
+    (sel) => {
+      const container = document.querySelector(sel);
+      const items = Array.from(container?.querySelectorAll("li") ?? []).map((li) => li.textContent ?? "");
+      return items.some((t) => t.includes("Rust")) &&
+        !items.some((t) => t.includes("Java")) &&
+        container?.querySelector("input")?.value === "Java";
+    },
+    stack, { timeout: 10_000 },
+  );
+  console.log("OK   resource-fetch example loads per-session data, surfaces the backend NPE, retries clean");
+
   // server-components demo: hydration island + typed action + stream
   await page.goto(`${base}/examples/server-components`, { waitUntil: "networkidle" });
   await page.getByText("Hydration plan loaded: 1 client island").waitFor({ timeout: 10_000 });
@@ -133,7 +163,11 @@ try {
   await page.getByText(/Added 1 of runtime-license/).waitFor({ timeout: 10_000 });
   console.log("OK   server-components demo hydrates, streams, dispatches action");
 
-  if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
+  // the resource-fetch demo intentionally provokes a 500 from /demo/api/stack
+  const realErrors = errors.filter(
+    (e) => !e.includes("/demo/api/stack") && !e.includes("status of 500"),
+  );
+  if (realErrors.length) throw new Error(`page errors: ${realErrors.join(" | ")}`);
   console.log("Docs verification passed");
 } finally {
   await browser.close();

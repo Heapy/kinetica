@@ -1,3 +1,7 @@
+// referenceClass/referenceFunctions are deprecated in favor of the finder API;
+// migrating the symbol resolvers is tracked separately.
+@file:Suppress("DEPRECATION")
+
 package io.heapy.kinetica.compiler
 
 import org.jetbrains.kotlin.backend.common.extensions.IrGenerationExtension
@@ -72,25 +76,59 @@ import org.jetbrains.kotlin.name.SpecialNames
  */
 public class KineticaIrGenerationExtension(
     private val messageCollector: MessageCollector,
+    private val pluginConfiguration: KineticaCompilerPluginConfiguration,
 ) : IrGenerationExtension {
     override fun generate(moduleFragment: IrModuleFragment, pluginContext: IrPluginContext) {
         val symbols = KineticaIrSymbols.resolve(pluginContext) ?: return
         val hoistSymbols = KineticaHoistSymbols.resolve(pluginContext)
+        val templateSymbols = KineticaTemplateSymbols.resolve(pluginContext)
+        val frameSymbols = KineticaFrameSymbols.resolve(pluginContext)
         val stability = KineticaStability()
         moduleFragment.files.forEach { file ->
             val hoister = hoistSymbols?.let { KineticaHoistTransformer(file, pluginContext, it) }
-            // snapshot: hoisting appends file-level fields while we iterate declarations
-            file.declarations.filterIsInstance<IrSimpleFunction>().forEach { function ->
-                if (hoister != null && function.isUiComponentWithScopeReceiver()) {
-                    hoister.transform(function)
+            val templater = templateSymbols?.let { KineticaTemplateTransformer(file, pluginContext, it) }
+            val framer = frameSymbols?.let {
+                KineticaFrameTransformer(file, pluginContext, it, pluginConfiguration.moduleId, ::report)
+            }
+            // snapshot: hoisting appends file-level fields while we iterate declarations.
+            // Class members are included: test methods and object members hold render {}
+            // entry lambdas that need region wrapping just like top-level functions.
+            val functions = mutableListOf<IrSimpleFunction>()
+            collectSimpleFunctions(file, functions)
+            functions.forEach { function ->
+                if (function.isUiComponentWithScopeReceiver()) {
+                    templater?.transform(function)
+                    hoister?.transform(function)
+                    // The skippable wrap runs first so the frame prologue ends up OUTSIDE
+                    // emit(skippableNode(...)): a skip hit still enters the component frame
+                    // and consumes the staged child ordinal.
+                    transformComponent(function, symbols, stability, pluginContext)
+                    framer?.transform(function)
+                } else {
+                    framer?.transformEntryPoints(function)
                 }
-                transformComponent(function, symbols, stability, pluginContext)
+            }
+            if (templater != null && templater.templatesEmitted > 0) {
+                report("${file.fileEntry.name}: emitted ${templater.templatesEmitted} template definitions.")
             }
             if (hoister != null && (hoister.propsInterned > 0 || hoister.hostsHoisted > 0)) {
                 report(
                     "${file.fileEntry.name}: interned ${hoister.propsInterned} const props, " +
                         "hoisted ${hoister.hostsHoisted} static leaf hosts.",
                 )
+            }
+        }
+    }
+
+    private fun collectSimpleFunctions(
+        container: org.jetbrains.kotlin.ir.declarations.IrDeclarationContainer,
+        out: MutableList<IrSimpleFunction>,
+    ) {
+        container.declarations.forEach { declaration ->
+            when (declaration) {
+                is IrSimpleFunction -> out += declaration
+                is IrClass -> collectSimpleFunctions(declaration, out)
+                else -> {}
             }
         }
     }

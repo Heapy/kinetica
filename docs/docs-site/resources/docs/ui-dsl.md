@@ -52,9 +52,9 @@ button(
 None`. `Semantics` also carries `stateDescription` (aria-description), `traversalIndex`, and
 `leaving` (exit-animation marker).
 
-`text()` defaults to `Semantics(role = Role.Text, label = value)`, which wraps the text in a
-span carrying aria attributes. Pass `semantics = null` for a bare text node — do this inside
-your own labeled containers to avoid attribute noise.
+`text()` defaults to `Semantics(role = Role.Text)` and renders as a bare text node. The
+semantics tree derives its label from the text value for queries; pass an explicit
+`Semantics(label = ...)` only when the accessible label differs from the visible text.
 
 ## Contexts
 
@@ -80,3 +80,22 @@ everything above and are covered in [Resources & boundaries](/docs/resources):
 errorBoundary(fallback = { error, info, retry -> … }) { RiskyPanel() }
 loadingBoundary(fallback = { text("Loading…") }) { ProfileCard() }
 ```
+
+## Conditional subtrees
+
+Plain `if/else` just works: slot identity is the call site, so the two arms can never share
+or corrupt each other's state — each branch's `state`/effects live in their own slots, and
+boundaries isolate their branches structurally. A branch that stops rendering keeps its state
+cells (it picks up where it left off when it comes back) while its effects, refs and event
+registrations are disposed on the way out.
+
+`keyed` is for *dynamic* identity — one call site rendering different logical instances, where
+switching the key should deliberately reset state:
+
+```kotlin
+keyed(selectedNoteId) { NoteDetail(selectedNoteId) }
+```
+
+`keyed` gives every slot, event and effect inside it a frame per key, exactly like an `each`
+row — see
+[State & reactivity](/docs/state) for how slots are addressed.

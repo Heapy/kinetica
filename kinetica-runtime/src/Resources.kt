@@ -321,7 +321,7 @@ private object ResourceRegistry {
 
 private class ResourceImpl<K : ResourceKey, T>(
     private val runtime: KineticaRuntime,
-    private val key: K,
+    val key: K,
     private val namespace: ResourceCacheNamespace,
     private val ttlMillis: Long?,
     private var loader: suspend (K) -> T,
@@ -463,19 +463,27 @@ private class ResourceImpl<K : ResourceKey, T>(
 public fun <K : ResourceKey, T> ComponentScope.resource(
     key: K,
     scope: CacheScope = CacheScope.App,
+    ordinal: Int = -1,
     loader: suspend (K) -> T,
 ): Resource<T> {
+    if (ordinal < 0) throw MissingKineticaPluginException("resource")
     val namespace = resourceCacheNamespace(scope)
-    val slotKey = nextResourceKey("resource:${scope.name}:${key}")
-    registerSlot(SlotMetadata(slotKey, slotId = null, persistent = false, transient = true))
-    val resource = slot(slotKey) {
+    // Resource states change outside the tracked cell graph (async loads, TTLs), so a
+    // memoized row reading resources cannot be validated by cell versions alone.
+    markEachCapturesUnsafe()
+    @Suppress("UNCHECKED_CAST")
+    val existing = frameSlotValueOrNull(ordinal) as? ResourceImpl<K, T>
+    val resource = if (existing != null && existing.key == key) {
+        frameSlotTouch(ordinal, transient = true, existing)
+    } else {
+        existing?.dispose()
         ResourceImpl(
             runtime = runtime,
             key = key,
             namespace = namespace,
             ttlMillis = if (scope == CacheScope.App) runtime.appResourceTtlMillis else null,
             loader = loader,
-        )
+        ).also { created -> frameSlotTouch(ordinal, transient = true, created) }
     }
     resource.updateLoader(loader)
     return resource

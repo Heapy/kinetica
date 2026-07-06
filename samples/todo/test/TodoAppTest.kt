@@ -4,7 +4,9 @@ import io.heapy.kinetica.ClientRef
 import io.heapy.kinetica.FragmentNode
 import io.heapy.kinetica.HostNode
 import io.heapy.kinetica.Node
+import io.heapy.kinetica.TemplateNode
 import io.heapy.kinetica.TextNode
+import io.heapy.kinetica.materialize
 import io.heapy.kinetica.testing.KineticaTest
 import io.heapy.kinetica.testing.assertHtmlSnapshot
 import io.heapy.kinetica.testing.hasTestTag
@@ -87,4 +89,5 @@ private fun Node.textValues(): List<String> = when (this) {
     is FragmentNode -> children.flatMap { it.textValues() }
     is TextNode -> listOf(value)
     is ClientRef -> emptyList()
+    is TemplateNode -> materialize().textValues()
 }

@@ -9,7 +9,11 @@ import io.heapy.kinetica.KineticaRuntime
 import io.heapy.kinetica.Node
 import io.heapy.kinetica.NodeFlags
 import io.heapy.kinetica.Semantics
+import io.heapy.kinetica.TemplateDefinition
+import io.heapy.kinetica.TemplateHoleKinds
+import io.heapy.kinetica.TemplateNode
 import io.heapy.kinetica.TextNode
+import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.toSafeHtml
 import kotlinx.serialization.json.JsonObject
 import org.w3c.dom.Document
@@ -29,12 +33,15 @@ import org.w3c.dom.events.Event
 public class BrowserKineticaApp(
     private val rootElement: Element,
     private val runtime: KineticaRuntime = KineticaRuntime(debug = true),
-    private val content: ComponentScope.() -> Unit,
+    private val content: @UiComponent ComponentScope.() -> Unit,
 ) {
     private val scope = ComponentScope(runtime)
     private var currentTree: Node? = null
     private var mountedRoot: Mounted? = null
     private var clientRefCount = 0
+    private val keyedPatchScratch = ArrayList<KeyedPatchScratchFrame>(KEYED_PATCH_SCRATCH_DEPTH)
+    private var keyedPatchDepth = 0
+    private val templatePrototypes = HashMap<String, TemplatePrototype>()
 
     private val delegatedListener: (Event) -> Unit = { event -> handleDelegatedEvent(event) }
 
@@ -136,6 +143,10 @@ public class BrowserKineticaApp(
             if (mounted != null && dispatchTo(mounted.hostNode, element, event)) {
                 return
             }
+            val templateEvent = candidate as? MountedTemplateEvent
+            if (templateEvent != null && dispatchTo(templateEvent, element, event)) {
+                return
+            }
             if (element == rootElement) {
                 return
             }
@@ -188,6 +199,44 @@ public class BrowserKineticaApp(
             else -> false
         }
 
+    private fun dispatchTo(binding: MountedTemplateEvent, element: Element, event: Event): Boolean =
+        when (event.type) {
+            "click" -> {
+                if (binding.propName != "event:onClick" || binding.eventId == null) {
+                    false
+                } else {
+                    dispatchAndRender(binding.eventId!!, Unit)
+                    true
+                }
+            }
+            "input" -> {
+                if (binding.propName != "event:onInput" || binding.eventId == null) {
+                    false
+                } else {
+                    dispatchAndRender(binding.eventId!!, (element as HTMLInputElement).value)
+                    true
+                }
+            }
+            "change" -> {
+                if (binding.propName != "event:onToggle" || binding.eventId == null) {
+                    false
+                } else {
+                    dispatchAndRender(binding.eventId!!, Unit)
+                    true
+                }
+            }
+            "keydown" -> {
+                if (binding.propName != "event:onSubmit" || binding.eventId == null) {
+                    false
+                } else {
+                    event.preventDefault()
+                    dispatchAndRender(binding.eventId!!, Unit)
+                    true
+                }
+            }
+            else -> false
+        }
+
     private fun dispatchAndRender(eventId: String, payload: Any?) {
         runtime.dispatch(eventId, payload)
         render(restoredFocus = null)
@@ -205,6 +254,7 @@ public class BrowserKineticaApp(
                 MountedFragment(node, children)
             }
             is HostNode -> mountHost(node, parent, anchor, path)
+            is TemplateNode -> mountTemplate(node, parent, anchor, path)
             is TextNode -> mountText(node, parent, anchor, path)
             is ClientRef -> mountClientRef(node, parent, anchor, path)
         }
@@ -260,6 +310,24 @@ public class BrowserKineticaApp(
         return mounted
     }
 
+    private fun mountTemplate(node: TemplateNode, parent: Element, anchor: DomNode?, path: String): MountedTemplate {
+        val prototype = templatePrototype(node.definition)
+        val root = prototype.root.cloneNode(true) as Element
+        if (runtime.debug) {
+            root.setAttribute(DATA_KINETICA_PATH, path)
+            node.key?.let { key -> root.setAttribute(DATA_KINETICA_KEY, key) }
+        }
+        val mounted = MountedTemplate(
+            templateNode = node,
+            root = root,
+            holeDoms = arrayOfNulls(node.definition.holes.size),
+            eventBindings = arrayOfNulls(node.definition.holes.size),
+        )
+        patchTemplateValues(mounted, previousValues = emptyList(), nextValues = node.values)
+        parent.insertBefore(root, anchor)
+        return mounted
+    }
+
     private fun mountText(node: TextNode, parent: Element, anchor: DomNode?, path: String): MountedText {
         if (!textNeedsElement(node)) {
             val dom = browserDocument.createTextNode(node.value)
@@ -300,6 +368,11 @@ public class BrowserKineticaApp(
                 patchHost(mounted, next, path)
                 mounted
             }
+            mounted is MountedTemplate && next is TemplateNode &&
+                mounted.templateNode.definition.id == next.definition.id -> {
+                patchTemplate(mounted, next, path)
+                mounted
+            }
             mounted is MountedText && next is TextNode &&
                 textNeedsElement(mounted.textNode) == textNeedsElement(next) &&
                 mounted.textNode.semantics == next.semantics -> {
@@ -329,6 +402,14 @@ public class BrowserKineticaApp(
             is MountedHost -> {
                 mounted.element.asDynamic().__kinetica = null
                 parent.removeChild(mounted.element)
+            }
+            is MountedTemplate -> {
+                mounted.eventBindings.forEach { binding ->
+                    if (binding != null) {
+                        binding.element.asDynamic().__kinetica = null
+                    }
+                }
+                parent.removeChild(mounted.root)
             }
             is MountedText -> parent.removeChild(mounted.dom)
             is MountedFragment -> mounted.children.forEach { child -> unmount(child, parent) }
@@ -376,6 +457,12 @@ public class BrowserKineticaApp(
                 }
             }
         }
+        if (previous.flags and NodeFlags.CHILDREN_SINGLE_TEXT != 0 &&
+            next.flags and NodeFlags.CHILDREN_SINGLE_TEXT != 0 &&
+            patchSingleTextChild(mounted, next)
+        ) {
+            return
+        }
         patchChildren(
             element,
             mounted.children,
@@ -384,6 +471,7 @@ public class BrowserKineticaApp(
             parentPath = path,
             prevFlags = previous.flags,
             nextFlags = next.flags,
+            ownsParent = true,
         )
     }
 
@@ -483,6 +571,88 @@ public class BrowserKineticaApp(
         }
     }
 
+    private fun patchTemplate(mounted: MountedTemplate, next: TemplateNode, path: String) {
+        val previous = mounted.templateNode
+        mounted.templateNode = next
+        if (previous.key != next.key) {
+            if (runtime.debug) {
+                val key = next.key
+                if (key != null) {
+                    mounted.root.setAttribute(DATA_KINETICA_KEY, key)
+                } else {
+                    mounted.root.removeAttribute(DATA_KINETICA_KEY)
+                }
+            }
+        }
+        if (runtime.debug) {
+            mounted.root.setAttribute(DATA_KINETICA_PATH, path)
+        }
+        patchTemplateValues(mounted, previous.values, next.values)
+    }
+
+    private fun templatePrototype(definition: TemplateDefinition): TemplatePrototype =
+        templatePrototypes.getOrPut(definition.id) {
+            val parent = browserDocument.createElement("div")
+            val mounted = mountHost(definition.skeleton, parent, anchor = null, path = "")
+            TemplatePrototype(mounted.element)
+        }
+
+    private fun patchTemplateValues(
+        mounted: MountedTemplate,
+        previousValues: List<String?>,
+        nextValues: List<String?>,
+    ) {
+        mounted.templateNode.definition.holes.forEachIndexed { index, hole ->
+            val nextValue = nextValues.getOrNull(index)
+            val wasBound = mounted.holeDoms[index] != null
+            val dom = mounted.holeDoms[index]
+                ?: templateDomAt(mounted.root, hole.path).also { mounted.holeDoms[index] = it }
+            if (wasBound && previousValues.getOrNull(index) == nextValue) {
+                return@forEachIndexed
+            }
+            when (hole.kind) {
+                TemplateHoleKinds.Text -> dom.nodeValue = nextValue.orEmpty()
+                TemplateHoleKinds.Prop -> {
+                    val element = dom as Element
+                    val propName = hole.propName ?: return@forEachIndexed
+                    if (nextValue == null) {
+                        if (isRemovablePublicBrowserAttribute(propName)) {
+                            element.removeAttribute(propName)
+                        }
+                    } else if (isPublicBrowserAttribute(propName, nextValue)) {
+                        element.setAttribute(propName, nextValue)
+                    }
+                }
+                TemplateHoleKinds.EventProp -> {
+                    val element = dom as Element
+                    val propName = hole.propName ?: return@forEachIndexed
+                    val binding = mounted.eventBindings[index] ?: MountedTemplateEvent(
+                        element = element,
+                        propName = propName,
+                        eventId = nextValue,
+                    ).also { created ->
+                        mounted.eventBindings[index] = created
+                        element.asDynamic().__kinetica = created
+                    }
+                    binding.eventId = nextValue
+                }
+            }
+        }
+    }
+
+    private fun templateDomAt(root: Element, path: String): DomNode {
+        var current: DomNode = root
+        if (path.isEmpty()) {
+            return current
+        }
+        path.split('.').forEach { segment ->
+            val index = segment.toInt()
+            current = current.childNodes.item(index)
+                ?: error("Template hole path '$path' does not exist.")
+        }
+        return current
+    }
+
     // --- child reconciliation ---
 
     private fun patchChildren(
@@ -493,7 +663,12 @@ public class BrowserKineticaApp(
         parentPath: String,
         prevFlags: Int = 0,
         nextFlags: Int = 0,
+        ownsParent: Boolean = false,
     ) {
+        if (next.isEmpty() && ownsParent && appendAnchor == null && mounted.isNotEmpty()) {
+            clearOwnedChildren(parent, mounted)
+            return
+        }
         // CHILDREN_KEYED on both sides is a construction-time proof that every child is a
         // uniquely-keyed HostNode, so the O(children) verification scan (two hash sets per
         // patch — the dominant bookkeeping cost of partial ops on big tables) is skipped.
@@ -501,10 +676,20 @@ public class BrowserKineticaApp(
             nextFlags and NodeFlags.CHILDREN_KEYED != 0 &&
             mounted.isNotEmpty() && next.isNotEmpty()
         if (certifiedKeyed || shouldReconcileKeyed(mounted, next)) {
-            patchKeyedChildren(parent, mounted, next, appendAnchor, parentPath)
+            patchKeyedChildren(parent, mounted, next, appendAnchor, parentPath, ownsParent)
         } else {
             patchPositionalChildren(parent, mounted, next, appendAnchor, parentPath)
         }
+    }
+
+    private fun patchSingleTextChild(mounted: MountedHost, next: HostNode): Boolean {
+        val mountedText = mounted.children.singleOrNull() as? MountedText ?: return false
+        val nextText = next.children.singleOrNull() as? TextNode ?: return false
+        if (mountedText.textNode.value != nextText.value) {
+            mountedText.dom.nodeValue = nextText.value
+        }
+        mountedText.textNode = nextText
+        return true
     }
 
     private fun patchPositionalChildren(
@@ -533,12 +718,12 @@ public class BrowserKineticaApp(
         if (mounted.isEmpty() || next.isEmpty()) return false
         val oldKeys = HashSet<String>(mounted.size)
         for (child in mounted) {
-            val key = (child as? MountedHost)?.hostNode?.key ?: return false
+            val key = child.reconcileKey() ?: return false
             if (!oldKeys.add(key)) return false
         }
         val newKeys = HashSet<String>(next.size)
         for (node in next) {
-            val key = (node as? HostNode)?.key ?: return false
+            val key = node.reconcileKey() ?: return false
             if (!newKeys.add(key)) return false
         }
         return true
@@ -550,26 +735,56 @@ public class BrowserKineticaApp(
         next: List<Node>,
         appendAnchor: DomNode?,
         parentPath: String,
+        ownsParent: Boolean,
+    ) {
+        val scratch = acquireKeyedPatchScratch()
+        try {
+            patchKeyedChildren(parent, mounted, next, appendAnchor, parentPath, ownsParent, scratch)
+        } finally {
+            releaseKeyedPatchScratch()
+        }
+    }
+
+    private fun patchKeyedChildren(
+        parent: Element,
+        mounted: MutableList<Mounted>,
+        next: List<Node>,
+        appendAnchor: DomNode?,
+        parentPath: String,
+        ownsParent: Boolean,
+        scratch: KeyedPatchScratchFrame,
     ) {
         var oldStart = 0
         var newStart = 0
         var oldEnd = mounted.size - 1
         var newEnd = next.size - 1
-        val result = arrayOfNulls<Mounted>(next.size)
+        val result = scratch.prepareResult(next.size)
 
         while (oldStart <= oldEnd && newStart <= newEnd &&
-            (mounted[oldStart] as MountedHost).hostNode.key == (next[newStart] as HostNode).key
+            mounted[oldStart].reconcileKey() == next[newStart].reconcileKey()
         ) {
             result[newStart] = patch(mounted[oldStart], next[newStart], parent, childPathOf(parentPath, newStart))
             oldStart++
             newStart++
         }
         while (oldEnd >= oldStart && newEnd >= newStart &&
-            (mounted[oldEnd] as MountedHost).hostNode.key == (next[newEnd] as HostNode).key
+            mounted[oldEnd].reconcileKey() == next[newEnd].reconcileKey()
         ) {
             result[newEnd] = patch(mounted[oldEnd], next[newEnd], parent, childPathOf(parentPath, newEnd))
             oldEnd--
             newEnd--
+        }
+
+        if (ownsParent && appendAnchor == null &&
+            oldStart == 0 && oldEnd == mounted.lastIndex &&
+            newStart == 0 && newEnd == next.lastIndex &&
+            hasNoKeyOverlap(mounted, oldStart, oldEnd, next, newStart, newEnd)
+        ) {
+            clearOwnedChildren(parent, mounted)
+            next.forEachIndexed { index, node ->
+                mounted.add(mount(node, parent, anchor = null, path = childPathOf(parentPath, index)))
+            }
+            return
         }
 
         val suffixAnchor: DomNode? =
@@ -588,14 +803,15 @@ public class BrowserKineticaApp(
             }
         } else {
             val middleCount = newEnd - newStart + 1
-            val keyToNewIndex = HashMap<String, Int>(middleCount)
+            val keyToNewIndex = scratch.keyToNewIndex
+            keyToNewIndex.clear()
             for (index in newStart..newEnd) {
-                keyToNewIndex[(next[index] as HostNode).key!!] = index
+                keyToNewIndex[next[index].reconcileKey()!!] = index
             }
-            val sourceOldIndex = IntArray(middleCount) { -1 }
+            val sourceOldIndex = scratch.prepareSourceOldIndex(middleCount)
             for (oldIndex in oldStart..oldEnd) {
-                val child = mounted[oldIndex] as MountedHost
-                val newIndex = keyToNewIndex[child.hostNode.key]
+                val child = mounted[oldIndex]
+                val newIndex = keyToNewIndex[child.reconcileKey()]
                 if (newIndex == null) {
                     unmount(child, parent)
                 } else {
@@ -603,10 +819,11 @@ public class BrowserKineticaApp(
                     result[newIndex] = patch(child, next[newIndex], parent, childPathOf(parentPath, newIndex))
                 }
             }
-            val stable = longestIncreasingSubsequenceIndices(sourceOldIndex)
-            val inStableRun = BooleanArray(middleCount)
-            for (index in stable) {
-                inStableRun[index] = true
+            val stableSize = longestIncreasingSubsequenceIndices(sourceOldIndex, middleCount, scratch.lis)
+            val stable = scratch.lis.result
+            val inStableRun = scratch.prepareStableRun(middleCount)
+            for (position in 0 until stableSize) {
+                inStableRun[stable[position]] = true
             }
             for (middleIndex in middleCount - 1 downTo 0) {
                 val newIndex = newStart + middleIndex
@@ -622,8 +839,73 @@ public class BrowserKineticaApp(
         }
 
         mounted.clear()
-        for (child in result) {
-            mounted.add(child!!)
+        for (index in 0 until next.size) {
+            mounted.add(result[index]!!)
+            result[index] = null
+        }
+    }
+
+    private fun acquireKeyedPatchScratch(): KeyedPatchScratchFrame {
+        val depth = keyedPatchDepth
+        keyedPatchDepth += 1
+        if (depth >= KEYED_PATCH_SCRATCH_DEPTH) {
+            return KeyedPatchScratchFrame()
+        }
+        while (keyedPatchScratch.size <= depth) {
+            keyedPatchScratch += KeyedPatchScratchFrame()
+        }
+        return keyedPatchScratch[depth]
+    }
+
+    private fun releaseKeyedPatchScratch() {
+        keyedPatchDepth -= 1
+    }
+
+    private fun hasNoKeyOverlap(
+        mounted: List<Mounted>,
+        oldStart: Int,
+        oldEnd: Int,
+        next: List<Node>,
+        newStart: Int,
+        newEnd: Int,
+    ): Boolean {
+        if (oldStart > oldEnd || newStart > newEnd) {
+            return false
+        }
+        val oldKeys = HashSet<String>(oldEnd - oldStart + 1)
+        for (index in oldStart..oldEnd) {
+            oldKeys += mounted[index].reconcileKey() ?: return false
+        }
+        for (index in newStart..newEnd) {
+            if ((next[index].reconcileKey() ?: return false) in oldKeys) {
+                return false
+            }
+        }
+        return true
+    }
+
+    private fun clearOwnedChildren(parent: Element, mounted: MutableList<Mounted>) {
+        mounted.forEach(::disposeMountedSubtree)
+        mounted.clear()
+        parent.textContent = ""
+    }
+
+    private fun disposeMountedSubtree(mounted: Mounted) {
+        when (mounted) {
+            is MountedHost -> {
+                mounted.children.forEach(::disposeMountedSubtree)
+                mounted.element.asDynamic().__kinetica = null
+            }
+            is MountedTemplate -> {
+                mounted.eventBindings.forEach { binding ->
+                    if (binding != null) {
+                        binding.element.asDynamic().__kinetica = null
+                    }
+                }
+            }
+            is MountedText -> {}
+            is MountedFragment -> mounted.children.forEach(::disposeMountedSubtree)
+            is MountedClientRef -> clientRefCount--
         }
     }
 
@@ -643,6 +925,10 @@ public class BrowserKineticaApp(
                     refreshAttributes(child, refreshChildPath(path, index))
                 }
             }
+            is MountedTemplate ->
+                if (runtime.debug) {
+                    mounted.root.setAttribute(DATA_KINETICA_PATH, path)
+                }
             is MountedText ->
                 if (runtime.debug && mounted.wrapped) {
                     (mounted.dom as Element).setAttribute(DATA_KINETICA_PATH, path)
@@ -699,6 +985,21 @@ private class MountedHost(
     override val currentNode: Node get() = hostNode
 }
 
+private class MountedTemplate(
+    var templateNode: TemplateNode,
+    val root: Element,
+    val holeDoms: Array<DomNode?>,
+    val eventBindings: Array<MountedTemplateEvent?>,
+) : Mounted() {
+    override val currentNode: Node get() = templateNode
+}
+
+private class MountedTemplateEvent(
+    val element: Element,
+    val propName: String,
+    var eventId: String?,
+)
+
 private class MountedText(
     var textNode: TextNode,
     val dom: DomNode,
@@ -721,8 +1022,49 @@ private class MountedClientRef(
     override val currentNode: Node get() = refNode
 }
 
+private class TemplatePrototype(
+    val root: Element,
+)
+
+private class KeyedPatchScratchFrame {
+    var result: Array<Mounted?> = emptyArray()
+    val keyToNewIndex: HashMap<String, Int> = HashMap()
+    var sourceOldIndex: IntArray = IntArray(0)
+    var inStableRun: BooleanArray = BooleanArray(0)
+    val lis: LongestIncreasingSubsequenceScratch = LongestIncreasingSubsequenceScratch()
+
+    fun prepareResult(size: Int): Array<Mounted?> {
+        if (result.size < size) {
+            result = arrayOfNulls(size)
+        } else {
+            for (index in 0 until size) {
+                result[index] = null
+            }
+        }
+        return result
+    }
+
+    fun prepareSourceOldIndex(size: Int): IntArray {
+        if (sourceOldIndex.size < size) {
+            sourceOldIndex = IntArray(size)
+        }
+        sourceOldIndex.fill(-1, 0, size)
+        return sourceOldIndex
+    }
+
+    fun prepareStableRun(size: Int): BooleanArray {
+        if (inStableRun.size < size) {
+            inStableRun = BooleanArray(size)
+        } else {
+            inStableRun.fill(false, 0, size)
+        }
+        return inStableRun
+    }
+}
+
 private fun firstDomOf(mounted: Mounted): DomNode? = when (mounted) {
     is MountedHost -> mounted.element
+    is MountedTemplate -> mounted.root
     is MountedText -> mounted.dom
     is MountedClientRef -> mounted.element
     is MountedFragment -> mounted.children.firstNotNullOfOrNull(::firstDomOf)
@@ -730,6 +1072,7 @@ private fun firstDomOf(mounted: Mounted): DomNode? = when (mounted) {
 
 private fun lastDomOf(mounted: Mounted): DomNode? = when (mounted) {
     is MountedHost -> mounted.element
+    is MountedTemplate -> mounted.root
     is MountedText -> mounted.dom
     is MountedClientRef -> mounted.element
     is MountedFragment -> mounted.children.asReversed().firstNotNullOfOrNull(::lastDomOf)
@@ -740,11 +1083,32 @@ private fun domAfter(mounted: Mounted): DomNode? = lastDomOf(mounted)?.nextSibli
 private fun moveDom(mounted: Mounted, parent: Element, anchor: DomNode?) {
     when (mounted) {
         is MountedHost -> parent.insertBefore(mounted.element, anchor)
+        is MountedTemplate -> parent.insertBefore(mounted.root, anchor)
         is MountedText -> parent.insertBefore(mounted.dom, anchor)
         is MountedClientRef -> parent.insertBefore(mounted.element, anchor)
         is MountedFragment -> mounted.children.forEach { child -> moveDom(child, parent, anchor) }
     }
 }
+
+private fun Mounted.reconcileKey(): String? =
+    when (this) {
+        is MountedHost -> hostNode.key
+        is MountedTemplate -> templateNode.key
+        is MountedText,
+        is MountedClientRef,
+        is MountedFragment,
+        -> null
+    }
+
+private fun Node.reconcileKey(): String? =
+    when (this) {
+        is HostNode -> key
+        is TemplateNode -> key
+        is FragmentNode,
+        is TextNode,
+        is ClientRef,
+        -> null
+    }
 
 private fun textNeedsElement(node: TextNode): Boolean =
     node.strikethrough || node.semantics.hasElementAttributes()
@@ -753,6 +1117,7 @@ private fun refreshChildPath(parent: String, index: Int): String =
     if (parent.isEmpty()) index.toString() else "$parent.$index"
 
 private val DelegatedEventTypes = listOf("click", "input", "change", "keydown")
+private const val KEYED_PATCH_SCRATCH_DEPTH = 4
 
 public data class BrowserUiSnapshot(
     val innerHtml: String,
@@ -763,14 +1128,14 @@ public data class BrowserUiSnapshot(
 public fun mountKineticaApp(
     root: Element,
     runtime: KineticaRuntime = KineticaRuntime(debug = true),
-    content: ComponentScope.() -> Unit,
+    content: @UiComponent ComponentScope.() -> Unit,
 ): BrowserKineticaApp =
     BrowserKineticaApp(root, runtime, content).also { app -> app.render() }
 
 public fun mountKineticaApp(
     selector: String,
     runtime: KineticaRuntime = KineticaRuntime(debug = true),
-    content: ComponentScope.() -> Unit,
+    content: @UiComponent ComponentScope.() -> Unit,
 ): BrowserKineticaApp {
     val root = browserDocument.querySelector(selector)
         ?: error("No element matches selector: $selector")

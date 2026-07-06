@@ -1,17 +1,26 @@
 package app.browser.tests
 
 import io.heapy.kinetica.ComponentScope
+import io.heapy.kinetica.HostNode
 import io.heapy.kinetica.Role
 import io.heapy.kinetica.Semantics
+import io.heapy.kinetica.TemplateDefinition
+import io.heapy.kinetica.TemplateHole
+import io.heapy.kinetica.TemplateHoleKinds
+import io.heapy.kinetica.TextNode
+import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.browser.mountKineticaApp
 import io.heapy.kinetica.button
 import io.heapy.kinetica.column
+import io.heapy.kinetica.derived
 import io.heapy.kinetica.each
 import io.heapy.kinetica.event
 import io.heapy.kinetica.host
+import io.heapy.kinetica.hostEvent
 import io.heapy.kinetica.launchEffect
 import io.heapy.kinetica.state
 import io.heapy.kinetica.store
+import io.heapy.kinetica.templateNode
 import io.heapy.kinetica.text
 import io.heapy.kinetica.textInput
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -22,10 +31,11 @@ import org.w3c.dom.Document
 import org.w3c.dom.Element
 import org.w3c.dom.HTMLInputElement
 
+@UiComponent
 fun ComponentScope.BrowserTestApp() {
-    var draft by state(key = "draft") { "" }
-    var committed by state(key = "committed") { "none" }
-    var reverseItems by state(key = "reverseItems") { false }
+    var draft by state { "" }
+    var committed by state { "none" }
+    var reverseItems by state { false }
     val commit = event {
         committed = draft.ifBlank { "empty" }
         draft = ""
@@ -75,8 +85,9 @@ fun ComponentScope.BrowserTestApp() {
     }
 }
 
+@UiComponent
 fun ComponentScope.AsyncFocusApp() {
-    var status by state(key = "status") { "loading" }
+    var status by state { "loading" }
     launchEffect {
         delay(25)
         status = "ready"
@@ -89,6 +100,136 @@ fun ComponentScope.AsyncFocusApp() {
         )
         text("Async: $status")
     }
+}
+
+@UiComponent
+fun ComponentScope.SingleTextFastPathApp() {
+    var label by state { "one" }
+
+    column {
+        button(
+            onClick = { label = "two" },
+            semantics = Semantics(role = Role.Button, testTag = "text-toggle", focusable = true),
+        ) {
+            text("Toggle")
+        }
+        host("p", semantics = Semantics(testTag = "single-text")) {
+            text(label, semantics = null)
+        }
+    }
+}
+
+@UiComponent
+fun ComponentScope.SlotKindToggleApp() {
+    var useDerived by state { false }
+    var clicks by state { 0 }
+
+    column {
+        if (useDerived) {
+            val label by derived { "derived-arm" }
+            host("p") { text(label, semantics = null) }
+        } else {
+            val n by state { 1 }
+            host("p") { text("state-arm:$n", semantics = null) }
+        }
+        button(
+            onClick = event { useDerived = !useDerived },
+            semantics = Semantics(role = Role.Button, testTag = "kind-toggle", focusable = true),
+        ) {
+            text("Toggle arm")
+        }
+        button(
+            onClick = event { clicks += 1 },
+            semantics = Semantics(role = Role.Button, testTag = "kind-count", focusable = true),
+        ) {
+            text("Count")
+        }
+        host("p") { text("clicks:$clicks", semantics = null) }
+    }
+}
+
+@UiComponent
+fun ComponentScope.ReplaceAllFastPathApp() {
+    var generation by state { 0 }
+    val items = if (generation == 0) listOf(1, 2, 3, 4) else listOf(11, 12, 13, 14)
+
+    column {
+        button(
+            onClick = { generation += 1 },
+            semantics = Semantics(role = Role.Button, testTag = "replace-all", focusable = true),
+        ) {
+            text("Replace")
+        }
+        host("ul", semantics = Semantics(testTag = "replace-list")) {
+            each(items, key = { it }) { item ->
+                host("li", key = item) {
+                    text("item $item", semantics = null)
+                }
+            }
+        }
+    }
+}
+
+@UiComponent
+fun ComponentScope.ClearFastPathApp() {
+    var showItems by state { true }
+
+    column {
+        button(
+            onClick = { showItems = false },
+            semantics = Semantics(role = Role.Button, testTag = "clear-all", focusable = true),
+        ) {
+            text("Clear")
+        }
+        host("ul", semantics = Semantics(testTag = "clear-list")) {
+            if (showItems) {
+                each(listOf(1, 2, 3, 4), key = { it }) { item ->
+                    host("li", key = item) {
+                        text("item $item", semantics = null)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private val BrowserTemplateDefinition = TemplateDefinition(
+    id = "browser-template-test",
+    skeleton = HostNode(
+        tag = "div",
+        props = mapOf("data-testid" to "template-row", "class" to ""),
+        children = listOf(
+            HostNode(
+                tag = "button",
+                props = mapOf("data-testid" to "template-button"),
+                children = listOf(TextNode("", semantics = null)),
+            ),
+        ),
+    ),
+    holes = listOf(
+        TemplateHole(path = "", kind = TemplateHoleKinds.Prop, propName = "class"),
+        TemplateHole(path = "0", kind = TemplateHoleKinds.EventProp, propName = "event:onClick"),
+        TemplateHole(path = "0.0", kind = TemplateHoleKinds.Text),
+    ),
+)
+
+@UiComponent
+fun ComponentScope.TemplateFastPathApp() {
+    var selected by state { false }
+    var label by state { "one" }
+    val click = hostEvent(onEvent = event {
+        val next = !selected
+        selected = next
+        label = if (next) "two" else "one"
+    })
+
+    emit(
+        templateNode(
+            definition = BrowserTemplateDefinition,
+            values = listOf(if (selected) "hot" else "cold", click, label),
+            key = "template-row",
+        ),
+    )
 }
 
 @OptIn(DelicateCoroutinesApi::class)
@@ -143,6 +284,119 @@ fun main() {
         check("Committed: identity" in app.innerHtml())
         val after = app.elementByTestTag("commit")
         check(after.asDynamic().__identityMarker == 42) { "commit button was recreated instead of patched" }
+    }
+    runBrowserTest(results, "single text fast path keeps DOM text node identity") {
+        val root = isolatedRoot()
+        val textApp = mountKineticaApp(root) {
+            SingleTextFastPathApp()
+        }
+        try {
+            val paragraph = textApp.elementByTestTag("single-text")
+            val textNode = paragraph.firstChild ?: error("single text paragraph had no text node")
+            textNode.asDynamic().__identityMarker = "single-text"
+
+            textApp.clickTestTag("text-toggle")
+
+            val updatedText = textApp.elementByTestTag("single-text").firstChild
+                ?: error("single text paragraph lost its text node")
+            check(updatedText.asDynamic().__identityMarker == "single-text") {
+                "single text child was recreated instead of patched"
+            }
+            check(updatedText.textContent == "two")
+        } finally {
+            textApp.dispose()
+            root.remove()
+        }
+    }
+    runBrowserTest(results, "branch-toggled slots survive without collisions") {
+        // Regression for the silent-JS slot corruption: under the old sequence-keyed slot
+        // model, a branch swapping state{} for derived{} at the same cursor position reused
+        // the state cell's slot for the DerivedCell — mangled property reads turned into
+        // undefined and handlers after the branch went dead without any error. The frame
+        // model assigns every construct call site its own static ordinal, so the two arms
+        // (and the events after them) can never share storage no matter which arm renders.
+        val root = isolatedRoot()
+        val toggleApp = mountKineticaApp(root) {
+            SlotKindToggleApp()
+        }
+        try {
+            check("state-arm:1" in toggleApp.innerHtml())
+            toggleApp.clickTestTag("kind-toggle")
+            check("derived-arm" in toggleApp.innerHtml())
+            toggleApp.clickTestTag("kind-count")
+            check("clicks:1" in toggleApp.innerHtml()) { "count handler died after branch toggle" }
+            toggleApp.clickTestTag("kind-toggle")
+            check("state-arm:1" in toggleApp.innerHtml())
+            toggleApp.clickTestTag("kind-count")
+            check("clicks:2" in toggleApp.innerHtml())
+        } finally {
+            toggleApp.dispose()
+            root.remove()
+        }
+    }
+    runBrowserTest(results, "replace-all keyed children avoids per-child removeChild") {
+        val root = isolatedRoot()
+        val replaceApp = mountKineticaApp(root) {
+            ReplaceAllFastPathApp()
+        }
+        try {
+            val list = replaceApp.elementByTestTag("replace-list")
+            val removeCalls = countRemoveChildCalls(list)
+
+            replaceApp.clickTestTag("replace-all")
+
+            check(removeCalls() == 0) { "replace-all called removeChild ${removeCalls()} times" }
+            check(list.children.length == 4)
+            check(list.textContent == "item 11item 12item 13item 14")
+        } finally {
+            replaceApp.dispose()
+            root.remove()
+        }
+    }
+    runBrowserTest(results, "clear keyed children avoids per-child removeChild") {
+        val root = isolatedRoot()
+        val clearApp = mountKineticaApp(root) {
+            ClearFastPathApp()
+        }
+        try {
+            val list = clearApp.elementByTestTag("clear-list")
+            val removeCalls = countRemoveChildCalls(list)
+
+            clearApp.clickTestTag("clear-all")
+
+            check(removeCalls() == 0) { "clear called removeChild ${removeCalls()} times" }
+            check(list.childNodes.length == 0)
+        } finally {
+            clearApp.dispose()
+            root.remove()
+        }
+    }
+    runBrowserTest(results, "template node clones and patches text props and events") {
+        val root = isolatedRoot()
+        val templateApp = mountKineticaApp(root) {
+            TemplateFastPathApp()
+        }
+        try {
+            val row = templateApp.elementByTestTag("template-row")
+            val button = templateApp.elementByTestTag("template-button")
+            button.asDynamic().__identityMarker = "template-button"
+
+            check(row.getAttribute("class") == "cold")
+            check(button.textContent == "one")
+
+            button.asDynamic().click()
+
+            val patchedRow = templateApp.elementByTestTag("template-row")
+            val patchedButton = templateApp.elementByTestTag("template-button")
+            check(patchedRow.getAttribute("class") == "hot")
+            check(patchedButton.textContent == "two")
+            check(patchedButton.asDynamic().__identityMarker == "template-button") {
+                "template button was recreated instead of patched"
+            }
+        } finally {
+            templateApp.dispose()
+            root.remove()
+        }
     }
     runBrowserTest(results, "keyed reorder moves existing elements instead of recreating") {
         val a = app.elementByTestTag("item-a")
@@ -204,6 +458,22 @@ fun main() {
             root.remove()
         }
     }
+}
+
+private fun isolatedRoot(): Element =
+    document.createElement("div").also { root ->
+        document.querySelector("main")?.appendChild(root) ?: error("Missing <main>")
+    }
+
+private fun countRemoveChildCalls(element: Element): () -> Int {
+    var calls = 0
+    val dynamicElement = element.asDynamic()
+    val original = dynamicElement.removeChild
+    dynamicElement.removeChild = { child: dynamic ->
+        calls += 1
+        original.call(dynamicElement, child)
+    }
+    return { calls }
 }
 
 private fun runBrowserTest(

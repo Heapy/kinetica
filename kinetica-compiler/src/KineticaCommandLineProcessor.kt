@@ -24,6 +24,9 @@ public object KineticaConfigurationKeys {
     public val sourcePipeline: CompilerConfigurationKey<String> =
         CompilerConfigurationKey.create(KineticaCompilerContract.optionSourcePipeline)
 
+    public val checks: CompilerConfigurationKey<String> =
+        CompilerConfigurationKey.create(KineticaCompilerContract.optionChecks)
+
     public val compilerPlan: CompilerConfigurationKey<KineticaCompilerPlan> =
         CompilerConfigurationKey.create("kinetica compiler plan")
 
@@ -38,8 +41,9 @@ public class KineticaCommandLineProcessor : CommandLineProcessor {
         CliOption(
             optionName = KineticaCompilerContract.optionModuleId,
             valueDescription = "<id>",
-            description = "Stable Kinetica module id used as the first segment of generated SlotId values.",
-            required = true,
+            description = "Stable Kinetica module id used as the first segment of generated SlotId values. " +
+                "Defaults to the Kotlin module name of the compilation.",
+            required = false,
             allowMultipleOccurrences = false,
         ),
         CliOption(
@@ -70,6 +74,15 @@ public class KineticaCommandLineProcessor : CommandLineProcessor {
             required = false,
             allowMultipleOccurrences = false,
         ),
+        CliOption(
+            optionName = KineticaCompilerContract.optionChecks,
+            valueDescription = "<error|off>",
+            description = "Kinetica authoring rules (slot DSL only in @UiComponent, no stateful calls in " +
+                "loops, ComponentScope receivers). Defaults to error; off is an escape hatch for " +
+                "migration branches.",
+            required = false,
+            allowMultipleOccurrences = false,
+        ),
     )
 
     override fun processOption(
@@ -87,6 +100,9 @@ public class KineticaCommandLineProcessor : CommandLineProcessor {
             }
             KineticaCompilerContract.optionTransforms -> {
                 configuration.put(KineticaConfigurationKeys.transforms, value)
+            }
+            KineticaCompilerContract.optionChecks -> {
+                configuration.put(KineticaConfigurationKeys.checks, value)
             }
             KineticaCompilerContract.optionSourcePipeline -> {
                 configuration.put(KineticaConfigurationKeys.sourcePipeline, value)

@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const projectYaml = readFileSync("project.yaml", "utf8");
-const verifyBrowser = readFileSync("scripts/verify-browser.mjs", "utf8");
+const verifierCache = new Map();
 
 const modules = projectYaml
   .split(/\r?\n/)
@@ -10,10 +10,13 @@ const modules = projectYaml
   .filter(Boolean);
 
 const externalCoverage = new Map([
-  ["./samples/browser-counter", "verifyCounter"],
-  ["./samples/browser-tests", "verifyBrowserTests"],
-  ["./samples/browser-todo", "verifyTodo"],
-  ["./samples/server-components-client", "verifyServerComponents"],
+  ["./docs/docs-client", verifier("docs/verify-docs.mjs", "live counter example mounts")],
+  ["./samples/annotated-js", verifier("scripts/verify-js-samples.mjs", "annotated-js")],
+  ["./samples/browser-bench", verifier("bench/driver/bench.mjs", "01_run1k")],
+  ["./samples/browser-counter", verifier("scripts/verify-browser.mjs", "function verifyCounter(")],
+  ["./samples/browser-tests", verifier("scripts/verify-browser.mjs", "function verifyBrowserTests(")],
+  ["./samples/browser-todo", verifier("scripts/verify-browser.mjs", "function verifyTodo(")],
+  ["./samples/server-components-client", verifier("scripts/verify-browser.mjs", "function verifyServerComponents(")],
 ]);
 
 const rows = [];
@@ -27,20 +30,20 @@ for (const modulePath of modules) {
     relativePath.startsWith("src/") || /^src@[^/]+\//.test(relativePath),
   ).filter((file) => file.endsWith(".kt"));
   const verifier = externalCoverage.get(modulePath);
-  const verifierPresent = verifier == null || verifyBrowser.includes(`function ${verifier}(`);
+  const verifierPresent = verifier == null || verifierText(verifier.file).includes(verifier.needle);
 
   if (sourceFiles.length > 0 && testFiles.length === 0 && verifier == null) {
     failures.push(`${modulePath} has source files but no Kotlin tests or external verifier coverage.`);
   }
   if (verifier != null && !verifierPresent) {
-    failures.push(`${modulePath} declares external coverage through ${verifier}, but scripts/verify-browser.mjs does not define it.`);
+    failures.push(`${modulePath} declares external coverage through ${verifier.name}, but ${verifier.file} does not contain its verifier marker.`);
   }
 
   rows.push({
     module: modulePath,
     sources: sourceFiles.length,
     tests: testFiles.length,
-    verifier: verifier ?? "",
+    verifier: verifier?.name ?? "",
   });
 }
 
@@ -68,10 +71,10 @@ const styleChecks = [
   {
     name: "browser end-to-end tests",
     ok:
-      verifyBrowser.includes("verifyCounter") &&
-      verifyBrowser.includes("verifyTodo") &&
-      verifyBrowser.includes("verifyServerComponents") &&
-      verifyBrowser.includes("KINETICA_SERVER_COMPONENTS_URL"),
+      verifierText("scripts/verify-browser.mjs").includes("verifyCounter") &&
+      verifierText("scripts/verify-browser.mjs").includes("verifyTodo") &&
+      verifierText("scripts/verify-browser.mjs").includes("verifyServerComponents") &&
+      verifierText("scripts/verify-browser.mjs").includes("KINETICA_SERVER_COMPONENTS_URL"),
   },
 ];
 
@@ -96,6 +99,21 @@ if (failures.length > 0) {
 }
 
 console.log("Coverage audit passed");
+
+function verifier(file, needle) {
+  return {
+    name: `${file}:${needle}`,
+    file,
+    needle,
+  };
+}
+
+function verifierText(file) {
+  if (!verifierCache.has(file)) {
+    verifierCache.set(file, readFileSync(file, "utf8"));
+  }
+  return verifierCache.get(file);
+}
 
 function existingFilesUnder(root, includeRelativePath) {
   const result = [];

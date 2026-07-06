@@ -24,8 +24,9 @@ package app
 import io.heapy.kinetica.*
 import io.heapy.kinetica.browser.mountKineticaApp
 
+@UiComponent
 fun ComponentScope.App() {
-    var name by state(key = "name") { "world" }
+    var name by state { "world" }
     column {
         textInput(value = name, onInput = event<String> { name = it })
         text("Hello, $name!")
@@ -61,6 +62,7 @@ There is no component class and no special file type. A component is a function 
 `ComponentScope` as receiver that *emits* nodes:
 
 ```kotlin
+@UiComponent
 fun ComponentScope.Badge(label: String) {
     host("span", props = mapOf("class" to "badge")) {
         text(label)
@@ -68,10 +70,11 @@ fun ComponentScope.Badge(label: String) {
 }
 ```
 
-Composition is a function call: `Badge("New")`. State lives in *slots* addressed by keys — pass
-explicit `key =` arguments to `state` (and `key = { … }` to `each`) in hand-written code. The
-[compiler plugin](/docs/compiler-plugin) generates stable slot ids automatically for
-`@UiComponent` functions.
+Composition is a function call: `Badge("New")`. State lives in *slots* whose identity the
+mandatory [compiler plugin](/docs/compiler-plugin) assigns at compile time — every component
+is a `@UiComponent fun ComponentScope.X(...)`, and every `state`/`derived`/effect call site
+gets its own slot automatically. Lists still key their rows explicitly:
+`each(items, key = { … })`.
 
 ## Mounting choices
 

@@ -2,7 +2,9 @@ package io.heapy.kinetica.persist
 
 import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.EqualityPolicy
+import io.heapy.kinetica.MutableCell
 import io.heapy.kinetica.SlotId
+import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.state
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.decodeFromString
@@ -62,17 +64,25 @@ public val PersistJson: Json = Json {
     ignoreUnknownKeys = true
 }
 
+/**
+ * Persistent state addressed by an explicit [SlotId]. A value parked with `writeSlot`
+ * (e.g. by [restoreSlot]) before the component first renders takes precedence over both
+ * [restoredValue] and [initial].
+ */
+@UiComponent
 public fun <T> ComponentScope.persistentState(
     slotId: SlotId,
     restoredValue: T?,
     policy: EqualityPolicy<T> = EqualityPolicy.structural(),
     initial: () -> T,
-) = state(
-    slotId = slotId,
-    policy = policy,
-    persistent = true,
-    initial = { restoredValue ?: initial() },
-)
+): MutableCell<T> {
+    return state(
+        slotId = slotId,
+        policy = policy,
+        persistent = true,
+        initial = { restoredValue ?: initial() },
+    )
+}
 
 public suspend fun <T> ComponentScope.restoreSlot(
     slotId: SlotId,

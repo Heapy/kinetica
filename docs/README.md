@@ -48,9 +48,11 @@ created by the script.
 DOCS_BASE_URL=http://127.0.0.1:8080 node docs/verify-docs.mjs
 ```
 
-Checks: all pages server-render, the live counter/keyed-list examples mount and react, and the
-server-components demo hydrates its island, receives the streamed patch, and dispatches the
-typed add-to-cart action.
+Checks: all pages server-render, the live counter/keyed-list examples mount and react, the
+resource-fetch demo on `/docs/resources` loads its per-visitor session stack, surfaces the
+backend's intentional `NullPointerException` for "Java" through the error boundary and recovers
+on retry, and the server-components demo hydrates its island, receives the streamed patch, and
+dispatches the typed add-to-cart action.
 
 ## Adding a page
 

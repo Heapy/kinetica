@@ -7,21 +7,27 @@ components that read them.
 ## state
 
 ```kotlin
-var count by state(key = "count") { 0 }
+var count by state { 0 }
 count += 1                       // write -> invalidate -> re-render
 ```
 
-`state` allocates a *slot* on the component scope. Slots are addressed by key: pass an explicit
-`key = "…"` in hand-written code (inside `each`, keys are automatically scoped per item). Writes
-go through an `EqualityPolicy` — `structural()` by default — so writing an equal value does not
-re-render.
+`state` allocates a *slot* in the component's frame. Slot identity is assigned by the
+[compiler plugin](/docs/compiler-plugin): every call site gets a static ordinal, and the value
+lives in a per-instance array indexed by it. There are no keys to pass and no positional
+collisions — two branches of an `if/else` are two different call sites, so they can never
+share a slot. Writes go through an `EqualityPolicy` — `structural()` by default — so writing
+an equal value does not re-render.
+
+Dynamic identity (the same call site rendering many logical instances) comes from the keyed
+constructs: `each(items, key = { … })` gives every row its own frame, and `keyed(key) { … }`
+does the same for a single subtree. When a key disappears from the list its frame is disposed
+— state does not resurrect if the key later returns.
 
 ```kotlin
 fun <T> ComponentScope.state(
     policy: EqualityPolicy<T> = EqualityPolicy.structural(),
-    persistent: Boolean = false,   // slot survives key-scope disposal, see /docs/persist
+    persistent: Boolean = false,   // slot survives keyed-frame disposal, see /docs/persist
     transient: Boolean = false,    // slot is dropped when not touched by a render
-    key: String? = null,
     initial: () -> T,
 ): MutableCell<T>
 ```

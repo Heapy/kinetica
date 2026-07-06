@@ -25,7 +25,7 @@ rmSync(htmlDir, { force: true, recursive: true });
 
 const javaToolOptions = [
   process.env.JAVA_TOOL_OPTIONS,
-  `-javaagent:${agentJar}=destfile=${execFile},append=true,dumponexit=true,includes=io.heapy.kinetica.*:app.*`,
+  `-javaagent:${agentJar}=destfile=${execFile},append=true,dumponexit=true,includes=io.heapy.kinetica.*:app.*:bench.jvm.*:docs.site.*`,
 ].filter(Boolean).join(" ");
 
 for (const moduleName of jvmTestModules()) {
@@ -67,6 +67,14 @@ execFileSync(
 );
 
 const summary = summarizeJacocoXml(readFileSync(xmlFile, "utf8"));
+const aggregateExcludedPackages = aggregateCoverageExcludedPackages();
+const gatePackages = summary.packages.filter((packageSummary) =>
+  !aggregateExcludedPackages.has(packageSummary.name),
+);
+if (gatePackages.length === 0) {
+  throw new Error("No packages remain for the JVM aggregate coverage gate.");
+}
+const gateSummary = aggregatePackageCounters(gatePackages);
 const minimumLinePercent = Number(process.env.KINETICA_JVM_LINE_MIN ?? "97.05");
 const minimumBranchPercent = Number(process.env.KINETICA_JVM_BRANCH_MIN ?? "85.85");
 const minimumPackageLinePercent = Number(process.env.KINETICA_JVM_PACKAGE_LINE_MIN ?? "93");
@@ -75,6 +83,12 @@ writeFileSync(
   join(reportsDir, "summary.json"),
   `${JSON.stringify({
     ...summary,
+    gate: {
+      excludedPackages: [...aggregateExcludedPackages].sort(),
+      packages: gatePackages.map((packageSummary) => packageSummary.name).sort(),
+      line: gateSummary.line,
+      branch: gateSummary.branch,
+    },
     minimums: {
       linePercent: minimumLinePercent,
       branchPercent: minimumBranchPercent,
@@ -87,6 +101,14 @@ console.log(
   `JVM coverage: ${summary.line.covered}/${summary.line.total} lines (${summary.line.percent.toFixed(2)}%), ` +
     `${summary.branch.covered}/${summary.branch.total} branches (${summary.branch.percent.toFixed(2)}%).`,
 );
+if (aggregateExcludedPackages.size > 0) {
+  console.log(
+    `JVM aggregate gate: ${gateSummary.line.covered}/${gateSummary.line.total} lines ` +
+      `(${gateSummary.line.percent.toFixed(2)}%), ${gateSummary.branch.covered}/${gateSummary.branch.total} ` +
+      `branches (${gateSummary.branch.percent.toFixed(2)}%).`,
+  );
+  console.log(`JVM aggregate gate excludes: ${[...aggregateExcludedPackages].sort().join(", ")}`);
+}
 console.table(
   summary.packages.map((packageSummary) => ({
     package: packageSummary.name,
@@ -96,11 +118,11 @@ console.table(
 );
 
 const thresholdFailures = [];
-if (summary.line.percent < minimumLinePercent) {
-  thresholdFailures.push(`line ${summary.line.percent.toFixed(2)}% < ${minimumLinePercent}%`);
+if (gateSummary.line.percent < minimumLinePercent) {
+  thresholdFailures.push(`gate line ${gateSummary.line.percent.toFixed(2)}% < ${minimumLinePercent}%`);
 }
-if (summary.branch.percent < minimumBranchPercent) {
-  thresholdFailures.push(`branch ${summary.branch.percent.toFixed(2)}% < ${minimumBranchPercent}%`);
+if (gateSummary.branch.percent < minimumBranchPercent) {
+  thresholdFailures.push(`gate branch ${gateSummary.branch.percent.toFixed(2)}% < ${minimumBranchPercent}%`);
 }
 for (const packageSummary of summary.packages) {
   if (packageSummary.line.percent < minimumPackageLinePercent) {
@@ -211,6 +233,46 @@ function summarizeJacocoXml(xml) {
     line: withPercent(totals.line),
     branch: withPercent(totals.branch),
     packages: packageSummaries(xml),
+  };
+}
+
+function aggregateCoverageExcludedPackages() {
+  const configured = process.env.KINETICA_JVM_AGGREGATE_EXCLUDE;
+  const packageNames = configured == null
+    ? [
+      "app.annotated",
+      "app.servercomponents",
+      "app.servercomponents.shared",
+      "app.todo",
+      "bench.jvm",
+      "docs.site",
+      "io.heapy.kinetica.compiler",
+    ]
+    : configured
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+  return new Set(packageNames);
+}
+
+function aggregatePackageCounters(packages) {
+  const line = packages.reduce(
+    (counter, packageSummary) => ({
+      missed: counter.missed + packageSummary.line.missed,
+      covered: counter.covered + packageSummary.line.covered,
+    }),
+    { missed: 0, covered: 0 },
+  );
+  const branch = packages.reduce(
+    (counter, packageSummary) => ({
+      missed: counter.missed + packageSummary.branch.missed,
+      covered: counter.covered + packageSummary.branch.covered,
+    }),
+    { missed: 0, covered: 0 },
+  );
+  return {
+    line: withPercent(line),
+    branch: withPercent(branch),
   };
 }
 

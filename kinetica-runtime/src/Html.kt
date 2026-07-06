@@ -40,6 +40,7 @@ private fun StringBuilder.appendSafeHtml(node: Node) {
         is TextNode -> append(escapeHtmlText(node.value))
         is HostNode -> appendHostNode(node)
         is ClientRef -> appendClientRef(node)
+        is TemplateNode -> appendHostNode(node.materialize())
     }
 }
 

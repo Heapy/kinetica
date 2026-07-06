@@ -6,6 +6,7 @@ import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.KineticaRuntime
 import io.heapy.kinetica.Resource
 import io.heapy.kinetica.ResourceKey
+import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.resource
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -100,42 +101,33 @@ class DataSmokeTest {
     fun resourceAwaitWithRetryInvalidatesFailedCacheBetweenAttempts() = runTest {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
-        lateinit var resource: Resource<String>
-        var loads = 0
+        retryResource = null
+        retryLoads = 0
 
         runtime.render(scope) {
-            resource = resource(RetryKey, scope = CacheScope.Component) {
-                loads += 1
-                if (loads < 3) {
-                    error("try $loads")
-                }
-                "loaded"
-            }
+            RetryResourceHost()
         }
 
-        assertEquals("loaded", resource.awaitWithRetry(RetryPolicy(attempts = 3, delayMillis = 0)))
-        assertEquals(3, loads)
+        assertEquals("loaded", retryResource!!.awaitWithRetry(RetryPolicy(attempts = 3, delayMillis = 0)))
+        assertEquals(3, retryLoads)
     }
 
     @Test
     fun resourceAwaitWithRetryStopsAtAttemptLimit() = runTest {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
-        lateinit var resource: Resource<String>
-        var loads = 0
+        failingResource = null
+        failingLoads = 0
 
         runtime.render(scope) {
-            resource = resource(FailingRetryKey, scope = CacheScope.Component) {
-                loads += 1
-                error("try $loads")
-            }
+            FailingResourceHost()
         }
 
         val failure = assertFailsWith<IllegalStateException> {
-            resource.awaitWithRetry(RetryPolicy(attempts = 2, delayMillis = 0))
+            failingResource!!.awaitWithRetry(RetryPolicy(attempts = 2, delayMillis = 0))
         }
         assertEquals("try 2", failure.message)
-        assertEquals(2, loads)
+        assertEquals(2, failingLoads)
     }
 
     @Test
@@ -148,13 +140,13 @@ class DataSmokeTest {
 
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
-        lateinit var resource: Resource<String>
         lateinit var paginator: Paginator<Int>
         lateinit var save: Action<String, String>
         val optimisticTitles = mutableListOf<String>()
+        defaultResource = null
 
         runtime.render(scope) {
-            resource = resource(DefaultRetryKey, scope = CacheScope.Component) { "cached" }
+            DefaultResourceHost()
             paginator = paginator()
             save = optimisticAction(
                 invalidates = { emptyList() },
@@ -164,7 +156,7 @@ class DataSmokeTest {
             }
         }
 
-        assertEquals("cached", resource.awaitWithRetry())
+        assertEquals("cached", defaultResource!!.awaitWithRetry())
         assertEquals(emptyList(), paginator.items)
         assertTrue(paginator.canLoadMore)
 
@@ -384,3 +376,38 @@ private data object RetryKey : ResourceKey
 private data object FailingRetryKey : ResourceKey
 
 private data object DefaultRetryKey : ResourceKey
+
+// resource() is slot DSL and only legal lexically inside @UiComponent functions; these
+// hosts expose the created resources to the tests through file-level vars.
+
+private var retryResource: Resource<String>? = null
+private var retryLoads = 0
+
+@UiComponent(skippable = false)
+private fun ComponentScope.RetryResourceHost() {
+    retryResource = resource(RetryKey, scope = CacheScope.Component) {
+        retryLoads += 1
+        if (retryLoads < 3) {
+            error("try $retryLoads")
+        }
+        "loaded"
+    }
+}
+
+private var failingResource: Resource<String>? = null
+private var failingLoads = 0
+
+@UiComponent(skippable = false)
+private fun ComponentScope.FailingResourceHost() {
+    failingResource = resource(FailingRetryKey, scope = CacheScope.Component) {
+        failingLoads += 1
+        error("try $failingLoads")
+    }
+}
+
+private var defaultResource: Resource<String>? = null
+
+@UiComponent(skippable = false)
+private fun ComponentScope.DefaultResourceHost() {
+    defaultResource = resource(DefaultRetryKey, scope = CacheScope.Component) { "cached" }
+}

@@ -5,13 +5,118 @@ import kotlin.test.assertEquals
 import kotlin.test.assertSame
 
 /**
- * skippableNode must COMPOSE with the rest of the render machinery instead of degrading it:
- * hits replay captured events/cursors/reads exactly like memoized each rows do, the old
- * global state-write guard is gone, and replay-unsafe factories are simply never cached.
+ * Skippable components must COMPOSE with the rest of the render machinery instead of
+ * degrading it: skip hits replay captured events/reads exactly like memoized each rows do,
+ * unrelated state writes never defeat a skip, and replay-unsafe bodies (effects) are simply
+ * never cached.
+ *
+ * Frame-era port: `skippableNode` is now emitted by the compiler around receiver-style
+ * `@UiComponent` functions with stable inputs, so each scenario uses a real component
+ * instead of a hand-rolled `skippableNode` call. The old positional-cursor alignment test
+ * (siblingPositionalSlotsStayAlignedAcrossSkips) is dropped: slot identity is structural
+ * per frame, cursors no longer exist.
  */
-class SkippableEachCompositionTest {
-    private data class Item(val id: Int, val label: String)
+private data class SkipItem(val id: Int, val label: String)
 
+private var skipItems: List<SkipItem> = emptyList()
+private var skipBadgeRuns = 0
+
+@UiComponent
+private fun ComponentScope.SkipBadge(item: SkipItem) {
+    skipBadgeRuns++
+    host("span") { text(item.label, semantics = null) }
+}
+
+@UiComponent(skippable = false)
+private fun ComponentScope.SkipBadgeRows() {
+    column {
+        each(skipItems, key = { it.id }) { item ->
+            host("li", key = item.id) { SkipBadge(item) }
+        }
+    }
+}
+
+private var chipRuns = 0
+private var chipCounterCell: MutableCell<Int>? = null
+
+@UiComponent
+private fun ComponentScope.SkipChip() {
+    chipRuns++
+    host("span") { text("chip", semantics = null) }
+}
+
+@UiComponent(skippable = false)
+private fun ComponentScope.SkipChipHost() {
+    val counter = state { 0 }
+    chipCounterCell = counter
+    host("div") {
+        text("count ${counter.value}", semantics = null)
+        SkipChip()
+    }
+}
+
+private var clickerClicks = 0
+private var clickerTickCell: MutableCell<Int>? = null
+
+@UiComponent
+private fun ComponentScope.SkipClicker() {
+    button(onClick = event { clickerClicks++ }, semantics = null) {
+        text("hit me", semantics = null)
+    }
+}
+
+@UiComponent(skippable = false)
+private fun ComponentScope.SkipClickerHost() {
+    val tick = state { 0 }
+    clickerTickCell = tick
+    host("div") {
+        text("tick ${tick.value}", semantics = null)
+        SkipClicker()
+    }
+}
+
+private var skipMode = "cached"
+private val skipModeClicks = mutableListOf<String>()
+private var cachedClickerRuns = 0
+
+@UiComponent
+private fun ComponentScope.SkipCachedClicker() {
+    cachedClickerRuns++
+    button(onClick = { skipModeClicks += "cached" }, semantics = null) {
+        text("cached", semantics = null)
+    }
+}
+
+@UiComponent(skippable = false)
+private fun ComponentScope.SkipModalHost() {
+    host("div") {
+        when (skipMode) {
+            "cached" -> SkipCachedClicker()
+            "fresh-event" -> button(onClick = { skipModeClicks += "fresh" }, semantics = null) {
+                text("fresh", semantics = null)
+            }
+            else -> text("empty", semantics = null)
+        }
+    }
+}
+
+private var effectfulRuns = 0
+
+@UiComponent
+private fun ComponentScope.SkipEffectfulChip() {
+    effectfulRuns++
+    launchEffect { }
+    host("span") { text("effectful", semantics = null) }
+}
+
+@UiComponent(skippable = false)
+private fun ComponentScope.SkipEffectfulHost() {
+    host("div") {
+        SkipEffectfulChip()
+    }
+}
+
+class SkippableEachCompositionTest {
     private fun Node.hostChildren(): List<HostNode> =
         (this as HostNode).children.filterIsInstance<HostNode>()
 
@@ -42,32 +147,18 @@ class SkippableEachCompositionTest {
     fun skippableInsideEachRowKeepsRowMemoized() {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
-        val items = listOf(Item(1, "one"), Item(2, "two"), Item(3, "three"))
-        var factoryRuns = 0
+        skipItems = listOf(SkipItem(1, "one"), SkipItem(2, "two"), SkipItem(3, "three"))
+        skipBadgeRuns = 0
 
-        fun ComponentScope.badge(item: Item): Node =
-            skippableNode("badge", listOf(item)) {
-                factoryRuns++
-                renderNode {
-                    host("span") { text(item.label, semantics = null) }
-                }
-            }
-
-        fun render(): Node = runtime.render(scope) {
-            column {
-                each(items, key = { it.id }) { item ->
-                    host("li", key = item.id) { emit(badge(item)) }
-                }
-            }
-        }.tree
+        fun render(): Node = runtime.render(scope) { SkipBadgeRows() }.tree
 
         val first = render().hostChildren()
         val second = render().hostChildren()
 
-        assertEquals(3, factoryRuns, "each row's factory runs once; skips must not re-run it")
+        assertEquals(3, skipBadgeRuns, "each row's badge body runs once; skips must not re-run it")
         assertEquals(3, second.size)
-        // Before the fix, a skippable hit marked the enclosing row capture unsafe and every
-        // row rebuilt each render; now the rows stay reference-equal (memoized).
+        // A skippable hit inside a row must not mark the enclosing row capture unsafe:
+        // the rows stay reference-equal (memoized).
         first.zip(second).forEach { (before, after) -> assertSame(before, after) }
     }
 
@@ -75,32 +166,20 @@ class SkippableEachCompositionTest {
     fun stateWritesElsewhereDoNotDefeatSkips() {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
-        var counterCell: MutableCell<Int>? = null
-        var factoryRuns = 0
+        chipRuns = 0
+        chipCounterCell = null
 
-        fun render(): Node = runtime.render(scope) {
-            val counter = state(key = "counter") { 0 }
-            counterCell = counter
-            host("div") {
-                text("count ${counter.value}", semantics = null)
-                emit(
-                    skippableNode("chip", listOf("const")) {
-                        factoryRuns++
-                        renderNode { host("span") { text("chip", semantics = null) } }
-                    },
-                )
-            }
-        }.tree
+        fun render(): Node = runtime.render(scope) { SkipChipHost() }.tree
 
         render()
-        assertEquals(1, factoryRuns)
+        assertEquals(1, chipRuns)
 
-        // The old global stateWriteVersion guard invalidated EVERY skippable cache on any
-        // state write; the chip reads no cells, so this write must not re-run its factory.
-        counterCell!!.value = 5
+        // The chip reads no cells, so a write to an unrelated cell must not re-run its body
+        // (the old global stateWriteVersion guard invalidated EVERY skippable cache).
+        chipCounterCell!!.value = 5
         val second = render()
 
-        assertEquals(1, factoryRuns, "unrelated state write must not defeat the skip")
+        assertEquals(1, chipRuns, "unrelated state write must not defeat the skip")
         assertEquals(listOf("count 5", "chip"), second.collectTexts())
     }
 
@@ -108,102 +187,60 @@ class SkippableEachCompositionTest {
     fun skippedComponentEventHandlerSurvivesCommits() {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
-        var clicks = 0
-        var tickCell: MutableCell<Int>? = null
+        clickerClicks = 0
+        clickerTickCell = null
 
-        fun render(): Node = runtime.render(scope) {
-            val tick = state(key = "tick") { 0 }
-            tickCell = tick
-            host("div") {
-                text("tick ${tick.value}", semantics = null)
-                emit(
-                    skippableNode("clicker", listOf("const")) {
-                        renderNode {
-                            button(onClick = event { clicks++ }, semantics = null) {
-                                text("hit me", semantics = null)
-                            }
-                        }
-                    },
-                )
-            }
-        }.tree
+        fun render(): Node = runtime.render(scope) { SkipClickerHost() }.tree
 
         render()
-        tickCell!!.value = 1
+        clickerTickCell!!.value = 1
         // This render SKIPS the clicker; without event re-touching, commit would evict the
         // handler and the dispatch below would be lost.
         val second = render()
 
         runtime.dispatch(second.findClickEventId(), Unit)
-        assertEquals(1, clicks, "handler inside a skipped component must survive the commit sweep")
+        assertEquals(1, clickerClicks, "handler inside a skipped component must survive the commit sweep")
 
-        tickCell!!.value = 2
+        clickerTickCell!!.value = 2
         val third = render()
         runtime.dispatch(third.findClickEventId(), Unit)
-        assertEquals(2, clicks)
+        assertEquals(2, clickerClicks)
     }
 
     @Test
-    fun siblingPositionalSlotsStayAlignedAcrossSkips() {
+    fun skippedComponentRebuildsAfterEventEvictionAndKeyReuse() {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
-        var siblingCell: MutableCell<String>? = null
+        skipMode = "cached"
+        skipModeClicks.clear()
+        cachedClickerRuns = 0
 
-        fun render(): Node = runtime.render(scope) {
-            host("div") {
-                emit(
-                    skippableNode("stateful", listOf("const")) {
-                        renderNode {
-                            // consumes a positional slot and an event key inside the factory
-                            val inner = state { "inner" }
-                            button(onClick = event { }, semantics = null) {
-                                text(inner.value, semantics = null)
-                            }
-                        }
-                    },
-                )
-                // positional (unkeyed) slot AFTER the skippable: its key depends on the slot
-                // cursor, which the skip must advance exactly as if the factory had run
-                val sibling = state { "initial" }
-                siblingCell = sibling
-                text(sibling.value, semantics = null)
-            }
-        }.tree
+        fun render(): Node = runtime.render(scope) { SkipModalHost() }.tree
 
         render()
-        siblingCell!!.value = "changed"
-        val second = render()
+        skipMode = "empty"
+        render()
+        skipMode = "fresh-event"
+        render()
+        skipMode = "cached"
+        val rebuilt = render()
 
-        assertEquals(
-            listOf("inner", "changed"),
-            second.collectTexts(),
-            "cursor misalignment would collide the sibling's positional slot with the skipped component's",
-        )
+        assertEquals(2, cachedClickerRuns)
+        runtime.dispatch(rebuilt.findClickEventId(), Unit)
+        assertEquals(listOf("cached"), skipModeClicks)
     }
 
     @Test
     fun effectfulSkippableIsNeverCached() {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
-        var factoryRuns = 0
+        effectfulRuns = 0
 
-        fun render(): Node = runtime.render(scope) {
-            host("div") {
-                emit(
-                    skippableNode("effectful", listOf("const")) {
-                        factoryRuns++
-                        renderNode {
-                            launchEffect { }
-                            host("span") { text("effectful", semantics = null) }
-                        }
-                    },
-                )
-            }
-        }.tree
+        fun render(): Node = runtime.render(scope) { SkipEffectfulHost() }.tree
 
         render()
         render()
 
-        assertEquals(2, factoryRuns, "a factory scheduling effects is replay-unsafe and must re-run every render")
+        assertEquals(2, effectfulRuns, "a body scheduling effects is replay-unsafe and must re-run every render")
     }
 }

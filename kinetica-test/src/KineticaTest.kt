@@ -1,6 +1,7 @@
 package io.heapy.kinetica.testing
 
 import io.heapy.kinetica.ComponentScope
+import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.HostNode
 import io.heapy.kinetica.JournalEntry
 import io.heapy.kinetica.KineticaJson
@@ -9,15 +10,16 @@ import io.heapy.kinetica.Node
 import io.heapy.kinetica.Role
 import io.heapy.kinetica.Semantics
 import io.heapy.kinetica.TextNode
+import io.heapy.kinetica.materialize
 import io.heapy.kinetica.toSafeHtml
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 public object KineticaTest {
-    public fun render(content: ComponentScope.() -> Unit): TestRoot =
+    public fun render(content: @UiComponent ComponentScope.() -> Unit): TestRoot =
         HeadlessTestRoot(content).also { it.render() }
 
-    public suspend fun renderSuspend(content: suspend ComponentScope.() -> Unit): SuspendTestRoot =
+    public suspend fun renderSuspend(content: @UiComponent (suspend ComponentScope.() -> Unit)): SuspendTestRoot =
         HeadlessSuspendTestRoot(content).also { it.render() }
 }
 
@@ -157,6 +159,7 @@ private fun traverseNodes(root: Node): Sequence<Node> = sequence {
         is HostNode -> root.children.forEach { yieldAll(traverseNodes(it)) }
         is TextNode -> Unit
         is io.heapy.kinetica.ClientRef -> Unit
+        is io.heapy.kinetica.TemplateNode -> yieldAll(traverseNodes(root.materialize()))
     }
 }
 

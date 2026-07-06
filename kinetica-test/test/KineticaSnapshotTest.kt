@@ -1,14 +1,24 @@
 package io.heapy.kinetica.testing
 
+import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.Role
 import io.heapy.kinetica.Semantics
 import io.heapy.kinetica.TextNode
+import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.button
 import io.heapy.kinetica.column
 import io.heapy.kinetica.event
 import io.heapy.kinetica.state
 import io.heapy.kinetica.text
 import io.heapy.kinetica.textInput
+import io.heapy.kinetica.testing.KineticaTest
+import io.heapy.kinetica.testing.assertHtmlSnapshot
+import io.heapy.kinetica.testing.assertTreeSnapshot
+import io.heapy.kinetica.testing.hasLabel
+import io.heapy.kinetica.testing.hasTestTag
+import io.heapy.kinetica.testing.hasText
+import io.heapy.kinetica.testing.toTreeSnapshot
+import io.heapy.kinetica.testing.treeSnapshot
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -42,9 +52,7 @@ class KineticaSnapshotTest {
     @Test
     fun htmlSnapshotsCanBeAssertedFromHeadlessRoots() {
         val root = KineticaTest.render {
-            button {
-                text("Save")
-            }
+            SaveButtonApp()
         }
 
         root.assertTreeSnapshot(root.treeSnapshot())
@@ -58,29 +66,7 @@ class KineticaSnapshotTest {
     @Test
     fun integrationTestsCanDriveFormInputAndSubmit() {
         val root = KineticaTest.render {
-            var draft by state(key = "draft") { "" }
-            var committed by state(key = "committed") { "none" }
-            val commit = event {
-                committed = draft.ifBlank { "empty" }
-                draft = ""
-            }
-
-            column {
-                textInput(
-                    value = draft,
-                    onInput = event<String> { draft = it },
-                    onSubmit = commit,
-                    placeholder = "Message",
-                    semantics = Semantics(role = Role.TextInput, testTag = "draft", focusable = true),
-                )
-                button(
-                    onClick = commit,
-                    semantics = Semantics(role = Role.Button, testTag = "commit", focusable = true),
-                ) {
-                    text("Commit")
-                }
-                text("Committed: $committed")
-            }
+            CommitMessageFormApp()
         }
 
         root.input(hasTestTag("draft"), "Hello")
@@ -122,5 +108,39 @@ class KineticaSnapshotTest {
         assertTrue("HTML snapshot mismatch." in failure.message.orEmpty())
         assertTrue("Expected" in failure.message.orEmpty())
         assertTrue("Actual" in failure.message.orEmpty())
+    }
+}
+
+@UiComponent
+private fun ComponentScope.SaveButtonApp() {
+    button {
+        text("Save")
+    }
+}
+
+@UiComponent
+private fun ComponentScope.CommitMessageFormApp() {
+    var draft by state { "" }
+    var committed by state { "none" }
+    val commit = event {
+        committed = draft.ifBlank { "empty" }
+        draft = ""
+    }
+
+    column {
+        textInput(
+            value = draft,
+            onInput = event<String> { draft = it },
+            onSubmit = commit,
+            placeholder = "Message",
+            semantics = Semantics(role = Role.TextInput, testTag = "draft", focusable = true),
+        )
+        button(
+            onClick = commit,
+            semantics = Semantics(role = Role.Button, testTag = "commit", focusable = true),
+        ) {
+            text("Commit")
+        }
+        text("Committed: $committed")
     }
 }

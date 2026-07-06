@@ -21,35 +21,7 @@ public fun ComponentScope.errorBoundary(
     fallback: ComponentScope.(Throwable, ErrorInfo, BoundaryRetry) -> Unit,
     content: ComponentScope.() -> Unit,
 ) {
-    // Boundary state (captured error, retry) lives outside the tracked cell graph, so a
-    // memoized each row containing a boundary could replay a stale fallback after retry().
-    markEachCapturesUnsafe()
-    val slotKey = nextSlotKey(null)
-    registerSlot(SlotMetadata(slotKey, slotId = null, persistent = false, transient = false))
-    val state = slot(slotKey) { ErrorBoundaryState(boundaryId = "boundary:$slotKey") }
-    val retry = BoundaryRetry {
-        state.clear()
-        runtime.invalidate("boundary retry")
-    }
-    val captured = state.error
-    if (captured != null) {
-        fallback(captured, ErrorInfo(boundaryId = state.boundaryId), retry)
-        return
-    }
-
-    try {
-        val node = withErrorBoundary(state) {
-            collect(content).toNode()
-        }
-        emit(node)
-    } catch (pending: ResourcePendingException) {
-        throw pending
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (error: Throwable) {
-        state.capture(runtime, error)
-        fallback(error, ErrorInfo(boundaryId = state.boundaryId), retry)
-    }
+    throw MissingKineticaPluginException("errorBoundary")
 }
 
 internal class ErrorBoundaryState(
@@ -78,34 +50,7 @@ public fun ComponentScope.loadingBoundary(
     fallback: ComponentScope.() -> Unit,
     content: ComponentScope.() -> Unit,
 ) {
-    val slotKey = nextSlotKey(null)
-    registerSlot(SlotMetadata(slotKey, slotId = null, persistent = false, transient = false))
-    val state = slot(slotKey) { LoadingBoundaryState() }
-    runtime.record(
-        JournalKind.RenderStarted,
-        "loadingBoundary",
-        mapOf("retainPrevious" to retainPrevious.toString()),
-    )
-    try {
-        val node = collect(content).toNode()
-        state.previous = node
-        emit(node)
-    } catch (pending: ResourcePendingException) {
-        runtime.record(
-            JournalKind.ResourceLoad,
-            "loading boundary pending",
-            mapOf(
-                "key" to pending.key,
-                "retainPrevious" to retainPrevious.toString(),
-                "retained" to (state.previous != null).toString(),
-            ),
-        )
-        if (retainPrevious && state.previous != null) {
-            emit(state.previous ?: FragmentNode())
-        } else {
-            fallback()
-        }
-    }
+    throw MissingKineticaPluginException("loadingBoundary")
 }
 
 private class LoadingBoundaryState {
@@ -117,32 +62,7 @@ public fun ComponentScope.suspendSubtree(
     fallback: ComponentScope.() -> Unit,
     content: suspend ComponentScope.() -> Unit,
 ) {
-    val slotKey = nextSlotKey(key)
-    registerSlot(SlotMetadata(slotKey, slotId = null, persistent = false, transient = true))
-    val state = slot(slotKey) {
-        SuspendSubtreeState(
-            key = slotKey,
-            scope = ComponentScope(runtime, instanceId = "$instanceId/suspend:$slotKey"),
-        )
-    }
-
-    val error = state.error
-    if (error != null) {
-        throw error
-    }
-
-    val node = state.node
-    if (node != null) {
-        emit(node)
-        return
-    }
-
-    if (!state.running) {
-        state.start(runtime, content)
-    }
-    val fallbackNode = collect(fallback).toNode()
-    state.previousFallback = fallbackNode
-    emit(fallbackNode)
+    throw MissingKineticaPluginException("suspendSubtree")
 }
 
 private class SuspendSubtreeState(
@@ -210,6 +130,165 @@ public fun ComponentScope.exitGroup(
     visible: Boolean,
     content: ComponentScope.() -> Unit,
 ) {
+    throw MissingKineticaPluginException("exitGroup")
+}
+
+/**
+ * Frame-native `errorBoundary`; called by compiler-generated code. Content and fallback
+ * render in fixed child frames, so cursor neutrality is structural: the branches cannot
+ * shift each other's — or any sibling's — slot identity.
+ */
+public fun ComponentScope.errorBoundaryRegion(
+    stateOrdinal: Int,
+    contentOrdinal: Int,
+    fallbackOrdinal: Int,
+    fallback: ComponentScope.(Throwable, ErrorInfo, BoundaryRetry) -> Unit,
+    content: ComponentScope.() -> Unit,
+) {
+    // Boundary state (captured error, retry) lives outside the tracked cell graph, so a
+    // memoized each row containing a boundary could replay a stale fallback after retry().
+    markEachCapturesUnsafe()
+    val state = frameSlot(stateOrdinal) { ErrorBoundaryState(boundaryId = nextFrameBoundaryId()) }
+    val retry = BoundaryRetry {
+        state.clear()
+        runtime.invalidate("boundary retry")
+    }
+    val captured = state.error
+    if (captured != null) {
+        enterFixedChildFrame(fallbackOrdinal)
+        try {
+            fallback(captured, ErrorInfo(boundaryId = state.boundaryId), retry)
+        } finally {
+            exitFrame()
+        }
+        return
+    }
+    try {
+        val node = withErrorBoundary(state) {
+            collect {
+                enterFixedChildFrame(contentOrdinal)
+                try {
+                    content()
+                } finally {
+                    exitFrame()
+                }
+            }.toNode()
+        }
+        emit(node)
+    } catch (pending: ResourcePendingException) {
+        throw pending
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Throwable) {
+        state.capture(runtime, error)
+        enterFixedChildFrame(fallbackOrdinal)
+        try {
+            fallback(error, ErrorInfo(boundaryId = state.boundaryId), retry)
+        } finally {
+            exitFrame()
+        }
+    }
+}
+
+/** Frame-native `loadingBoundary`; called by compiler-generated code. */
+public fun ComponentScope.loadingBoundaryRegion(
+    stateOrdinal: Int,
+    contentOrdinal: Int,
+    fallbackOrdinal: Int,
+    retainPrevious: Boolean = true,
+    fallback: ComponentScope.() -> Unit,
+    content: ComponentScope.() -> Unit,
+) {
+    markEachCapturesUnsafe()
+    val state = frameSlot(stateOrdinal) { LoadingBoundaryState() }
+    runtime.record(
+        JournalKind.RenderStarted,
+        "loadingBoundary",
+        mapOf("retainPrevious" to retainPrevious.toString()),
+    )
+    try {
+        val node = collect {
+            enterFixedChildFrame(contentOrdinal)
+            try {
+                content()
+            } finally {
+                exitFrame()
+            }
+        }.toNode()
+        state.previous = node
+        emit(node)
+    } catch (pending: ResourcePendingException) {
+        runtime.record(
+            JournalKind.ResourceLoad,
+            "loading boundary pending",
+            mapOf(
+                "key" to pending.key,
+                "retainPrevious" to retainPrevious.toString(),
+                "retained" to (state.previous != null).toString(),
+            ),
+        )
+        if (retainPrevious && state.previous != null) {
+            emit(state.previous ?: FragmentNode())
+        } else {
+            enterFixedChildFrame(fallbackOrdinal)
+            try {
+                fallback()
+            } finally {
+                exitFrame()
+            }
+        }
+    }
+}
+
+/** Frame-native `suspendSubtree`; called by compiler-generated code. */
+public fun ComponentScope.suspendSubtreeRegion(
+    stateOrdinal: Int,
+    fallbackOrdinal: Int,
+    fallback: ComponentScope.() -> Unit,
+    content: suspend ComponentScope.() -> Unit,
+) {
+    markEachCapturesUnsafe()
+    val state = frameSlot(stateOrdinal, transient = true) {
+        val subtreeKey = nextFrameBoundaryId()
+        SuspendSubtreeState(
+            key = subtreeKey,
+            scope = ComponentScope(runtime, instanceId = "$instanceId/suspend:$subtreeKey"),
+        )
+    }
+
+    val error = state.error
+    if (error != null) {
+        throw error
+    }
+
+    val node = state.node
+    if (node != null) {
+        emit(node)
+        return
+    }
+
+    if (!state.running) {
+        state.start(runtime, content)
+    }
+    val fallbackNode = collect {
+        enterFixedChildFrame(fallbackOrdinal)
+        try {
+            fallback()
+        } finally {
+            exitFrame()
+        }
+    }.toNode()
+    state.previousFallback = fallbackNode
+    emit(fallbackNode)
+}
+
+/** Frame-native `exitGroup`; called by compiler-generated code. */
+public fun ComponentScope.exitGroupRegion(
+    ordinal: Int,
+    key: Any,
+    visible: Boolean,
+    content: ComponentScope.() -> Unit,
+) {
     val state = exitGroupState(key.toString())
     if (visible) {
         state.cancelTasks()
@@ -217,7 +296,14 @@ public fun ComponentScope.exitGroup(
         state.phase = ExitPhase.Active
         state.pendingCallbacks = 0
         state.callbacks.clear()
-        val nodes = collectExitGroup(state, content)
+        val nodes = collectExitGroup(state) {
+            enterKeyedChildFrame(ordinal, key)
+            try {
+                content()
+            } finally {
+                exitFrame()
+            }
+        }
         state.retained = nodes.toNode()
         emit(state.retained ?: FragmentNode())
         return
@@ -330,6 +416,7 @@ public fun Node.asLeaving(): Node = when (this) {
     )
     is TextNode -> copy(semantics = semantics.copyLeaving())
     is ClientRef -> copy(semantics = semantics.copyLeaving())
+    is TemplateNode -> materialize().asLeaving()
 }
 
 private fun Semantics?.copyLeaving(): Semantics =
@@ -366,11 +453,10 @@ public class FrameValue internal constructor(
     }
 }
 
-public fun ComponentScope.frameValue(initial: Float): FrameValue =
-    nextSlotKey(null).let { slotKey ->
-        registerSlot(SlotMetadata(slotKey, slotId = null, persistent = false, transient = false))
-        slot(slotKey) { runtime.createFrameValue(initial) }
-    }
+public fun ComponentScope.frameValue(initial: Float, ordinal: Int = -1): FrameValue {
+    if (ordinal < 0) throw MissingKineticaPluginException("frameValue")
+    return frameSlot(ordinal) { runtime.createFrameValue(initial) }
+}
 
 private fun Float.frameValueEquals(other: Float): Boolean =
     this == other || (isNaN() && other.isNaN())

@@ -659,4 +659,13 @@ public fun <T> store(
     policy: EqualityPolicy<T> = EqualityPolicy.structural(),
 ): MutableCell<T> = MutableCellImpl(initial, policy)
 
+/**
+ * Scope-free derived cell for graph building outside render (stores, benchmarks,
+ * services). Inside components use `derived {}`, which persists the cell in a slot.
+ */
+public fun <T> derive(
+    policy: EqualityPolicy<T> = EqualityPolicy.structural(),
+    compute: () -> T,
+): Cell<T> = DerivedCell(policy, compute)
+
 public fun <T> peek(block: () -> T): T = ReadTracking.peek(block)

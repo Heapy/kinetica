@@ -24,3 +24,4 @@ build/
 /bench/results/dom-count-*.json
 /bench/results/profile-*/
 /docs/.docker-stage/
+.claude/

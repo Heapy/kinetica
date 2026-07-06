@@ -7,7 +7,7 @@ emulator. `kinetica-test` drives components the way a user would and asserts on 
 
 ```kotlin
 val root = KineticaTest.render {
-    var count by state(key = "count") { 0 }
+    var count by state { 0 }
     column {
         text("Count: $count")
         button(

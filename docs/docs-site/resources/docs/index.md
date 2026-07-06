@@ -11,8 +11,9 @@ single reactive cell primitive, explicit effects, and linear causality you can r
 journal — no fibers, no lanes, no concurrent rendering.
 
 ```kotlin
+@UiComponent
 fun ComponentScope.Counter() {
-    var count by state(key = "count") { 0 }
+    var count by state { 0 }
     val label by derived { "Clicked $count times" }
 
     column {

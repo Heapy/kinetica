@@ -64,12 +64,12 @@ public class KineticaRuntime(
         }
     }
 
-    public fun render(content: ComponentScope.() -> Unit): RenderResult {
+    public fun render(content: @UiComponent ComponentScope.() -> Unit): RenderResult {
         val scope = ComponentScope(this)
         return render(scope, content)
     }
 
-    public fun render(scope: ComponentScope, content: ComponentScope.() -> Unit): RenderResult {
+    public fun render(scope: ComponentScope, content: @UiComponent ComponentScope.() -> Unit): RenderResult {
         val cause = beginRender(scope)
         val renderDependencies = linkedSetOf<ObservableCell<*>>()
         ReadTracking.collect(
@@ -84,14 +84,14 @@ public class KineticaRuntime(
         return commitRender(scope, cause, renderDependencies)
     }
 
-    public suspend fun renderSuspend(content: suspend ComponentScope.() -> Unit): RenderResult {
+    public suspend fun renderSuspend(content: @UiComponent (suspend ComponentScope.() -> Unit)): RenderResult {
         val scope = ComponentScope(this)
         return renderSuspend(scope, content)
     }
 
     public suspend fun renderSuspend(
         scope: ComponentScope,
-        content: suspend ComponentScope.() -> Unit,
+        content: @UiComponent (suspend ComponentScope.() -> Unit),
     ): RenderResult {
         val cause = beginRender(scope)
         val renderDependencies = linkedSetOf<ObservableCell<*>>()

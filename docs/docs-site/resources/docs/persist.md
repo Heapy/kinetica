@@ -17,8 +17,9 @@ val DraftSlot = SlotId(
 var draft by state(slotId = DraftSlot, persistent = true) { "" }
 ```
 
-`SlotId` is the durable address of a piece of state. Hand-written code declares them; the
-[compiler plugin](/docs/compiler-plugin) generates them for `@UiComponent` functions.
+`SlotId` is the durable address of a piece of state. The [compiler
+plugin](/docs/compiler-plugin) generates one for every keyless `state(persistent = true)`
+call; declare one explicitly when you need an address that survives refactors verbatim.
 `persistent = true` marks the slot as durable metadata — **it does not write to disk by
 itself**; durability comes from the save/restore bridge below.
 

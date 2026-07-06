@@ -5,41 +5,45 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
- * R01 — `derived()` is not slot-memoized; it recomputes & reallocates every render.
- *
- * `state()` is slot-backed (`slot(slotKey){…}`), so the SAME cell instance is reused
- * across renders. `derived()` returns a bare `DerivedCell(policy, compute)`, so every
- * render mints a brand new instance whose version restarts at 0 and whose cache never
- * survives a render — memoization is dead.
- *
- * These tests assert the DESIRED behavior: the same derived cell is reused across
- * renders (identity), and its version is preserved rather than reset. They FAIL on the
- * current bare-allocation implementation.
+ * `derived {}` is slot-memoized: the SAME DerivedCell instance is reused across renders
+ * (its lazy cache and version counter survive instead of restarting at zero), while the
+ * compute closure is refreshed each render. Frame-era port: `derived` may only be called
+ * inside a `@UiComponent` function, so the probe body lives in a top-level component.
  */
+private val derivedMemoSource = store(1)
+private val derivedMemoCaptured = mutableListOf<Cell<Int>>()
+private val derivedMemoVersions = mutableListOf<Long>()
+
+@UiComponent(skippable = false)
+private fun ComponentScope.DerivedMemoProbe() {
+    val d = derived { derivedMemoSource.value * 2 }
+    // Force a read so the derived cell participates as a dependency.
+    d.value
+    derivedMemoCaptured += d
+    derivedMemoVersions += (d as ObservableCell<*>).version
+}
+
 class DerivedCellMemoizedAcrossRendersTest {
     @Test
     fun derivedCellInstanceIsMemoizedAcrossRenders() {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
-        val source = store(1)
+        derivedMemoSource.value = 1
+        derivedMemoCaptured.clear()
+        derivedMemoVersions.clear()
 
-        val captured = mutableListOf<Cell<Int>>()
-
-        fun renderOnce() {
-            runtime.render(scope) {
-                val d = derived { source.value * 2 }
-                // Force a read so the derived cell participates as a dependency.
-                d.value
-                captured += d
-            }
+        // A single render entry point: each render {} literal is its own region, so slot
+        // identity across renders requires rendering through the same content lambda.
+        fun render() {
+            runtime.render(scope) { DerivedMemoProbe() }
         }
 
-        renderOnce()
-        renderOnce()
+        render()
+        render()
 
         assertSame(
-            captured[0],
-            captured[1],
+            derivedMemoCaptured[0],
+            derivedMemoCaptured[1],
             "derived{} must be slot-memoized: the same DerivedCell instance should be " +
                 "reused across renders, but a new instance was allocated each render.",
         )
@@ -49,31 +53,27 @@ class DerivedCellMemoizedAcrossRendersTest {
     fun derivedCellVersionSurvivesAcrossRenders() {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
-        val source = store(1)
+        derivedMemoSource.value = 1
+        derivedMemoCaptured.clear()
+        derivedMemoVersions.clear()
 
-        val versions = mutableListOf<Long>()
-
-        fun renderOnce() {
-            runtime.render(scope) {
-                val d = derived { source.value * 2 }
-                d.value
-                versions += (d as ObservableCell<*>).version
-            }
+        fun render() {
+            runtime.render(scope) { DerivedMemoProbe() }
         }
 
         // First render establishes the derived cell at some version.
-        renderOnce()
+        render()
         // Bump the source so a properly-memoized derived cell advances its version.
-        source.value = 2
-        // Second render: a memoized cell would carry the advanced version forward;
-        // a freshly-allocated cell resets its version counter back to 0.
-        renderOnce()
+        derivedMemoSource.value = 2
+        // Second render: a memoized cell carries the advanced version forward; a
+        // freshly-allocated cell would reset its version counter back to 0.
+        render()
 
         assertTrue(
-            versions[1] > versions[0],
+            derivedMemoVersions[1] > derivedMemoVersions[0],
             "A memoized derived{} should carry its version across renders and advance it " +
                 "after a source write, but the version was reset (fresh allocation): " +
-                "render0=${versions[0]}, render1=${versions[1]}.",
+                "render0=${derivedMemoVersions[0]}, render1=${derivedMemoVersions[1]}.",
         )
     }
 }

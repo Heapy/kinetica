@@ -11,10 +11,11 @@ import io.heapy.kinetica.RetainPolicy
 import io.heapy.kinetica.Route
 import io.heapy.kinetica.RouteCodec
 import io.heapy.kinetica.Semantics
+import io.heapy.kinetica.SlotId
+import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.context
 import io.heapy.kinetica.disposeKeyScope
 import io.heapy.kinetica.host
-import io.heapy.kinetica.keyed
 import io.heapy.kinetica.layoutEffect
 import io.heapy.kinetica.lazyEach
 import io.heapy.kinetica.provide
@@ -89,12 +90,16 @@ public data class NavEntry(
 
 private val NavEntryContext = context<NavEntry?>(null, name = "NavEntry")
 
+/** Scope key of the enclosing nav entry; addresses persistence-scoped state per entry. */
+private val NavEntryScopeKeyContext = context<String?>(null, name = "NavEntryScopeKey")
+
+@UiComponent
 public fun <R : Route> ComponentScope.NavHost(
     backStack: BackStack<R>,
     options: NavOptions = NavOptions(),
     key: Any = "default",
     routeKey: (R) -> Any = { it },
-    content: ComponentScope.(R) -> Unit,
+    content: @UiComponent ComponentScope.(R) -> Unit,
 ) {
     val routes = backStack.value
     require(routes.isNotEmpty()) { "BackStack cannot be empty." }
@@ -102,60 +107,69 @@ public fun <R : Route> ComponentScope.NavHost(
     val hostKey = key.toNavKeySegment()
     val routeKeys = routes.map { route -> routeKey(route).toNavKeySegment() }
     val entryKeys = routeKeys.toEntryKeys(prefix = "route")
-    val previousStackKeys = state(key = "navHost:$hostKey:stack") { mutableListOf<String>() }
-    val retainedScopeKeys = state(key = "navHost:$hostKey:retained") { mutableSetOf<String>() }
-    val direction = detectNavDirection(previousStackKeys.value, routeKeys)
-    val firstRenderedIndex = (routes.lastIndex - options.retainPreviousEntries).coerceAtLeast(0)
-    val renderedIndices = firstRenderedIndex..routes.lastIndex
-    val activeScopeKeys = renderedIndices.map { index -> navEntryScopeKey(hostKey, entryKeys[index]) }.toSet()
-    val previouslyRetainedScopeKeys = retainedScopeKeys.value.toSet()
+    // The host-keyed frame keeps two NavHost instances with different keys from ever
+    // aliasing state, matching the old "navHost:<hostKey>:…" string-keyed slots.
+    keyed("navHost:$hostKey") {
+        val previousStackKeys = state { mutableListOf<String>() }
+        val retainedScopeKeys = state { mutableSetOf<String>() }
+        val direction = detectNavDirection(previousStackKeys.value, routeKeys)
+        val firstRenderedIndex = (routes.lastIndex - options.retainPreviousEntries).coerceAtLeast(0)
+        val renderedIndices = firstRenderedIndex..routes.lastIndex
+        val activeScopeKeys = renderedIndices.map { index -> navEntryScopeKey(hostKey, entryKeys[index]) }.toSet()
+        val previouslyRetainedScopeKeys = retainedScopeKeys.value.toSet()
 
-    previouslyRetainedScopeKeys
-        .filterNot(activeScopeKeys::contains)
-        .forEach { scopeKey -> disposeKeyScope(scopeKey, keepPersistentSlots = options.restoreScroll) }
+        previouslyRetainedScopeKeys
+            .filterNot(activeScopeKeys::contains)
+            .forEach { scopeKey -> disposeKeyScope(scopeKey, keepPersistentSlots = options.restoreScroll) }
 
-    layoutEffect {
-        retainedScopeKeys.value.clear()
-        retainedScopeKeys.value.addAll(activeScopeKeys)
-        previousStackKeys.value.clear()
-        previousStackKeys.value.addAll(routeKeys)
-    }
+        layoutEffect {
+            retainedScopeKeys.value.clear()
+            retainedScopeKeys.value.addAll(activeScopeKeys)
+            previousStackKeys.value.clear()
+            previousStackKeys.value.addAll(routeKeys)
+        }
 
-    host(
-        tag = "navHost",
-        props = mapOf(
-            "retainPreviousEntries" to options.retainPreviousEntries.toString(),
-            "restoreScroll" to options.restoreScroll.toString(),
-            "direction" to direction.name,
-            "transition" to options.transition.kind.name,
-            "transitionDurationMillis" to options.transition.durationMillis.toString(),
-        ),
-        semantics = Semantics(testTag = "nav-host"),
-        key = hostKey,
-    ) {
-        renderedIndices.forEach { index ->
-            val entryKey = entryKeys[index]
-            val scopeKey = navEntryScopeKey(hostKey, entryKey)
-            val isCurrent = index == routes.lastIndex
-            val entry = NavEntry(
-                key = entryKey,
-                routeKey = routeKeys[index],
-                stackIndex = index,
-                isCurrent = isCurrent,
-                isRetained = !isCurrent,
-                direction = direction,
-                transition = options.transition,
-                restoreScroll = options.restoreScroll,
-            )
-            keyed(scopeKey) {
-                provide(NavEntryContext, entry) {
-                    host(
-                        tag = "navEntry",
-                        props = entry.props(),
-                        semantics = Semantics(testTag = "nav-entry:$entryKey"),
-                        key = entryKey,
-                    ) {
-                        content(routes[index])
+        host(
+            tag = "navHost",
+            props = mapOf(
+                "retainPreviousEntries" to options.retainPreviousEntries.toString(),
+                "restoreScroll" to options.restoreScroll.toString(),
+                "direction" to direction.name,
+                "transition" to options.transition.kind.name,
+                "transitionDurationMillis" to options.transition.durationMillis.toString(),
+            ),
+            semantics = Semantics(testTag = "nav-host"),
+            key = hostKey,
+        ) {
+            // A plain for loop (not forEach) keeps the keyed() calls on the compiler's
+            // ordinal-assignment path; iterations are disambiguated by the scope key.
+            for (index in renderedIndices) {
+                val entryKey = entryKeys[index]
+                val scopeKey = navEntryScopeKey(hostKey, entryKey)
+                val isCurrent = index == routes.lastIndex
+                val entry = NavEntry(
+                    key = entryKey,
+                    routeKey = routeKeys[index],
+                    stackIndex = index,
+                    isCurrent = isCurrent,
+                    isRetained = !isCurrent,
+                    direction = direction,
+                    transition = options.transition,
+                    restoreScroll = options.restoreScroll,
+                )
+                val route = routes[index]
+                keyed(scopeKey) {
+                    provide(NavEntryContext, entry) {
+                        provide(NavEntryScopeKeyContext, scopeKey) {
+                            host(
+                                tag = "navEntry",
+                                props = entry.props(),
+                                semantics = Semantics(testTag = "nav-entry:$entryKey"),
+                                key = entryKey,
+                            ) {
+                                content(route)
+                            }
+                        }
                     }
                 }
             }
@@ -166,26 +180,40 @@ public fun <R : Route> ComponentScope.NavHost(
 public fun ComponentScope.currentNavEntry(): NavEntry? =
     read(NavEntryContext)
 
+@UiComponent
 public fun ComponentScope.rememberNavScrollState(
     key: String = "default",
     initial: LazyListState = LazyListState(),
 ): MutableCell<LazyListState> {
     val entry = currentNavEntry()
-    return state(
-        key = "nav-scroll:${key.toNavKeySegment()}",
-        persistent = entry?.restoreScroll == true,
-    ) {
-        initial
+    val entryScopeKey = read(NavEntryScopeKeyContext)
+    val persistent = entry?.restoreScroll == true
+    val slotKey = "nav-scroll:${key.toNavKeySegment()}"
+    // Persistence-addressed identity: survives disposeKeyScope(scopeKey, keepPersistentSlots =
+    // true) because the SlotId registry retains the last cell value, which reseeds the slot
+    // when the entry renders again.
+    val slotId = SlotId(
+        moduleId = "kinetica-router",
+        functionFqName = "io.heapy.kinetica.router.rememberNavScrollState",
+        declarationOrdinal = 0,
+        disambiguator = "${entryScopeKey ?: "no-entry"}:$slotKey",
+    )
+    var cell: MutableCell<LazyListState>? = null
+    keyed(slotKey) {
+        val restored = if (persistent) readSlot<LazyListState>(slotId) else null
+        cell = state(slotId = slotId, persistent = persistent) { restored ?: initial }
     }
+    return checkNotNull(cell) { "rememberNavScrollState: keyed content did not run." }
 }
 
+@UiComponent
 public fun <T> ComponentScope.navLazyEach(
     items: LazyItems<T>,
     key: (T) -> Any,
     scrollKey: String = "default",
     retain: RetainPolicy = RetainPolicy.Keyed,
     initialScroll: LazyListState = LazyListState(),
-    content: ComponentScope.(T) -> Unit,
+    content: @UiComponent ComponentScope.(T) -> Unit,
 ) {
     val scrollState = rememberNavScrollState(scrollKey, initialScroll)
     lazyEach(
@@ -193,8 +221,9 @@ public fun <T> ComponentScope.navLazyEach(
         key = key,
         retain = retain,
         state = scrollState.value,
-        content = content,
-    )
+    ) { item ->
+        content(item)
+    }
 }
 
 public class StringRouteCodec<R : Route>(

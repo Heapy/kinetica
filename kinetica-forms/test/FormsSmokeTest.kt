@@ -7,7 +7,9 @@ import io.heapy.kinetica.KineticaRuntime
 import io.heapy.kinetica.Node
 import io.heapy.kinetica.Role
 import io.heapy.kinetica.Semantics
+import io.heapy.kinetica.TemplateNode
 import io.heapy.kinetica.TextNode
+import io.heapy.kinetica.materialize
 import io.heapy.kinetica.text
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -85,7 +87,7 @@ class FormsSmokeTest {
         val model = DraftModel()
 
         fun renderField(): Node = runtime.render(scope) {
-            form = formState(key = "delegate-form")
+            form = formState()
             draftField = field(
                 form = form,
                 name = "draft",
@@ -130,7 +132,7 @@ class FormsSmokeTest {
         var observedSubmitting = false
 
         runtime.render(scope) {
-            form = formState(key = "strict-form")
+            form = formState()
             title = field(
                 form = form,
                 name = "title",
@@ -216,6 +218,7 @@ private fun Node.findHostByTag(tag: String): HostNode = when (this) {
     is FragmentNode -> children.firstNotNullOf { it.findHostByTagOrNull(tag) }
     is TextNode -> error("No host node with tag $tag")
     is ClientRef -> error("No host node with tag $tag")
+    is TemplateNode -> materialize().findHostByTag(tag)
 }
 
 private fun Node.findHostByTagOrNull(tag: String): HostNode? = when (this) {
@@ -223,4 +226,5 @@ private fun Node.findHostByTagOrNull(tag: String): HostNode? = when (this) {
     is FragmentNode -> children.firstNotNullOfOrNull { it.findHostByTagOrNull(tag) }
     is TextNode -> null
     is ClientRef -> null
+    is TemplateNode -> materialize().findHostByTagOrNull(tag)
 }

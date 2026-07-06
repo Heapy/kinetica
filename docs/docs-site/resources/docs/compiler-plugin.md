@@ -56,15 +56,27 @@ codecs. Declared responsibilities: slot-id generation, `@UiComponent` desugaring
 static hoisting, the server/client boundary, server-action stubs, diagnostics, hot-reload
 protocol, preview entries.
 
-## Current status — read before relying on it
+## The plugin is mandatory
 
-The plugin infrastructure is real and wired (the `samples/annotated` module compiles through
-it, and slot-id injection for `state { }` without keys is what that sample relies on). However,
-the annotation-driven **generation output is early-stage**: the sample's checked-in tests
-currently assert empty transform/preview/action lists. Treat the annotations and module wiring
-as the stable contract, and populated codegen (previews, server-action dispatchers, manifests)
-as in-progress — hand-written equivalents, as shown in
-[Server components](/docs/server-components), are the supported path today.
+Kinetica does not have a plugin-less mode. The IR pass (which runs on every backend — JVM,
+JS, wasm, native) assigns each slot- and event-consuming call site a static ordinal inside a
+per-component *frame*, wraps content lambdas into frame regions, and stages child ordinals
+for component calls. State identity is decided at compile time: there are no string keys, no
+positional cursors, and the collision bug class (two branches landing on one slot) is
+impossible by construction. A call site the plugin never rewrote fails fast at runtime with
+`MissingKineticaPluginException`.
 
-Without the plugin, everything works with explicit keys: `state(key = "…")`, `each(key = { … })`,
-hand-declared `SlotId`s for [persistence](/docs/persist), and hand-written manifests.
+Consequences for authoring:
+
+- every function that calls `state`/`derived`/effects/events/boundaries must be a
+  `@UiComponent fun ComponentScope.X(...)`;
+- slot calls directly inside loops or multi-run lambdas (`List(n) { … }`, `repeat`, `map`)
+  are not supported — use `each(items, key = { … })` or `keyed(key) { … }`, which
+  disambiguate iterations by user key;
+- `render { }` content should call components; the lambda itself is wrapped into a frame
+  region by the plugin (its parameter type carries `@UiComponent`).
+
+The annotation-driven **generation output** (previews, server-action dispatchers, manifests)
+remains early-stage and JVM-only via the `sourcePipeline: psi` option; hand-written
+equivalents, as shown in [Server components](/docs/server-components), are the supported path
+for those features today.

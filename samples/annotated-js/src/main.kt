@@ -7,6 +7,7 @@ import io.heapy.kinetica.HostNode
 import io.heapy.kinetica.FragmentNode
 import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.host
+import io.heapy.kinetica.materialize
 import io.heapy.kinetica.propsOf
 import io.heapy.kinetica.state
 import io.heapy.kinetica.text
@@ -26,6 +27,10 @@ fun ComponentScope.ItemBadge(item: Item) {
     }
 }
 
+// Must itself be a @UiComponent: the frame model stages child ordinals only inside
+// component bodies (and component-typed content lambdas), so a plain helper calling
+// ItemBadge would throw MissingKineticaPluginException at runtime.
+@UiComponent
 fun ComponentScope.App(item: Item, tick: Int) {
     host("div") {
         text("tick $tick", semantics = null)
@@ -51,6 +56,9 @@ private fun findHost(node: io.heapy.kinetica.Node, tag: String): io.heapy.kineti
     }
     if (node is io.heapy.kinetica.FragmentNode) {
         node.children.forEach { child -> findHost(child, tag)?.let { return it } }
+    }
+    if (node is io.heapy.kinetica.TemplateNode) {
+        return findHost(node.materialize(), tag)
     }
     return null
 }

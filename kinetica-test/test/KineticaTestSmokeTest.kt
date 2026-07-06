@@ -2,10 +2,12 @@ package io.heapy.kinetica.testing
 
 import io.heapy.kinetica.launchEffect
 import io.heapy.kinetica.ClientRef
+import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.JournalKind
 import io.heapy.kinetica.ResourceKey
 import io.heapy.kinetica.Role
 import io.heapy.kinetica.Semantics
+import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.button
 import io.heapy.kinetica.checkbox
 import io.heapy.kinetica.column
@@ -16,6 +18,10 @@ import io.heapy.kinetica.state
 import io.heapy.kinetica.store
 import io.heapy.kinetica.text
 import io.heapy.kinetica.textInput
+import io.heapy.kinetica.testing.KineticaTest
+import io.heapy.kinetica.testing.hasRole
+import io.heapy.kinetica.testing.hasTestTag
+import io.heapy.kinetica.testing.hasText
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -32,13 +38,7 @@ class KineticaTestSmokeTest {
     fun headlessRootCanRenderSuspendContentAndDispatchEvents() = runTest {
         val root = KineticaTest.renderSuspend {
             delay(10)
-            var status by state(key = "status") { "ready" }
-            button(
-                onClick = event { status = "clicked" },
-                semantics = Semantics(role = Role.Button, testTag = "status"),
-            ) {
-                text(status)
-            }
+            StatusButtonApp()
         }
 
         assertEquals("ready", root.node(hasText("ready")).node.let { (it as io.heapy.kinetica.TextNode).value })
@@ -53,28 +53,7 @@ class KineticaTestSmokeTest {
     @Test
     fun suspendRootSupportsInputSubmitAndComposedMatchers() = runTest {
         val root = KineticaTest.renderSuspend {
-            var draft by state(key = "draft") { "" }
-            var committed by state(key = "committed") { "none" }
-            val commit = event {
-                committed = draft.ifBlank { "empty" }
-                draft = ""
-            }
-
-            column {
-                textInput(
-                    value = draft,
-                    onInput = event<String> { draft = it },
-                    onSubmit = commit,
-                    semantics = Semantics(role = Role.TextInput, testTag = "draft", focusable = true),
-                )
-                button(
-                    onClick = commit,
-                    semantics = Semantics(role = Role.Button, testTag = "commit", focusable = true),
-                ) {
-                    text("Commit")
-                }
-                text("Committed: $committed")
-            }
+            CommitFormApp()
         }
 
         root.input(hasRole(Role.TextInput) and hasTestTag("draft"), "Hello")
@@ -95,16 +74,7 @@ class KineticaTestSmokeTest {
     @Test
     fun headlessRootCanQueryAndDispatchBySemantics() {
         val root = KineticaTest.render {
-            var count by state(key = "count") { 0 }
-            column {
-                text("Count: $count")
-                button(
-                    onClick = event { count += 1 },
-                    semantics = Semantics(role = Role.Button, testTag = "increment"),
-                ) {
-                    text("Increment")
-                }
-            }
+            CounterApp()
         }
 
         root.click(hasTestTag("increment"))
@@ -132,16 +102,9 @@ class KineticaTestSmokeTest {
 
     @Test
     fun headlessRootDispatchRendersOnlyOncePerHandledEvent() {
-        var renderCount = 0
+        renderCount = 0
         val root = KineticaTest.render {
-            renderCount += 1
-            var count by state(key = "count") { 0 }
-            button(
-                onClick = event { count += 1 },
-                semantics = Semantics(role = Role.Button, testTag = "increment"),
-            ) {
-                text("Count: $count")
-            }
+            RenderCountingApp()
         }
 
         assertEquals(1, renderCount)
@@ -155,15 +118,7 @@ class KineticaTestSmokeTest {
     @Test
     fun headlessNodeClickDispatchesToggleAndIgnoresTextNodes() {
         val root = KineticaTest.render {
-            var checked by state(key = "checked") { false }
-            column {
-                checkbox(
-                    checked = checked,
-                    onToggle = event { checked = !checked },
-                    semantics = Semantics(role = Role.Checkbox, testTag = "accept"),
-                )
-                text("Accepted: $checked")
-            }
+            AcceptCheckboxApp()
         }
 
         root.node(hasText("Accepted: false")).click()
@@ -191,11 +146,7 @@ class KineticaTestSmokeTest {
     @Test
     fun suspendRootAwaitIdleAndVirtualTimeMirrorHeadlessRootBehavior() = runTest {
         val root = KineticaTest.renderSuspend {
-            var status by state(key = "suspend-status") { "loading" }
-            launchEffect {
-                status = "ready"
-            }
-            text(status)
+            LoadingToReadyApp()
         }
 
         withContext(Dispatchers.Default) {
@@ -218,19 +169,14 @@ class KineticaTestSmokeTest {
 
     @Test
     fun headlessRootDisposeCancelsEffects() = runTest {
-        val started = CompletableDeferred<Unit>()
-        val disposed = CompletableDeferred<Unit>()
+        val probe = EffectSignalsProbe()
         val root = KineticaTest.render {
-            launchEffect {
-                started.complete(Unit)
-                awaitDispose { disposed.complete(Unit) }
-            }
-            text("Running")
+            DisposeSignalsApp(probe)
         }
 
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
-                started.await()
+                probe.started.await()
             }
         }
 
@@ -238,20 +184,20 @@ class KineticaTestSmokeTest {
 
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
-                disposed.await()
+                probe.disposed.await()
             }
         }
     }
 
     @Test
     fun headlessRootDisposeStopsSharedStoreInvalidationsFromRevivingRoot() = runTest {
-        val shared = store("before")
+        val probe = SharedStoreProbe()
         val root = KineticaTest.render {
-            text("Shared: ${shared.value}")
+            SharedStoreApp(probe)
         }
 
         root.dispose()
-        shared.value = "after"
+        probe.store.value = "after"
 
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
@@ -266,13 +212,13 @@ class KineticaTestSmokeTest {
 
     @Test
     fun suspendRootDisposeStopsSharedStoreInvalidationsFromRevivingRoot() = runTest {
-        val shared = store("before")
+        val probe = SharedStoreProbe()
         val root = KineticaTest.renderSuspend {
-            text("Shared: ${shared.value}")
+            SharedStoreApp(probe)
         }
 
         root.dispose()
-        shared.value = "after"
+        probe.store.value = "after"
 
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
@@ -288,11 +234,7 @@ class KineticaTestSmokeTest {
     @Test
     fun headlessRootAwaitIdleCommitsFiniteEffectInvalidations() = runTest {
         val root = KineticaTest.render {
-            var status by state(key = "status") { "loading" }
-            launchEffect {
-                status = "ready"
-            }
-            text(status)
+            LoadingToReadyApp()
         }
 
         withContext(Dispatchers.Default) {
@@ -307,13 +249,9 @@ class KineticaTestSmokeTest {
 
     @Test
     fun headlessRootAwaitIdleDoesNotBlockOnLongLivedDisposeEffects() = runTest {
-        val started = CompletableDeferred<Unit>()
+        val probe = EffectSignalsProbe()
         val root = KineticaTest.render {
-            launchEffect {
-                started.complete(Unit)
-                awaitDispose()
-            }
-            text("Running")
+            LongLivedEffectApp(probe)
         }
 
         withContext(Dispatchers.Default) {
@@ -322,20 +260,14 @@ class KineticaTestSmokeTest {
             }
         }
 
-        assertTrue(started.isCompleted)
+        assertTrue(probe.started.isCompleted)
         root.dispose()
     }
 
     @Test
     fun headlessRootAwaitIdleCommitsResourceResumes() = runTest {
-        val key = TestResourceKey("await-idle-resource")
         val root = KineticaTest.render {
-            loadingBoundary(
-                fallback = { text("Loading") },
-            ) {
-                val value = resource(key) { "Loaded" }.read()
-                text(value)
-            }
+            AwaitIdleResourceApp()
         }
 
         assertEquals("Loading", root.node(hasText("Loading")).node.let { (it as io.heapy.kinetica.TextNode).value })
@@ -351,3 +283,135 @@ class KineticaTestSmokeTest {
 }
 
 private data class TestResourceKey(val id: String) : ResourceKey
+
+private var renderCount = 0
+
+// The barebones Node runner does not await runTest promises, so async tests of this file
+// run interleaved. Effect gates and the shared store are per-test probes passed as
+// component parameters — never shared top-level vars.
+private class EffectSignalsProbe {
+    val started = CompletableDeferred<Unit>()
+    val disposed = CompletableDeferred<Unit>()
+}
+
+private class SharedStoreProbe {
+    val store = store("before")
+}
+
+@UiComponent
+private fun ComponentScope.StatusButtonApp() {
+    var status by state { "ready" }
+    button(
+        onClick = event { status = "clicked" },
+        semantics = Semantics(role = Role.Button, testTag = "status"),
+    ) {
+        text(status)
+    }
+}
+
+@UiComponent
+private fun ComponentScope.CommitFormApp() {
+    var draft by state { "" }
+    var committed by state { "none" }
+    val commit = event {
+        committed = draft.ifBlank { "empty" }
+        draft = ""
+    }
+
+    column {
+        textInput(
+            value = draft,
+            onInput = event<String> { draft = it },
+            onSubmit = commit,
+            semantics = Semantics(role = Role.TextInput, testTag = "draft", focusable = true),
+        )
+        button(
+            onClick = commit,
+            semantics = Semantics(role = Role.Button, testTag = "commit", focusable = true),
+        ) {
+            text("Commit")
+        }
+        text("Committed: $committed")
+    }
+}
+
+@UiComponent
+private fun ComponentScope.CounterApp() {
+    var count by state { 0 }
+    column {
+        text("Count: $count")
+        button(
+            onClick = event { count += 1 },
+            semantics = Semantics(role = Role.Button, testTag = "increment"),
+        ) {
+            text("Increment")
+        }
+    }
+}
+
+@UiComponent
+private fun ComponentScope.RenderCountingApp() {
+    renderCount += 1
+    var count by state { 0 }
+    button(
+        onClick = event { count += 1 },
+        semantics = Semantics(role = Role.Button, testTag = "increment"),
+    ) {
+        text("Count: $count")
+    }
+}
+
+@UiComponent
+private fun ComponentScope.AcceptCheckboxApp() {
+    var checked by state { false }
+    column {
+        checkbox(
+            checked = checked,
+            onToggle = event { checked = !checked },
+            semantics = Semantics(role = Role.Checkbox, testTag = "accept"),
+        )
+        text("Accepted: $checked")
+    }
+}
+
+@UiComponent
+private fun ComponentScope.LoadingToReadyApp() {
+    var status by state { "loading" }
+    launchEffect {
+        status = "ready"
+    }
+    text(status)
+}
+
+@UiComponent(skippable = false)
+private fun ComponentScope.DisposeSignalsApp(probe: EffectSignalsProbe) {
+    launchEffect {
+        probe.started.complete(Unit)
+        awaitDispose { probe.disposed.complete(Unit) }
+    }
+    text("Running")
+}
+
+@UiComponent(skippable = false)
+private fun ComponentScope.LongLivedEffectApp(probe: EffectSignalsProbe) {
+    launchEffect {
+        probe.started.complete(Unit)
+        awaitDispose()
+    }
+    text("Running")
+}
+
+@UiComponent(skippable = false)
+private fun ComponentScope.SharedStoreApp(probe: SharedStoreProbe) {
+    text("Shared: ${probe.store.value}")
+}
+
+@UiComponent
+private fun ComponentScope.AwaitIdleResourceApp() {
+    loadingBoundary(
+        fallback = { text("Loading") },
+    ) {
+        val value = resource(TestResourceKey("await-idle-resource")) { "Loaded" }.read()
+        text(value)
+    }
+}

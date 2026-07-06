@@ -7,8 +7,9 @@ patches by diffing values. One UI loop, synchronous atomic commits, explicit eff
 causality.
 
 ```kotlin
+@UiComponent
 fun ComponentScope.Counter() {
-    var count by state(key = "count") { 0 }
+    var count by state { 0 }
     column {
         text("Clicked $count times")
         button(onClick = event { count += 1 }) { text("Increment") }
@@ -17,6 +18,11 @@ fun ComponentScope.Counter() {
 
 fun main() = mountKineticaApp("#app") { Counter() }
 ```
+
+Kinetica is **compiler-plugin-only**: the K2 plugin assigns every `state`/`derived`/effect
+call site a static slot ordinal in a per-component frame, so state identity is decided at
+compile time — no keys to pass, no positional-collision bug class, and the render hot path
+reads slots by array index.
 
 ## Documentation
 
@@ -41,13 +47,12 @@ See [`docs/README.md`](docs/README.md).
 | `kinetica-browser` | retained-mode DOM renderer (keyed LIS diffing, event delegation) |
 | `kinetica-router` / `-forms` / `-motion` / `-data` / `-persist` / `-theme` / `-markdown` | first-party batteries |
 | `kinetica-test` | headless component test harness |
-| `kinetica-compiler` | K2 compiler plugin (`@UiComponent`, slot ids, server/client boundary) |
+| `kinetica-compiler` | K2 compiler plugin — mandatory: frame/slot ordinals, skip transform, FIR authoring rules, server/client boundary |
 | `samples/` | browser apps, server-components demo, annotated (compiler-plugin) sample |
 | `docs/` | the documentation site + Docker packaging |
 | `bench/` | js-framework-benchmark harness vs React/Preact/Vue/Svelte/vanilla — 13 keyed-table ops, GC accounting, scaling curves, sustained updates, deep-tree suite, memory/leak probes ([guide](bench/README.md)) |
 | `bench-jvm/` | JVM microbenchmarks: reactive core, render pipeline, markdown SSR (`./kotlin run -m bench-jvm`) |
-| `deep-research-report.md` | the design specification |
-| `perf-rewrite-design.md` | renderer performance analysis & rewrite plan (P0–P3 benchmark packaging done — latest 13-op geomean 1.35×; create-10k ahead of React, 10k partial ops are the next target) |
+| `perf-rewrite-design.md` | renderer performance analysis & open perf items (P0–P4 done — latest 13-op geomean **0.97× vs React**; swap, replace and create-10k ahead of React, remove/update on 10k rows are the next target) |
 
 ## Building
 
@@ -55,10 +60,15 @@ Requires the Kotlin Toolchain CLI (`sdk install kotlintoolchain`); everything el
 provisioned by the `./kotlin` wrapper.
 
 ```sh
+./kotlin publish mavenLocal -m kinetica-compiler    # first: every module compiles with the plugin
 ./kotlin test -m kinetica-runtime --platform jvm    # module tests
 ./kotlin build -m browser-todo                      # a JS sample
 node scripts/verify-browser.mjs                     # Playwright verification (server on :4173)
 ```
+
+When working on `kinetica-compiler`: republishing the **same version** to the toolchain-local
+repo does not invalidate consumers' compilation caches — after `publish mavenLocal`, touch a
+source file in the module you are rebuilding (or bump the plugin version).
 
 CI runs JVM tests for all modules, builds the JS targets, and drives the browser + docs
 verification suites (`.github/workflows/ci.yml`). Pushes to `main` publish the docs image to

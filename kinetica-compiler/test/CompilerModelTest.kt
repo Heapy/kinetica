@@ -10,7 +10,7 @@ class CompilerModelTest {
     @Test
     fun compilerContractListsResponsibilitiesAndDescriptorDefaults() {
         assertEquals("io.heapy.kinetica.compiler", KineticaCompilerContract.pluginId)
-        assertEquals("0.2.0", KineticaCompilerContract.pluginVersion)
+        assertEquals("0.3.0", KineticaCompilerContract.pluginVersion)
         assertEquals("moduleId", KineticaCompilerContract.optionModuleId)
         assertEquals("serverSourceSet", KineticaCompilerContract.optionServerSourceSet)
         assertEquals("clientSourceSet", KineticaCompilerContract.optionClientSourceSet)
@@ -743,7 +743,7 @@ class CompilerModelTest {
 
         val transforms = generated.getValue("generated/io/heapy/kinetica/generated/KineticaComponentTransforms.kt").text
         assertTrue("public const val KineticaGeneratedCompilerPluginId: String = \"io.heapy.kinetica.compiler\"" in transforms)
-        assertTrue("public const val KineticaGeneratedCompilerPluginVersion: String = \"0.2.0\"" in transforms)
+        assertTrue("public const val KineticaGeneratedCompilerPluginVersion: String = \"0.3.0\"" in transforms)
         assertTrue("public val KineticaGeneratedComponentTransforms: List<ComponentTransformRegistration>" in transforms)
         assertTrue("componentFqName = \"app.ShopScreen\"" in transforms)
         assertTrue("name = \"title\"" in transforms)
