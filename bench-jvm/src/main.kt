@@ -6,7 +6,7 @@ import io.heapy.kinetica.KineticaRuntime
 import io.heapy.kinetica.MutableCell
 import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.button
-import io.heapy.kinetica.derived
+import io.heapy.kinetica.derive
 import io.heapy.kinetica.each
 import io.heapy.kinetica.event
 import io.heapy.kinetica.host
@@ -165,16 +165,15 @@ fun main(args: Array<String>) {
             label = "write + recompute through 10,000-wide derived fan",
             batch = 5,
             setup = {
-                val runtime = KineticaRuntime(debug = false)
-                val scope = ComponentScope(runtime)
+                // Pure cell-graph benchmark: built with the scope-free derive {} factory
+                // (slot-backed derived {} is component-only under the frame model), and
+                // primed with a read so the op measures steady-state write + recompute.
                 fanoutSource = store(0)
-                runtime.render(scope) {
-                    val mids = List(10_000) { index ->
-                        derived { fanoutSource.value + index }
-                    }
-                    fanoutJoin = derived { mids.sumOf { it.value } }
-                    fanoutJoin.value
+                val mids = List(10_000) { index ->
+                    derive { fanoutSource.value + index }
                 }
+                fanoutJoin = derive { mids.sumOf { it.value } }
+                Blackhole.sink = fanoutJoin.value
                 fanoutSource.value = 1
                 val expected = 10_000 + (0 until 10_000).sum()
                 check(fanoutJoin.value == expected) { "fanout sanity: expected $expected, got ${fanoutJoin.value}" }
@@ -194,16 +193,12 @@ fun main(args: Array<String>) {
             setup = {
                 // reuses the graph built by derived_fanout_10k's setup ordering: rebuilt
                 // here so the benchmark stands alone under --filter
-                val runtime = KineticaRuntime(debug = false)
-                val scope = ComponentScope(runtime)
                 fanoutSource = store(0)
-                runtime.render(scope) {
-                    val mids = List(10_000) { index ->
-                        derived { fanoutSource.value + index }
-                    }
-                    fanoutJoin = derived { mids.sumOf { it.value } }
-                    fanoutJoin.value
+                val mids = List(10_000) { index ->
+                    derive { fanoutSource.value + index }
                 }
+                fanoutJoin = derive { mids.sumOf { it.value } }
+                Blackhole.sink = fanoutJoin.value
             },
             op = {
                 repeat(100) { Blackhole.sink = fanoutJoin.value }
@@ -215,18 +210,14 @@ fun main(args: Array<String>) {
             label = "write + lazy read through 1,000-deep derived chain",
             batch = 10,
             setup = {
-                val runtime = KineticaRuntime(debug = false)
-                val scope = ComponentScope(runtime)
                 chainSource = store(0)
-                runtime.render(scope) {
-                    var prev: Cell<Int> = chainSource
-                    repeat(1_000) {
-                        val upstream = prev
-                        prev = derived { upstream.value + 1 }
-                    }
-                    chainTail = prev
-                    chainTail.value
+                var prev: Cell<Int> = chainSource
+                repeat(1_000) {
+                    val upstream = prev
+                    prev = derive { upstream.value + 1 }
                 }
+                chainTail = prev
+                Blackhole.sink = chainTail.value
                 chainSource.value = 1
                 check(chainTail.value == 1_001) { "chain sanity: expected 1001, got ${chainTail.value}" }
             },
@@ -246,18 +237,14 @@ fun main(args: Array<String>) {
             label = "write + lazy read through 500-deep derived chain (complexity probe: 1k should cost ~2x this = linear)",
             batch = 10,
             setup = {
-                val runtime = KineticaRuntime(debug = false)
-                val scope = ComponentScope(runtime)
                 chain500Source = store(0)
-                runtime.render(scope) {
-                    var prev: Cell<Int> = chain500Source
-                    repeat(500) {
-                        val upstream = prev
-                        prev = derived { upstream.value + 1 }
-                    }
-                    chain500Tail = prev
-                    chain500Tail.value
+                var prev: Cell<Int> = chain500Source
+                repeat(500) {
+                    val upstream = prev
+                    prev = derive { upstream.value + 1 }
                 }
+                chain500Tail = prev
+                Blackhole.sink = chain500Tail.value
                 chain500Source.value = 1
                 check(chain500Tail.value == 501) { "chain500 sanity: expected 501, got ${chain500Tail.value}" }
             },
@@ -274,16 +261,12 @@ fun main(args: Array<String>) {
             label = "write + recompute through 100-wide diamond",
             batch = 10,
             setup = {
-                val runtime = KineticaRuntime(debug = false)
-                val scope = ComponentScope(runtime)
                 diamondSource = store(0)
-                runtime.render(scope) {
-                    val mids = List(100) {
-                        derived { diamondSource.value + it }
-                    }
-                    diamondJoin = derived { mids.sumOf { it.value } }
-                    diamondJoin.value
+                val mids = List(100) {
+                    derive { diamondSource.value + it }
                 }
+                diamondJoin = derive { mids.sumOf { it.value } }
+                Blackhole.sink = diamondJoin.value
                 diamondSource.value = 1
                 check(diamondJoin.value == 100 + (0 until 100).sum()) {
                     "diamond sanity: unexpected join value ${diamondJoin.value}"

@@ -60,6 +60,8 @@ private fun buildData(count: Int): List<RowData> {
     }
 }
 
+// onClick is a function type (unstable input), so the IR transform never wraps this skippable.
+@UiComponent
 private fun ComponentScope.toolbarButton(tag: String, label: String, onClick: () -> Unit) {
     button(
         onClick = onClick,
@@ -184,9 +186,9 @@ private val BenchRowTemplate = TemplateDefinition(
 // component is not skippable — which also keeps each-row memoization intact.
 @UiComponent
 fun ComponentScope.BenchApp(requestRender: () -> Unit = {}) {
-    var rows by state(key = "rows") { emptyList<RowData>() }
-    val selection = state(key = "selection") { SelectionHolder() }.value
-    val animator = state(key = "animator") { Animator() }.value
+    var rows by state { emptyList<RowData>() }
+    val selection = state { SelectionHolder() }.value
+    val animator = state { Animator() }.value
 
     val run = event { rows = buildData(1_000); selection.clear() }
     val runLots = event { rows = buildData(10_000); selection.clear() }
@@ -236,11 +238,11 @@ fun ComponentScope.BenchApp(requestRender: () -> Unit = {}) {
         host("table", props = propsOf("class", "test-data")) {
             host("tbody") {
                 each(rows, key = { it.id }) { row ->
-                    val isSelected = state(key = "selected") { false }
+                    val isSelected = state { false }
                     val danger = if (isSelected.value) "danger" else ""
                     val id = row.id.toString()
-                    val select = hostEvent(event { selection.select(isSelected) })
-                    val remove = hostEvent(event { rows = rows.filterNot { it.id == row.id } })
+                    val select = hostEvent(onEvent = event { selection.select(isSelected) })
+                    val remove = hostEvent(onEvent = event { rows = rows.filterNot { it.id == row.id } })
                     emit(
                         templateNode(
                             definition = BenchRowTemplate,
@@ -309,8 +311,8 @@ private fun ComponentScope.treeNode(node: TreeNodeData, depth: Int) {
 // dependency + state-write-version tracking — the tree driver's four ops verify behavior.
 @UiComponent
 fun ComponentScope.TreeApp() {
-    var tree by state(key = "tree") { TreeNodeData(id = 0, label = "empty", children = emptyList()) }
-    var tick by state(key = "tick") { 0 }
+    var tree by state { TreeNodeData(id = 0, label = "empty", children = emptyList()) }
+    var tick by state { 0 }
 
     val run = event { tree = buildTree() }
     val update = event {

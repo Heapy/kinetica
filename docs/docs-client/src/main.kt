@@ -6,6 +6,7 @@ import io.heapy.kinetica.KineticaRuntime
 import io.heapy.kinetica.ResourceKey
 import io.heapy.kinetica.Role
 import io.heapy.kinetica.Semantics
+import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.action
 import io.heapy.kinetica.browser.BrowserKineticaApp
 import io.heapy.kinetica.browser.mountKineticaApp
@@ -83,8 +84,9 @@ private fun keepAsyncWorkRendered(container: Element, app: BrowserKineticaApp) {
     pump()
 }
 
+@UiComponent
 private fun ComponentScope.CounterExample() {
-    var count by state(key = "count") { 0 }
+    var count by state { 0 }
     val label by derived { if (count == 1) "1 click" else "$count clicks" }
 
     host("div", props = mapOf("class" to "ex")) {
@@ -104,12 +106,13 @@ private fun ComponentScope.CounterExample() {
 
 private data class ExampleRow(val id: Int, val label: String)
 
+@UiComponent
 private fun ComponentScope.KeyedListExample() {
-    var nextId by state(key = "nextId") { 4 }
-    var rows by state(key = "rows") {
+    var nextId by state { 4 }
+    var rows by state {
         listOf(ExampleRow(1, "alpha"), ExampleRow(2, "beta"), ExampleRow(3, "gamma"))
     }
-    var selected by state(key = "selected") { 0 }
+    var selected by state { 0 }
 
     host("div", props = mapOf("class" to "ex")) {
         host("div", props = mapOf("class" to "ex-row")) {
@@ -148,8 +151,9 @@ private fun ComponentScope.KeyedListExample() {
     }
 }
 
+@UiComponent
 private fun ComponentScope.InputMirrorExample() {
-    var draft by state(key = "draft") { "" }
+    var draft by state { "" }
     val preview by derived { if (draft.isBlank()) "…" else draft.uppercase() }
 
     host("div", props = mapOf("class" to "ex")) {
@@ -169,6 +173,7 @@ private data object TeamStackKey : ResourceKey
 
 private data class StackSubmission(val tick: Int, val language: String)
 
+@UiComponent
 private fun ComponentScope.ResourceFetchExample() {
     val stack = resource(TeamStackKey, scope = CacheScope.Component) { _ ->
         delay(300) // artificial latency so the loading fallback is visible
@@ -177,8 +182,8 @@ private fun ComponentScope.ResourceFetchExample() {
     val addLanguage = action(invalidates = { _: String -> listOf(TeamStackKey) }) { language: String ->
         submitLanguage(language)
     }
-    var draft by state(key = "draft") { "" }
-    var submission by state(key = "submission") { StackSubmission(0, "") }
+    var draft by state { "" }
+    var submission by state { StackSubmission(0, "") }
 
     host("div", props = mapOf("class" to "ex")) {
         errorBoundary(

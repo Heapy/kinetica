@@ -3,6 +3,7 @@ package app.todo
 import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.Role
 import io.heapy.kinetica.Semantics
+import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.button
 import io.heapy.kinetica.checkbox
 import io.heapy.kinetica.column
@@ -19,11 +20,12 @@ data class Todo(val id: String, val title: String, val done: Boolean)
 
 enum class Filter { All, Active, Done }
 
+@UiComponent
 fun ComponentScope.TodoApp() {
-    var todos by state(key = "todos") { emptyList<Todo>() }
-    var filter by state(key = "filter") { Filter.All }
-    var draft by state(key = "draft", persistent = true) { "" }
-    var nextId by state(key = "nextId") { 1 }
+    var todos by state { emptyList<Todo>() }
+    var filter by state { Filter.All }
+    var draft by state(persistent = true) { "" }
+    var nextId by state { 1 }
 
     val visible by derived {
         when (filter) {

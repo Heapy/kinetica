@@ -27,6 +27,10 @@ fun ComponentScope.ItemBadge(item: Item) {
     }
 }
 
+// Must itself be a @UiComponent: the frame model stages child ordinals only inside
+// component bodies (and component-typed content lambdas), so a plain helper calling
+// ItemBadge would throw MissingKineticaPluginException at runtime.
+@UiComponent
 fun ComponentScope.App(item: Item, tick: Int) {
     host("div") {
         text("tick $tick", semantics = null)

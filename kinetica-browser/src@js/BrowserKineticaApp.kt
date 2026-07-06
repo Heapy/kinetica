@@ -13,6 +13,7 @@ import io.heapy.kinetica.TemplateDefinition
 import io.heapy.kinetica.TemplateHoleKinds
 import io.heapy.kinetica.TemplateNode
 import io.heapy.kinetica.TextNode
+import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.toSafeHtml
 import kotlinx.serialization.json.JsonObject
 import org.w3c.dom.Document
@@ -32,7 +33,7 @@ import org.w3c.dom.events.Event
 public class BrowserKineticaApp(
     private val rootElement: Element,
     private val runtime: KineticaRuntime = KineticaRuntime(debug = true),
-    private val content: ComponentScope.() -> Unit,
+    private val content: @UiComponent ComponentScope.() -> Unit,
 ) {
     private val scope = ComponentScope(runtime)
     private var currentTree: Node? = null
@@ -1127,14 +1128,14 @@ public data class BrowserUiSnapshot(
 public fun mountKineticaApp(
     root: Element,
     runtime: KineticaRuntime = KineticaRuntime(debug = true),
-    content: ComponentScope.() -> Unit,
+    content: @UiComponent ComponentScope.() -> Unit,
 ): BrowserKineticaApp =
     BrowserKineticaApp(root, runtime, content).also { app -> app.render() }
 
 public fun mountKineticaApp(
     selector: String,
     runtime: KineticaRuntime = KineticaRuntime(debug = true),
-    content: ComponentScope.() -> Unit,
+    content: @UiComponent ComponentScope.() -> Unit,
 ): BrowserKineticaApp {
     val root = browserDocument.querySelector(selector)
         ?: error("No element matches selector: $selector")

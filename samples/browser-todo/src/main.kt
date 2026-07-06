@@ -3,6 +3,7 @@ package app.browser.todo
 import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.Role
 import io.heapy.kinetica.Semantics
+import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.browser.mountKineticaApp
 import io.heapy.kinetica.button
 import io.heapy.kinetica.checkbox
@@ -19,16 +20,17 @@ data class BrowserTodo(val id: String, val title: String, val done: Boolean)
 
 enum class BrowserFilter { All, Active, Done }
 
+@UiComponent
 fun ComponentScope.BrowserTodoApp() {
-    var todos by state(key = "todos") {
+    var todos by state {
         listOf(
             BrowserTodo(id = "todo-1", title = "Render in the browser", done = true),
             BrowserTodo(id = "todo-2", title = "Write UI tests", done = false),
         )
     }
-    var filter by state(key = "filter") { BrowserFilter.All }
-    var draft by state(key = "draft", persistent = true) { "" }
-    var nextTodoId by state(key = "nextTodoId") { 3 }
+    var filter by state { BrowserFilter.All }
+    var draft by state(persistent = true) { "" }
+    var nextTodoId by state { 3 }
 
     val visible by derived {
         when (filter) {

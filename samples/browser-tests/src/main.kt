@@ -8,6 +8,7 @@ import io.heapy.kinetica.TemplateDefinition
 import io.heapy.kinetica.TemplateHole
 import io.heapy.kinetica.TemplateHoleKinds
 import io.heapy.kinetica.TextNode
+import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.browser.mountKineticaApp
 import io.heapy.kinetica.button
 import io.heapy.kinetica.column
@@ -30,10 +31,11 @@ import org.w3c.dom.Document
 import org.w3c.dom.Element
 import org.w3c.dom.HTMLInputElement
 
+@UiComponent
 fun ComponentScope.BrowserTestApp() {
-    var draft by state(key = "draft") { "" }
-    var committed by state(key = "committed") { "none" }
-    var reverseItems by state(key = "reverseItems") { false }
+    var draft by state { "" }
+    var committed by state { "none" }
+    var reverseItems by state { false }
     val commit = event {
         committed = draft.ifBlank { "empty" }
         draft = ""
@@ -83,8 +85,9 @@ fun ComponentScope.BrowserTestApp() {
     }
 }
 
+@UiComponent
 fun ComponentScope.AsyncFocusApp() {
-    var status by state(key = "status") { "loading" }
+    var status by state { "loading" }
     launchEffect {
         delay(25)
         status = "ready"
@@ -99,8 +102,9 @@ fun ComponentScope.AsyncFocusApp() {
     }
 }
 
+@UiComponent
 fun ComponentScope.SingleTextFastPathApp() {
-    var label by state(key = "label") { "one" }
+    var label by state { "one" }
 
     column {
         button(
@@ -115,9 +119,10 @@ fun ComponentScope.SingleTextFastPathApp() {
     }
 }
 
+@UiComponent
 fun ComponentScope.SlotKindToggleApp() {
-    var useDerived by state(key = "useDerived") { false }
-    var clicks by state(key = "clicks") { 0 }
+    var useDerived by state { false }
+    var clicks by state { 0 }
 
     column {
         if (useDerived) {
@@ -143,8 +148,9 @@ fun ComponentScope.SlotKindToggleApp() {
     }
 }
 
+@UiComponent
 fun ComponentScope.ReplaceAllFastPathApp() {
-    var generation by state(key = "generation") { 0 }
+    var generation by state { 0 }
     val items = if (generation == 0) listOf(1, 2, 3, 4) else listOf(11, 12, 13, 14)
 
     column {
@@ -164,8 +170,9 @@ fun ComponentScope.ReplaceAllFastPathApp() {
     }
 }
 
+@UiComponent
 fun ComponentScope.ClearFastPathApp() {
-    var showItems by state(key = "showItems") { true }
+    var showItems by state { true }
 
     column {
         button(
@@ -206,10 +213,11 @@ private val BrowserTemplateDefinition = TemplateDefinition(
     ),
 )
 
+@UiComponent
 fun ComponentScope.TemplateFastPathApp() {
-    var selected by state(key = "selected") { false }
-    var label by state(key = "label") { "one" }
-    val click = hostEvent(event {
+    var selected by state { false }
+    var label by state { "one" }
+    val click = hostEvent(onEvent = event {
         val next = !selected
         selected = next
         label = if (next) "two" else "one"
@@ -300,11 +308,13 @@ fun main() {
             root.remove()
         }
     }
-    runBrowserTest(results, "kind-discriminated slots survive branch toggle") {
-        // Regression for the silent-JS slot corruption: a branch swapping state{} for derived{}
-        // at the same cursor position used to reuse the state cell's slot for the DerivedCell —
-        // mangled property reads turn into undefined and handlers after the branch go dead
-        // without any error. Kind-discriminated keys give each construct its own slot.
+    runBrowserTest(results, "branch-toggled slots survive without collisions") {
+        // Regression for the silent-JS slot corruption: under the old sequence-keyed slot
+        // model, a branch swapping state{} for derived{} at the same cursor position reused
+        // the state cell's slot for the DerivedCell — mangled property reads turned into
+        // undefined and handlers after the branch went dead without any error. The frame
+        // model assigns every construct call site its own static ordinal, so the two arms
+        // (and the events after them) can never share storage no matter which arm renders.
         val root = isolatedRoot()
         val toggleApp = mountKineticaApp(root) {
             SlotKindToggleApp()

@@ -16,6 +16,7 @@ import io.heapy.kinetica.Semantics
 import io.heapy.kinetica.ServerActionRequest
 import io.heapy.kinetica.ServerActionResponse
 import io.heapy.kinetica.ServerRenderChunk
+import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.browser.BrowserKineticaApp
 import io.heapy.kinetica.browser.mountKineticaApp
 import io.heapy.kinetica.button
@@ -68,13 +69,16 @@ private fun hydrateClientRefs() {
     }
 }
 
+// Each island mounts its own app (own runtime + scope), so positional state per
+// component instance is already distinct per product.
+@UiComponent
 private fun ComponentScope.AddToCartButton(
     initial: AddToCartInput,
     rerender: () -> Unit,
 ) {
-    var quantity by state(key = "quantity:${initial.productId}") { initial.quantity }
-    var pending by state(key = "pending:${initial.productId}") { false }
-    var status by state(key = "status:${initial.productId}") { "Client island hydrated" }
+    var quantity by state { initial.quantity }
+    var pending by state { false }
+    var status by state { "Client island hydrated" }
 
     column(semantics = Semantics(testTag = "add-to-cart-island")) {
         text("Client island")
