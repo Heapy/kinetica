@@ -13,6 +13,9 @@ mountKineticaApp("#app", runtime = KineticaRuntime(debug = false)) {
 
 ## What a patch does
 
+- **Reference-equal subtrees are skipped in O(1).** If a subtree's `Node` is the *same object*
+  as last render's (memoized [`each` rows](/docs/lists-and-keys), `skippableNode`), the patch
+  doesn't descend into it at all.
 - **Props** diff per name: attributes set/removed through the sanitizing allowlist; `value`,
   `checked`, `disabled` applied as DOM properties (controlled inputs keep cursor and selection —
   a re-render only writes `input.value` when it actually differs).

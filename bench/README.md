@@ -127,7 +127,7 @@ Example: adding Solid.
 6. Real numbers: `node run-all.mjs --frameworks=solid` (other frameworks' existing parts are
    reused in the merged report; re-run everything only when the environment changed).
 7. Sanity-check `report/index.html`: the new column appears, values are plausible (a keyed
-   framework lands between vanilla ~1× and React ~1.35× on the geomean; if you see 10×+ on
+   framework lands between vanilla ~1× and React ~1.3× on the geomean; if you see 10×+ on
    partial ops, the implementation probably isn't keyed or is in dev mode).
 
 For a framework whose app lives outside `bench/` (like Kinetica): host the page anywhere under
@@ -150,11 +150,18 @@ the repo root, include the `__mountMs` snippet in its HTML (copy from
 
 - The page's headline is **geometric-mean slowdown** vs the per-operation fastest framework;
   the table shades cells by that factor. Medians everywhere; hover cells/bars for distributions.
-- Reference points from the 2026-07-05 run (M4 Max, Chromium 149): vanilla/Svelte 1.06×,
-  Preact/Vue 1.12×, React 1.35×, Kinetica 3.19× (after the event-registry fix; 15.2× before —
+- Reference points from the 2026-07-05 full run (M4 Max, Chromium 149): vanilla 1.02×,
+  Svelte 1.08×, Preact/Vue 1.11×, React 1.29×, **Kinetica 1.29×** — tied with React after the
+  P0–P2 renderer rewrite plus allocation hygiene (15.2× before it; the pre-rewrite snapshot is
   kept in `part-kinetica-before.json` and shown as before/after on the page).
-- Kinetica context: its remaining gap is the full-DOM-rebuild renderer; the fix plan with
-  root-cause analysis and phase gates is `../perf-rewrite-design.md`. When touching Kinetica
-  code, run its own tests too (`../kotlin test -m kinetica-runtime --platform jvm`,
+- Kinetica context: partial ops sit at the paint floor via keyed row memoization; the remaining
+  gap is create-op Node construction and the preview toolchain's packaging (P3). History, phase
+  gates and root-cause analysis: `../perf-rewrite-design.md`. When touching Kinetica code, run
+  its own tests too (`../kotlin test -m kinetica-runtime --platform jvm`,
   `node ../build/tasks/_kinetica-browser_linkJsTest/kinetica-browser_test.mjs` after
   `../kotlin build -m kinetica-browser`).
+- **Bench on AC power only.** Below ~10% battery, macOS low-power throttling delays every
+  headless-Chrome paint to ~2 vsyncs (~30 ms) — for every framework — and every partial op
+  reads as ~30 ms with suspiciously tight stddev. Verify the environment with a quick canary
+  (`node driver/bench.mjs --frameworks=react --bench=04 --samples=3`; healthy ≈ 7 ms) before
+  trusting a run.

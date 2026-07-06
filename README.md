@@ -45,7 +45,7 @@ See [`docs/README.md`](docs/README.md).
 | `docs/` | the documentation site + Docker packaging |
 | `bench/` | js-framework-benchmark harness vs React/Preact/Vue/Svelte/vanilla ([guide](bench/README.md)) |
 | `deep-research-report.md` | the design specification |
-| `perf-rewrite-design.md` | renderer performance analysis & rewrite plan (implemented through P1) |
+| `perf-rewrite-design.md` | renderer performance analysis & rewrite plan (P0–P2 + allocation hygiene done — geomean ties React at 1.29×; P3 packaging next) |
 
 ## Building
 
