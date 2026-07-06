@@ -1,7 +1,5 @@
 # Reference checkouts (separate .git, huge — not part of this project)
-/react/
-/inferno/
-/babel-plugin-inferno/
+/projects/
 
 # Build outputs and toolchain caches
 build/
@@ -23,4 +21,6 @@ build/
 
 # Generated / staging
 /bench/dist/
+/bench/results/dom-count-*.json
+/bench/results/profile-*/
 /docs/.docker-stage/

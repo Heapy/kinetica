@@ -17,6 +17,15 @@ settings:
     group: io.heapy.kinetica
     artifactId: kinetica-compiler
     version: 0.2.0
+    publishSources: true
+    pom:
+      url: https://github.com/Heapy/kinetica
+      scm: https://github.com/Heapy/kinetica.git
+      developers:
+        - name: Ruslan Ibrahimau
+      licenses:
+        - name: The Apache License, Version 2.0
+          url: https://www.apache.org/licenses/LICENSE-2.0.txt
 
 dependencies:
   - org.jetbrains.kotlin:kotlin-compiler-embeddable:2.4.0: compile-only

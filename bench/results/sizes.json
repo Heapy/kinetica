@@ -1,20 +1,20 @@
 {
-  "date": "2026-07-06T08:13:27.386Z",
+  "date": "2026-07-06T02:58:13.550Z",
   "sizes": {
     "kinetica/browser-bench-bundle": {
       "files": 1,
-      "rawBytes": 249655,
-      "gzipBytes": 78765
+      "rawBytes": 251062,
+      "gzipBytes": 79277
     },
     "kinetica/browser-bench-js": {
-      "files": 223,
-      "rawBytes": 1056526,
-      "gzipBytes": 263271
+      "files": 226,
+      "rawBytes": 1062604,
+      "gzipBytes": 265596
     },
     "kinetica/docs-client-js": {
       "files": 222,
-      "rawBytes": 1049351,
-      "gzipBytes": 261461
+      "rawBytes": 1045356,
+      "gzipBytes": 260815
     },
     "bench/vanilla": {
       "files": 1,

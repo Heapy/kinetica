@@ -64,6 +64,35 @@ internal interface ReactiveNode {
     fun collectExternalObserversInto(into: MutableList<() -> Unit>)
 }
 
+/**
+ * Global monotonic write clock, advanced after every committed source write (and on derived
+ * definition refreshes). A [DerivedCell] that validated its transitive dependencies while the
+ * clock read C is provably still clean as long as the clock still reads C — no write happened
+ * anywhere — so unobserved reads can skip the recursive dependency-version walk entirely.
+ *
+ * Without this stamp, every `.value`/`.version` read of a depth-k derived cell re-validates its
+ * whole chain (each dependency's version check recursing into ITS dependencies): O(k) per read
+ * and O(n²) for one write+read over an n-deep chain — bench-jvm's `derived_chain_lazy_1k`
+ * measured 3.5 ms per write+read before this stamp.
+ *
+ * Ordering contract: the clock must advance strictly AFTER the write publishes its version and
+ * value. A reader that captured the pre-advance clock and missed the new value will stamp the
+ * OLD clock, which the advance immediately invalidates — the next read re-validates. Advancing
+ * before the publish would let a reader stamp the NEW clock against the OLD value and never
+ * re-validate. (A stamped-clean read can also skip at most one FOREIGN observable's change —
+ * acceptable: the only foreign ObservableCell is test-only, see [DerivedCell.foreignDependencyListener].)
+ */
+internal object ReactiveClock {
+    private val counter = atomic(0L)
+
+    val current: Long
+        get() = counter.value
+
+    fun advance() {
+        counter.incrementAndGet()
+    }
+}
+
 internal object ReadTracking {
     private val local = ReadTrackingLocal()
 
@@ -258,6 +287,7 @@ internal class MutableCellImpl<T>(
                 val preVersion = versionCounter.value
                 versionCounter.incrementAndGet()
                 current.value = next
+                ReactiveClock.advance()
                 Triple(previous, next, preVersion)
             }
         }
@@ -291,6 +321,7 @@ internal class MutableCellImpl<T>(
                 val preVersion = versionCounter.value
                 versionCounter.incrementAndGet()
                 current.value = next
+                ReactiveClock.advance()
                 Triple(previous, next, preVersion)
             }
         }
@@ -363,6 +394,14 @@ internal class DerivedCell<T>(
     private var cached: T? = null
     private var versionCounter = 0L
 
+    /**
+     * The [ReactiveClock] value at which this cell last proved itself clean (validated or
+     * recomputed). While the clock hasn't advanced, no write happened anywhere, so the
+     * recursive dependency-version walk in [needsRecomputeLocked] is skipped — the cutoff
+     * that keeps deep chains O(depth) per write instead of O(depth²). Guarded by [lock].
+     */
+    private var validatedAtClock = Long.MIN_VALUE
+
     internal fun updateDefinition(
         policy: EqualityPolicy<T>,
         compute: () -> T,
@@ -370,13 +409,14 @@ internal class DerivedCell<T>(
         this.policy = policy
         this.compute = compute
         dirty = true
+        // The refreshed definition can change this cell's value (and version) without any
+        // source write; advance the clock so downstream stamped-clean cells re-validate.
+        ReactiveClock.advance()
     }
 
     override val version: Long
         get() = synchronized(lock) {
-            if (needsRecomputeLocked()) {
-                recomputeLocked()
-            }
+            settleLocked()
             versionCounter
         }
 
@@ -384,14 +424,30 @@ internal class DerivedCell<T>(
         get() {
             ReadTracking.record(this)
             val current = synchronized(lock) {
-                if (needsRecomputeLocked()) {
-                    recomputeLocked()
-                }
+                settleLocked()
                 cached
             }
             @Suppress("UNCHECKED_CAST")
             return current as T
         }
+
+    /**
+     * Brings the cell up to date: skips everything when the stamp proves no write happened
+     * since the last validation, otherwise runs the version walk / recompute and re-stamps.
+     * The clock is captured BEFORE validating: a write racing in during the walk advances the
+     * clock past the captured value, so the stamp is immediately stale and the next read
+     * re-validates (conservative, never skips a real change).
+     */
+    private fun settleLocked() {
+        val clock = ReactiveClock.current
+        if (initialized && !dirty && validatedAtClock == clock) {
+            return
+        }
+        if (needsRecomputeLocked()) {
+            recomputeLocked()
+        }
+        validatedAtClock = clock
+    }
 
     /**
      * The cell is ACTIVE — and therefore holds live subscriptions to its dependencies — whenever

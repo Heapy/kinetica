@@ -140,6 +140,9 @@ fun main(args: Array<String>) {
     lateinit var chainSource: MutableCell<Int>
     lateinit var chainTail: Cell<Int>
 
+    lateinit var chain2kSource: MutableCell<Int>
+    lateinit var chain2kTail: Cell<Int>
+
     lateinit var diamondSource: MutableCell<Int>
     lateinit var diamondJoin: Cell<Int>
 
@@ -233,6 +236,34 @@ fun main(args: Array<String>) {
                     Blackhole.sink = chainTail.value
                 }
                 chainTail.value
+            },
+        ),
+        Benchmark(
+            id = "derived_chain_lazy_2k",
+            label = "write + lazy read through 2,000-deep derived chain (complexity probe: ~2x the 1k cost = linear)",
+            batch = 10,
+            setup = {
+                val runtime = KineticaRuntime(debug = false)
+                val scope = ComponentScope(runtime)
+                chain2kSource = store(0)
+                runtime.render(scope) {
+                    var prev: Cell<Int> = chain2kSource
+                    repeat(2_000) {
+                        val upstream = prev
+                        prev = derived { upstream.value + 1 }
+                    }
+                    chain2kTail = prev
+                    chain2kTail.value
+                }
+                chain2kSource.value = 1
+                check(chain2kTail.value == 2_001) { "chain2k sanity: expected 2001, got ${chain2kTail.value}" }
+            },
+            op = {
+                repeat(10) {
+                    chain2kSource.value = chain2kSource.value + 1
+                    Blackhole.sink = chain2kTail.value
+                }
+                chain2kTail.value
             },
         ),
         Benchmark(
