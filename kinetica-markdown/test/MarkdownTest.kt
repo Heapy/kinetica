@@ -90,6 +90,32 @@ class MarkdownTest {
     }
 
     @Test
+    fun yamlCodeBlocksAreHighlightedOnTheServer() {
+        val html = render(
+            """
+            ```yml
+            ---
+            name: &app "kinetica"
+            enabled: true
+            retries: 3
+            path: /docs/markdown
+            services:
+              - *app
+            # keep docs fast
+            ```
+            """.trimIndent(),
+        )
+        assertTrue("language-yaml" in html, html)
+        assertTrue("<span class=\"tok-property\">name</span>" in html, html)
+        assertTrue("<span class=\"tok-entity\">&amp;app</span>" in html, html)
+        assertTrue("<span class=\"tok-string\">\"kinetica\"</span>" in html, html)
+        assertTrue("<span class=\"tok-boolean\">true</span>" in html, html)
+        assertTrue("<span class=\"tok-number\">3</span>" in html, html)
+        assertTrue("<span class=\"tok-entity\">*app</span>" in html, html)
+        assertTrue("<span class=\"tok-comment\"># keep docs fast</span>" in html, html)
+    }
+
+    @Test
     fun unsupportedCodeLanguagesFallBackToPlainCode() {
         val html = render(
             """

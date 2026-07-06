@@ -91,6 +91,7 @@ public object MarkdownCodeHighlighter : CodeHighlighter {
             "kotlin" to KotlinCodeHighlighter,
             "json" to JsonCodeHighlighter,
             "html" to HtmlCodeHighlighter,
+            "yaml" to YamlCodeHighlighter,
         ),
         aliases = mapOf(
             "kt" to "kotlin",
@@ -98,6 +99,7 @@ public object MarkdownCodeHighlighter : CodeHighlighter {
             "jsonc" to "json",
             "htm" to "html",
             "xml" to "html",
+            "yml" to "yaml",
         ),
     )
 
@@ -150,6 +152,11 @@ private object HtmlCodeHighlighter : LanguageCodeHighlighter {
         CodeLexer(code).highlightHtml()
 }
 
+private object YamlCodeHighlighter : LanguageCodeHighlighter {
+    override fun highlight(code: String): List<CodeToken> =
+        CodeLexer(code).highlightYaml()
+}
+
 private class CodeLexer(private val source: String) {
     private val tokens = mutableListOf<CodeToken>()
     private var index = 0
@@ -194,6 +201,29 @@ private class CodeLexer(private val source: String) {
                 source[index] == '<' -> readHtmlTag()
                 source[index] == '&' -> readHtmlEntity()
                 else -> readHtmlText()
+            }
+        }
+        return tokens
+    }
+
+    fun highlightYaml(): List<CodeToken> {
+        while (index < source.length) {
+            when {
+                isYamlDocumentMarker("---") -> readFixed(3, CodeTokenKind.Punctuation)
+                isYamlDocumentMarker("...") -> readFixed(3, CodeTokenKind.Punctuation)
+                source[index] == '\n' -> readOne(null)
+                source[index].isWhitespace() -> readRun(null) { it != '\n' && it.isWhitespace() }
+                source[index] == '#' -> readLineComment()
+                source[index] == '"' -> readDelimitedString("\"")
+                source[index] == '\'' -> readYamlSingleQuotedString()
+                source[index] == '-' && source.getOrNull(index + 1)?.isDigit() == true -> readNumber()
+                source[index].isDigit() -> readNumber()
+                source[index] == '-' && source.getOrNull(index + 1)?.isWhitespace() == true -> readOne(CodeTokenKind.Punctuation)
+                source[index] == ':' -> readOne(CodeTokenKind.Punctuation)
+                source[index] in YamlPunctuationChars -> readOne(CodeTokenKind.Punctuation)
+                source[index] == '&' || source[index] == '*' -> readYamlAnchor()
+                source[index] == '!' -> readYamlTag()
+                else -> readYamlPlainScalar()
             }
         }
         return tokens
@@ -366,6 +396,76 @@ private class CodeLexer(private val source: String) {
         emit(source.substring(start, index), null)
     }
 
+    private fun readYamlSingleQuotedString() {
+        val start = index
+        index++
+        while (index < source.length) {
+            if (source[index] == '\'') {
+                if (source.getOrNull(index + 1) == '\'') {
+                    index += 2
+                } else {
+                    index++
+                    break
+                }
+            } else {
+                index++
+            }
+        }
+        emit(source.substring(start, index), CodeTokenKind.StringLiteral)
+    }
+
+    private fun readYamlAnchor() {
+        val start = index
+        index++
+        while (index < source.length && source[index].isYamlReferencePart()) index++
+        emit(source.substring(start, index), CodeTokenKind.Entity)
+    }
+
+    private fun readYamlTag() {
+        val start = index
+        index++
+        while (index < source.length && !source[index].isWhitespace() && source[index] !in YamlPunctuationChars) {
+            index++
+        }
+        emit(source.substring(start, index), CodeTokenKind.Type)
+    }
+
+    private fun readYamlPlainScalar() {
+        val start = index
+        while (index < source.length) {
+            val character = source[index]
+            if (
+                character == '\n' ||
+                character == '#' ||
+                character == '"' ||
+                character == '\'' ||
+                character == '&' ||
+                character == '*' ||
+                character == '!' ||
+                character in YamlPunctuationChars ||
+                (character == ':' && source.getOrNull(index + 1)?.isWhitespace() != false)
+            ) {
+                break
+            }
+            index++
+        }
+        if (index == start) {
+            readOne(null)
+            return
+        }
+
+        val value = source.substring(start, index)
+        val trimmed = value.trim()
+        val kind = when {
+            index < source.length && source[index] == ':' && trimmed.isNotEmpty() -> CodeTokenKind.Property
+            trimmed in YamlBooleanLiterals -> CodeTokenKind.BooleanLiteral
+            trimmed in YamlNullLiterals -> CodeTokenKind.NullLiteral
+            trimmed.isYamlNumberLiteral() -> CodeTokenKind.Number
+            else -> null
+        }
+        emit(value, kind)
+    }
+
     private fun readUntil(delimiter: String, kind: CodeTokenKind, includeDelimiter: Boolean) {
         val start = index
         val end = source.indexOf(delimiter, index + delimiter.length)
@@ -412,6 +512,13 @@ private class CodeLexer(private val source: String) {
     private fun isJsonWordBoundary(end: Int): Boolean =
         end >= source.length || !source[end].isIdentifierPart()
 
+    private fun isYamlDocumentMarker(marker: String): Boolean {
+        val end = index + marker.length
+        return source.startsWith(marker, index) &&
+            (index == 0 || source[index - 1] == '\n') &&
+            (end >= source.length || source[end].isWhitespace())
+    }
+
     private fun emit(text: String, kind: CodeTokenKind?) {
         if (text.isNotEmpty()) {
             tokens += CodeToken(text, kind)
@@ -455,6 +562,32 @@ private fun Char.isHtmlNameStart(): Boolean =
 
 private fun Char.isHtmlNamePart(): Boolean =
     isHtmlNameStart() || isDigit() || this == '-' || this == '.'
+
+private fun Char.isYamlReferencePart(): Boolean =
+    isLetterOrDigit() || this == '_' || this == '-'
+
+private fun String.isYamlNumberLiteral(): Boolean {
+    if (isEmpty()) return false
+    var index = 0
+    if (this[index] == '+' || this[index] == '-') index++
+    var hasDigit = false
+    while (index < length) {
+        val character = this[index]
+        when {
+            character.isDigit() -> {
+                hasDigit = true
+                index++
+            }
+            character == '_' || character == '.' -> index++
+            character == 'e' || character == 'E' -> {
+                index++
+                if (index < length && (this[index] == '+' || this[index] == '-')) index++
+            }
+            else -> return false
+        }
+    }
+    return hasDigit
+}
 
 private val KotlinKeywords = setOf(
     "as",
@@ -581,4 +714,42 @@ private val JsonPunctuationChars = setOf(
     ']',
     ':',
     ',',
+)
+
+private val YamlPunctuationChars = setOf(
+    '{',
+    '}',
+    '[',
+    ']',
+    ',',
+    '|',
+    '>',
+)
+
+private val YamlBooleanLiterals = setOf(
+    "true",
+    "false",
+    "True",
+    "False",
+    "TRUE",
+    "FALSE",
+    "yes",
+    "no",
+    "Yes",
+    "No",
+    "YES",
+    "NO",
+    "on",
+    "off",
+    "On",
+    "Off",
+    "ON",
+    "OFF",
+)
+
+private val YamlNullLiterals = setOf(
+    "null",
+    "Null",
+    "NULL",
+    "~",
 )
