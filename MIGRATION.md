@@ -48,6 +48,12 @@ discrimination are gone. This page lists everything a codebase must change.
   sites can never share a slot, and the `slot-class-mismatch` warning,
   debug-mode failure, and production self-heal were deleted with it.
 
+## Small API traps
+
+- The slot/event DSL gained a compiler-managed `ordinal: Int = -1` parameter placed
+  before the trailing lambda. Positional non-lambda arguments that used to land in the
+  first slot (`hostEvent(callback)`) now need a name: `hostEvent(onEvent = callback)`.
+
 ## Build
 
 The plugin block lives in `common.module-template.yaml` and applies to every module;

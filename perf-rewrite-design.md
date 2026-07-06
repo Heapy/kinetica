@@ -20,8 +20,11 @@ slot metadata and host events; the cursor machinery (CursorMark boundary neutral
 slot/event cursor deltas in row/skippable caches) is deleted, and the slot-collision bug
 class died at compile time (FIR checker enforces the authoring rules). Each-row memoization
 and component skipping now cache on the row/component frame (inputs + cell versions +
-context reads). Remaining: re-run the browser bench after the batteries/samples migration
-and refresh the numbers here.
+context reads). Re-benched 2026-07-06 after the migration: 13-op geomean **1.109×** vs
+React (was 1.20× before the rewrite, 1.27× after the string-suffix hardening) — swap1k
+0.38×, select1k 0.94×, swap10k 0.92×; the 10k partial ops (select 1.71×, remove 1.68×,
+update 1.49×) remain item 2 below. Weight 83KB gz unchanged; local startup median 32.3ms
+(CI baseline was 22.6ms — remeasure on CI before reading anything into it).
 
 ## 2. 10k-table partial operations
 
