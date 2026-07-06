@@ -24,8 +24,19 @@ internal class KineticaCompilationHarness {
         moduleName: String = "test",
         transforms: String = "on",
         checks: String = "off",
+        irTransformOrder: String = "template-first",
     ): CompiledKineticaModule {
-        val result = compileInternal(sources, moduleName, transforms, checks)
+        val previousTransformOrder = System.getProperty(KINETICA_IR_TRANSFORM_ORDER_PROPERTY)
+        val result = try {
+            if (irTransformOrder == "template-first") {
+                System.clearProperty(KINETICA_IR_TRANSFORM_ORDER_PROPERTY)
+            } else {
+                System.setProperty(KINETICA_IR_TRANSFORM_ORDER_PROPERTY, irTransformOrder)
+            }
+            compileInternal(sources, moduleName, transforms, checks)
+        } finally {
+            restoreSystemProperty(KINETICA_IR_TRANSFORM_ORDER_PROPERTY, previousTransformOrder)
+        }
         if (!result.success || result.messages.any { it.severity.isError }) {
             fail(
                 buildString {

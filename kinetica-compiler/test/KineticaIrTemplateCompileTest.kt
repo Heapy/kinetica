@@ -58,12 +58,111 @@ class KineticaIrTemplateCompileTest {
     }
 
     @Test
+    fun propsLessSingleTextHostTemplatesAndMaterializesAtRuntime() {
+        harness.compile(mapOf("app/PropsLessTemplate.kt" to PROPS_LESS_TEMPLATE)).use { compiled ->
+            compiled.assertTransformFired("emitted 1 template definitions")
+            val facade = compiled.loadClass("app.PropsLessTemplateKt")
+
+            val rendered = renderStringMethod(facade, "renderPropsLess", "Inbox")
+            val template = assertIs<TemplateNode>(rendered)
+            assertEquals("Inbox", template.values.single())
+            assertEquals(
+                HostNode(
+                    tag = "p",
+                    props = emptyMap(),
+                    children = listOf(io.heapy.kinetica.TextNode("Inbox", semantics = null)),
+                    flags = NodeFlags.CHILDREN_SINGLE_TEXT,
+                ),
+                template.materialize(),
+            )
+        }
+    }
+
+    @Test
+    fun explicitZeroArgPropsTemplatesAndMaterializesAtRuntime() {
+        harness.compile(mapOf("app/ZeroArgPropsTemplate.kt" to ZERO_ARG_PROPS_TEMPLATE)).use { compiled ->
+            compiled.assertTransformFired("emitted 1 template definitions")
+            val facade = compiled.loadClass("app.ZeroArgPropsTemplateKt")
+
+            val rendered = renderStringMethod(facade, "renderZeroArgProps", "Inbox")
+            val template = assertIs<TemplateNode>(rendered)
+            assertEquals("Inbox", template.values.single())
+            assertEquals(
+                HostNode(
+                    tag = "p",
+                    props = emptyMap(),
+                    children = listOf(io.heapy.kinetica.TextNode("Inbox", semantics = null)),
+                    flags = NodeFlags.CHILDREN_SINGLE_TEXT,
+                ),
+                template.materialize(),
+            )
+        }
+    }
+
+    @Test
+    fun explicitNullTextSemanticsTemplatesButDefaultedSemanticsDoesNot() {
+        harness.compile(mapOf("app/TextSemanticsTemplate.kt" to TEXT_SEMANTICS_TEMPLATE)).use { compiled ->
+            compiled.assertTransformFired("emitted 1 template definitions")
+            val facade = compiled.loadClass("app.TextSemanticsTemplateKt")
+
+            val rendered = renderStringMethod(facade, "renderSemantics", "Inbox")
+            val children = assertIs<FragmentNode>(rendered).children
+            assertEquals(2, children.size)
+            assertIs<TemplateNode>(children[0])
+            assertIs<HostNode>(children[1])
+        }
+    }
+
+    @Test
+    fun reversedOrderTemplateRecognizesHoistedConstPropsThroughIndex() {
+        harness.compile(
+            sources = mapOf("app/ReversedOrderTemplate.kt" to REVERSED_ORDER_TEMPLATE),
+            irTransformOrder = "hoist-first",
+        ).use { compiled ->
+            compiled.assertTransformFired("interned 1 const props, hoisted 0 static leaf hosts")
+            compiled.assertTransformFired("emitted 1 template definitions")
+            val facade = compiled.loadClass("app.ReversedOrderTemplateKt")
+
+            val rendered = renderStringMethod(facade, "renderIndexed", "Inbox")
+            val template = assertIs<TemplateNode>(rendered)
+            assertEquals(
+                HostNode(
+                    tag = "p",
+                    props = mapOf("class" to "indexed"),
+                    children = listOf(io.heapy.kinetica.TextNode("Inbox", semantics = null)),
+                    flags = NodeFlags.CHILDREN_SINGLE_TEXT,
+                ),
+                template.materialize(),
+            )
+        }
+    }
+
+    @Test
+    fun sourcePropsFieldIsNotRecognizedAsTemplateInputWithoutConstPropsIndexEntry() {
+        harness.compile(mapOf("app/SourcePropsFieldTemplate.kt" to SOURCE_PROPS_FIELD_TEMPLATE)).use { compiled ->
+            compiled.assertTransformDidNotFire("emitted 1 template definitions")
+            val facade = compiled.loadClass("app.SourcePropsFieldTemplateKt")
+
+            val rendered = renderStringMethod(facade, "renderSourcePropsField", "Inbox")
+            assertEquals(
+                HostNode(
+                    tag = "p",
+                    props = mapOf("class" to "source"),
+                    children = listOf(io.heapy.kinetica.TextNode("Inbox", semantics = null)),
+                    flags = NodeFlags.CHILDREN_SINGLE_TEXT,
+                ),
+                rendered,
+            )
+        }
+    }
+
+    @Test
     fun templateTransformOnlyRewritesSafeSingleTextHosts() {
         harness.compile(mapOf("app/TemplateShapes.kt" to TEMPLATE_SHAPES)).use { compiled ->
-            compiled.assertTransformFired("emitted 1 template definitions")
+            compiled.assertTransformFired("emitted 2 template definitions")
             val facade = compiled.loadClass("app.TemplateShapesKt")
             assertEquals(
-                1,
+                2,
                 facade.declaredFields.count { field -> field.name.startsWith("kineticaTemplate\$") },
             )
 
@@ -71,7 +170,8 @@ class KineticaIrTemplateCompileTest {
             val children = assertIs<FragmentNode>(rendered).children
             assertEquals(10, children.size)
             assertIs<TemplateNode>(children[0])
-            children.drop(1).forEach { child ->
+            assertIs<TemplateNode>(children[3])
+            children.filterIndexed { index, _ -> index != 0 && index != 3 }.forEach { child ->
                 assertIs<HostNode>(child)
             }
         }
@@ -170,6 +270,18 @@ class KineticaIrTemplateCompileTest {
         return render.invoke(null, runtime, scope) as Node
     }
 
+    private fun renderStringMethod(facade: Class<*>, methodName: String, value: String): Node {
+        val render = facade.getDeclaredMethod(
+            methodName,
+            KineticaRuntime::class.java,
+            ComponentScope::class.java,
+            String::class.java,
+        )
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+        return render.invoke(null, runtime, scope, value) as Node
+    }
+
     private companion object {
         private const val TEMPLATE_SAMPLE = """
             package app
@@ -192,6 +304,138 @@ class KineticaIrTemplateCompileTest {
             fun renderLabel(runtime: KineticaRuntime, scope: ComponentScope, label: String): Node =
                 runtime.render(scope) {
                     Label(label)
+                }.tree
+        """
+
+        private const val PROPS_LESS_TEMPLATE = """
+            package app
+
+            import io.heapy.kinetica.ComponentScope
+            import io.heapy.kinetica.KineticaRuntime
+            import io.heapy.kinetica.Node
+            import io.heapy.kinetica.UiComponent
+            import io.heapy.kinetica.host
+            import io.heapy.kinetica.text
+
+            @UiComponent(skippable = false)
+            fun ComponentScope.PropsLess(value: String) {
+                host("p") {
+                    text(value, semantics = null)
+                }
+            }
+
+            fun renderPropsLess(runtime: KineticaRuntime, scope: ComponentScope, value: String): Node =
+                runtime.render(scope) {
+                    PropsLess(value)
+                }.tree
+        """
+
+        private const val ZERO_ARG_PROPS_TEMPLATE = """
+            package app
+
+            import io.heapy.kinetica.ComponentScope
+            import io.heapy.kinetica.KineticaRuntime
+            import io.heapy.kinetica.Node
+            import io.heapy.kinetica.UiComponent
+            import io.heapy.kinetica.host
+            import io.heapy.kinetica.propsOf
+            import io.heapy.kinetica.text
+
+            @UiComponent(skippable = false)
+            fun ComponentScope.ZeroArgProps(value: String) {
+                host("p", props = propsOf()) {
+                    text(value, semantics = null)
+                }
+            }
+
+            fun renderZeroArgProps(runtime: KineticaRuntime, scope: ComponentScope, value: String): Node =
+                runtime.render(scope) {
+                    ZeroArgProps(value)
+                }.tree
+        """
+
+        private const val TEXT_SEMANTICS_TEMPLATE = """
+            package app
+
+            import io.heapy.kinetica.ComponentScope
+            import io.heapy.kinetica.KineticaRuntime
+            import io.heapy.kinetica.Node
+            import io.heapy.kinetica.UiComponent
+            import io.heapy.kinetica.fragment
+            import io.heapy.kinetica.host
+            import io.heapy.kinetica.propsOf
+            import io.heapy.kinetica.text
+
+            @UiComponent(skippable = false)
+            fun ComponentScope.ExplicitNull(value: String) {
+                host("p", props = propsOf("class", "x")) {
+                    text(value, semantics = null)
+                }
+            }
+
+            @UiComponent(skippable = false)
+            fun ComponentScope.DefaultedSemantics(value: String) {
+                host("p", props = propsOf("class", "x")) {
+                    text(value)
+                }
+            }
+
+            fun renderSemantics(runtime: KineticaRuntime, scope: ComponentScope, value: String): Node =
+                runtime.render(scope) {
+                    fragment {
+                        ExplicitNull(value)
+                        DefaultedSemantics(value)
+                    }
+                }.tree
+        """
+
+        private const val REVERSED_ORDER_TEMPLATE = """
+            package app
+
+            import io.heapy.kinetica.ComponentScope
+            import io.heapy.kinetica.KineticaRuntime
+            import io.heapy.kinetica.Node
+            import io.heapy.kinetica.UiComponent
+            import io.heapy.kinetica.host
+            import io.heapy.kinetica.propsOf
+            import io.heapy.kinetica.text
+
+            @UiComponent(skippable = false)
+            fun ComponentScope.Indexed(value: String) {
+                host("p", props = propsOf("class", "indexed")) {
+                    text(value, semantics = null)
+                }
+            }
+
+            fun renderIndexed(runtime: KineticaRuntime, scope: ComponentScope, value: String): Node =
+                runtime.render(scope) {
+                    Indexed(value)
+                }.tree
+        """
+
+        private const val SOURCE_PROPS_FIELD_TEMPLATE = """
+            package app
+
+            import io.heapy.kinetica.ComponentScope
+            import io.heapy.kinetica.KineticaRuntime
+            import io.heapy.kinetica.Node
+            import io.heapy.kinetica.UiComponent
+            import io.heapy.kinetica.host
+            import io.heapy.kinetica.propsOf
+            import io.heapy.kinetica.text
+
+            private val SOURCE_PROPS = propsOf("class", "source")
+
+            @UiComponent(skippable = false)
+            fun ComponentScope.SourcePropsField(value: String) {
+                host("p", props = SOURCE_PROPS) {
+                    text(value, semantics = null)
+                }
+            }
+
+            fun renderSourcePropsField(runtime: KineticaRuntime, scope: ComponentScope, value: String): Node =
+                runtime.render(scope) {
+                    SourcePropsField(value)
                 }.tree
         """
 

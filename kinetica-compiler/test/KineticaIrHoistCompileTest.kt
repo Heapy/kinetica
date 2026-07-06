@@ -73,6 +73,29 @@ class KineticaIrHoistCompileTest {
         }
     }
 
+    @Test
+    fun emptyPropsOfIsNotInternedByHoistTransform() {
+        harness.compile(mapOf("app/EmptyPropsHoist.kt" to EMPTY_PROPS_HOIST_SAMPLE)).use { compiled ->
+            compiled.assertTransformDidNotFire("interned")
+            val facade = compiled.loadClass("app.EmptyPropsHoistKt")
+            val fieldNames = facade.declaredFields.map { field -> field.name }
+
+            assertFalse(fieldNames.any { name -> name.startsWith("kineticaProps\$") })
+            val render = facade.getDeclaredMethod(
+                "renderEmptyPropsLeaf",
+                KineticaRuntime::class.java,
+                ComponentScope::class.java,
+            )
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+
+            val rendered = render.invoke(null, runtime, scope) as Node
+
+            assertEquals("td", (rendered as HostNode).tag)
+            assertEquals(emptyMap(), rendered.props)
+        }
+    }
+
     private companion object {
         private const val HOIST_SAMPLE = """
             package app
@@ -92,6 +115,27 @@ class KineticaIrHoistCompileTest {
             fun renderLeaf(runtime: KineticaRuntime, scope: ComponentScope): Node =
                 runtime.render(scope) {
                     Leaf()
+                }.tree
+        """
+
+        private const val EMPTY_PROPS_HOIST_SAMPLE = """
+            package app
+
+            import io.heapy.kinetica.ComponentScope
+            import io.heapy.kinetica.KineticaRuntime
+            import io.heapy.kinetica.Node
+            import io.heapy.kinetica.UiComponent
+            import io.heapy.kinetica.host
+            import io.heapy.kinetica.propsOf
+
+            @UiComponent(skippable = false)
+            fun ComponentScope.EmptyPropsLeaf() {
+                host("td", props = propsOf())
+            }
+
+            fun renderEmptyPropsLeaf(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                runtime.render(scope) {
+                    EmptyPropsLeaf()
                 }.tree
         """
     }

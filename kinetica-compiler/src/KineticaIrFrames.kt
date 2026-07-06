@@ -685,6 +685,3 @@ private fun IrCall.argumentByName(name: String): IrExpression? {
 
 private fun IrCall.constBooleanArgument(name: String): Boolean? =
     (argumentByName(name) as? IrConst)?.value as? Boolean
-
-private fun IrExpression.isNullConst(): Boolean =
-    this is IrConst && kind == IrConstKind.Null
