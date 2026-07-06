@@ -9,7 +9,6 @@ import io.heapy.kinetica.MutableCell
 import io.heapy.kinetica.Route
 import io.heapy.kinetica.TextNode
 import io.heapy.kinetica.UiComponent
-import io.heapy.kinetica.keyed
 import io.heapy.kinetica.lazyItems
 import io.heapy.kinetica.state
 import io.heapy.kinetica.text

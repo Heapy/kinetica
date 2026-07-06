@@ -745,22 +745,6 @@ public class ComponentScope public constructor(
 
 }
 
-@Suppress("EXTENSION_SHADOWED_BY_MEMBER")
-public fun ComponentScope.keyed(
-    key: Any,
-    content: ComponentScope.() -> Unit,
-) {
-    this.keyed(key, content)
-}
-
-@Suppress("EXTENSION_SHADOWED_BY_MEMBER")
-public suspend fun ComponentScope.suspendKeyed(
-    key: Any,
-    content: suspend ComponentScope.() -> Unit,
-) {
-    this.suspendKeyed(key, content)
-}
-
 public fun ComponentScope.disposeKeyScope(
     key: Any,
     keepPersistentSlots: Boolean = false,

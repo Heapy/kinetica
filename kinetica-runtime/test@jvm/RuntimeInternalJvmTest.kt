@@ -137,16 +137,16 @@ class RuntimeInternalJvmTest {
         val runtime = KineticaRuntime(exitTimeoutMillis = null)
         val scope = ComponentScope(runtime)
         val callbackCount = 1024
+        exitPanelCallbackCount = callbackCount
+        exitPanelVisible = true
         var visible = true
 
-        fun render(): Node = runtime.render(scope) {
-            exitGroup(key = "panel", visible = visible) {
-                repeat(callbackCount) {
-                    onExit {}
-                }
-                text("Panel", semantics = Semantics(testTag = "panel"))
-            }
-        }.tree
+        fun render(): Node {
+            exitPanelVisible = visible
+            return runtime.render(scope) {
+                ExitPanelProbe()
+            }.tree
+        }
 
         assertIs<TextNode>(render())
 
@@ -185,5 +185,18 @@ class RuntimeInternalJvmTest {
 
         assertFalse(scope.completeExitCallback("panel", generation = 2))
         assertTrue(scope.isLeaving("panel"))
+    }
+}
+
+private var exitPanelVisible = true
+private var exitPanelCallbackCount = 0
+
+@UiComponent(skippable = false)
+private fun ComponentScope.ExitPanelProbe() {
+    exitGroup(key = "panel", visible = exitPanelVisible) {
+        repeat(exitPanelCallbackCount) {
+            onExit {}
+        }
+        text("Panel", semantics = Semantics(testTag = "panel"))
     }
 }

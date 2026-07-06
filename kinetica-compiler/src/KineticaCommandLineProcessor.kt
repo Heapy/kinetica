@@ -78,8 +78,8 @@ public class KineticaCommandLineProcessor : CommandLineProcessor {
             optionName = KineticaCompilerContract.optionChecks,
             valueDescription = "<error|off>",
             description = "Kinetica authoring rules (slot DSL only in @UiComponent, no stateful calls in " +
-                "loops, ComponentScope receivers). Defaults to off while codebases migrate to the " +
-                "plugin-only slot model.",
+                "loops, ComponentScope receivers). Defaults to error; off is an escape hatch for " +
+                "migration branches.",
             required = false,
             allowMultipleOccurrences = false,
         ),

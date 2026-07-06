@@ -16,7 +16,6 @@ import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.context
 import io.heapy.kinetica.disposeKeyScope
 import io.heapy.kinetica.host
-import io.heapy.kinetica.keyed
 import io.heapy.kinetica.layoutEffect
 import io.heapy.kinetica.lazyEach
 import io.heapy.kinetica.provide

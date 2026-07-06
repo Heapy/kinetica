@@ -8,7 +8,6 @@ import io.heapy.kinetica.ResourceKey
 import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.action
 import io.heapy.kinetica.invalidate
-import io.heapy.kinetica.keyed
 import io.heapy.kinetica.lazyItems as kineticaLazyItems
 import io.heapy.kinetica.state
 import kotlinx.coroutines.delay

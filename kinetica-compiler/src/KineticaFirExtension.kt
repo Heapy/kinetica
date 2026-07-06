@@ -142,7 +142,12 @@ private object KineticaCallChecker : FirExpressionChecker<FirFunctionCall>(MppCh
         val callableId = callee.callableId ?: return
         val session = context.session
         val name = callableId.callableName.asString()
-        val isKineticaDsl = callableId.packageName == KINETICA_PACKAGE
+        // Same-package members of other classes (e.g. KineticaRuntime.frameValue) are not
+        // slot DSL: only ComponentScope members and ComponentScope extensions qualify.
+        val isKineticaDsl = callableId.packageName == KINETICA_PACKAGE &&
+            (callableId.classId == COMPONENT_SCOPE_CLASS_ID ||
+                (callableId.classId == null &&
+                    callee.resolvedReceiverTypeRef?.coneType?.classId == COMPONENT_SCOPE_CLASS_ID))
         val isSlotDsl = isKineticaDsl && name in SLOT_DSL_NAMES
         val isRegionConstruct = isKineticaDsl && name in REGION_CONSTRUCT_NAMES
         val isLoopSafeRegion = isKineticaDsl && name in LOOP_SAFE_REGION_NAMES
