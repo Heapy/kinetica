@@ -20,12 +20,14 @@ jobs:
 
       # The plugin is mandatory for every module (slot ordinals are compiler-assigned),
       # and it resolves from the toolchain's own local repo (.kotlin/home/.m2) — so it must
-      # be built and published before anything else compiles.
+      # be built and published before anything else compiles. Publish precedes the plugin's
+      # own tests: its test fragment depends on kinetica-runtime, which already needs the
+      # published artifact.
       - name: Publish compiler plugin
         run: |
           set -euo pipefail
-          ./kotlin test -m kinetica-compiler --platform jvm
           ./kotlin publish mavenLocal -m kinetica-compiler
+          ./kotlin test -m kinetica-compiler --platform jvm
 
       # JVM tests for every module with a JVM-testable surface.
       # (Android/native targets are out of CI scope for now: they need SDK/host toolchains.)
