@@ -1,43 +1,51 @@
 # Performance
 
+<!-- code: bench/results/results.json, bench/driver/bench.mjs, bench/README.md -->
+
 Kinetica is benchmarked continuously against React, Preact, Vue, Svelte and a vanilla-JS
 baseline using a local reimplementation of the **js-framework-benchmark** (krausest) keyed
 suite: identical table apps, one machine, one Chromium, one Playwright/Chrome-trace driver.
 Duration = trusted click → end of last paint.
 
-## Where Kinetica stands (2026-07-06, M4 Max, Chromium 149)
+## Where Kinetica stands (2026-07-07, M4 Max, Chromium 149)
+
+<!-- code: bench/results/results.json, bench/results/part-kinetica.json -->
 
 Median milliseconds; geometric-mean slowdown vs the per-operation fastest framework. The
-Kinetica column was refreshed in a Kinetica-only pass; the comparison columns are same-day
-13-operation reference results from the full suite.
+Kinetica and vanilla columns were re-measured after the frame-ordinals rewrite (vanilla median
+drift vs its stored part ≤2%, so cross-part comparison holds); the other columns are stored
+same-day parts from the full suite.
 
 | Operation | Kinetica | React | Preact | Vue | Svelte | Vanilla |
 |---|---:|---:|---:|---:|---:|---:|
-| create 1,000 rows | 30.0 | 33.5 | 32.6 | 36.1 | 26.3 | 28.0 |
-| replace all 1,000 rows | 33.3 | 37.4 | 33.2 | 34.2 | 31.4 | 31.3 |
-| partial update (every 10th row) | 7.7 | 7.0 | 7.6 | 8.1 | 7.2 | 7.3 |
-| select row | 7.1 | 7.6 | 7.4 | 7.2 | 7.4 | 7.5 |
-| swap two rows | 7.3 | 22.4 | 7.3 | 8.3 | 7.8 | 7.4 |
-| remove one row | 8.4 | 7.4 | 7.4 | 7.2 | 7.2 | 7.1 |
-| create 10,000 rows | 298 | 316 | 245 | 234 | 204 | 208 |
-| append 1,000 rows to 1,000 | 39.5 | 32.8 | 39.3 | 30.9 | 32.3 | 30.1 |
-| clear 1,000 rows | 6.9 | 7.2 | 6.8 | 6.9 | 6.9 | 7.0 |
-| select row (10k table) | 8.4 | 7.9 | 7.9 | 15.2 | 7.7 | 8.0 |
-| swap two rows (10k table) | 41.2 | 54.1 | 35.6 | 42.7 | 29.9 | 28.7 |
-| remove one row (10k table) | 55.7 | 40.3 | 40.8 | 53.8 | 38.8 | 44.9 |
-| partial update (every 10th of 10k) | 44.5 | 34.4 | 36.6 | 45.1 | 29.4 | 31.8 |
-| **geometric mean** | **1.20×** | 1.27× | 1.11× | 1.23× | 1.02× | 1.04× |
+| create 1,000 rows | 34.9 | 33.5 | 32.6 | 36.1 | 26.3 | 25.5 |
+| replace all 1,000 rows | 33.6 | 37.4 | 33.2 | 34.2 | 31.4 | 32.6 |
+| partial update (every 10th row) | 8.0 | 7.0 | 7.6 | 8.1 | 7.2 | 7.6 |
+| select row | 7.8 | 7.6 | 7.4 | 7.2 | 7.4 | 7.6 |
+| swap two rows | 8.1 | 22.5 | 7.3 | 8.3 | 7.8 | 7.4 |
+| remove one row | 8.5 | 7.4 | 7.4 | 7.2 | 7.2 | 7.3 |
+| create 10,000 rows | 284 | 316 | 245 | 234 | 204 | 206 |
+| append 1,000 rows to 1,000 | 34.6 | 32.8 | 39.3 | 30.9 | 32.3 | 28.2 |
+| clear 1,000 rows | 7.0 | 7.2 | 6.8 | 6.9 | 6.9 | 7.0 |
+| select row (10k table) | 8.7 | 7.9 | 7.9 | 15.2 | 7.7 | 7.9 |
+| swap two rows (10k table) | 42.1 | 54.1 | 35.6 | 42.7 | 30.0 | 28.3 |
+| remove one row (10k table) | 59.8 | 40.3 | 40.8 | 53.8 | 38.8 | 44.4 |
+| partial update (every 10th of 10k) | 43.3 | 34.4 | 36.6 | 45.1 | 29.4 | 32.1 |
+| **geometric mean** | **1.24×** | 1.28× | 1.12× | 1.24× | 1.03× | 1.04× |
 
-Kinetica's current 13-op headline is **1.20×**, ahead of React's **1.27×** in this comparison.
-It is ahead of React on create-10k (298 ms vs 316 ms), startup (22.6 ms vs 27.3 ms), and the
-1k-row swap case (7.3 ms vs 22.4 ms). The 1k partial operations sit near the paint floor; the
-10k partial operations show the remaining work: large-table swap/remove/update still scale with
-row count.
+Kinetica's 13-op headline against React directly is **0.969×** — ahead of React overall for the
+first time. It wins create-10k (284 ms vs 316 ms), startup (24.5 ms vs 27.3 ms), and both swap
+cases (8.1 ms vs 22.5 ms on 1k; 42.1 ms vs 54.1 ms on 10k). The 1k partial operations sit near
+the paint floor; remove-10k (1.48× React) and update-every-10th-10k (1.26×) are the remaining
+open items — large-table remove/update still scale with row count.
 
 ## How it got there
 
-The July 2026 rewrite moved the original 9-op geometric mean from **15.2× to roughly 1.1×**. The
-current 13-op headline is **1.20×** after adding the 10k-table partial operations:
+<!-- code: kinetica-browser/src@js/BrowserKineticaApp.kt (retained renderer), kinetica-runtime/src/Frames.kt (frame ordinals), kinetica-runtime/src/ComponentScope.kt (each memoization), kinetica-compiler/src/KineticaIrFrames.kt -->
+
+The July 2026 rewrite moved the original 9-op geometric mean from **15.2× to roughly 1.1×**;
+frame ordinals then took the 13-op headline below React for the first time (**0.97×** vs
+React):
 
 1. **Event registry fix (15.2× → 3.0×).** Profiling showed 60–67% of all CPU in an O(n)
    identity scan run per handler per render — O(n²) per operation and leaking. A hash map with
@@ -57,8 +65,9 @@ current 13-op headline is **1.20×** after adding the 10k-table partial operatio
    maintained key-scope prefix. Create-10k dropped from 474 ms to roughly 300 ms.
 6. **Browser fast-paths + benchmark bundling.** The browser renderer avoids repeated tag/attribute
    classification work, and the benchmark now loads Kinetica through a post-link esbuild production
-   bundle instead of the Kotlin Toolchain preview multi-file graph. Startup is 22.6 ms with one JS
-   file and an 82 KB gzip payload.
+   bundle instead of the Kotlin Toolchain preview multi-file graph. Startup dropped to 22.6 ms
+   at this phase with one JS file and an 82 KB gzip payload (24.5 ms / 85 KB after frame
+   ordinals).
 7. **Frame ordinals (1.20× → 0.97×).** The compiler plugin became mandatory and slot identity
    moved to compile time: every `state`/`derived`/effect call site gets a static ordinal in a
    per-component frame, so the hot path reads slots by array index — no key strings, no
@@ -67,10 +76,13 @@ current 13-op headline is **1.20×** after adding the 10k-table partial operatio
    first time: swap1k 0.36×, swap10k 0.78×, replace1k and create10k 0.90×; remove10k (1.48×)
    and update-every-10th-10k (1.26×) are the remaining open items.
 
-The full root-cause analysis, phase gates and measurement methodology live in
-`perf-rewrite-design.md` at the repository root.
+The remaining open items are tracked as KNT tickets in `plan.md` at the repository root;
+the full root-cause analysis, phase gates and measurement methodology live in the git
+history of `perf-rewrite-design.md` (retired into `plan.md`, July 2026).
 
 ## What the suite measures
+
+<!-- code: bench/run-all.mjs, bench/driver/tree.mjs, bench/driver/scaling.mjs, bench-jvm/src, scripts/size-report.mjs -->
 
 Beyond the classic nine operations, the harness tracks the regressions that a single-size,
 single-click table can't see:
@@ -86,7 +98,9 @@ single-click table can't see:
 - **Deep tree** — a 1,555-node keyed tree (create, leaf updates, subtree moves, and a no-op
   re-render that isolates pure reconciliation overhead per framework).
 - **Memory churn and leaks** — heap after replace/create-clear cycles and after repeated
-  mount/unmount cycles through each app's teardown path.
+  mount/unmount cycles through each app's teardown path. This gate is currently the one open
+  regression: heap after 1k rows is 5.7 MB against a ≤5 MB target (React 4.4 MB, vanilla
+  1.9 MB).
 - **CPU-throttled pass** — the whole suite under 4× CDP throttling as a low-end-device proxy.
 - **JVM microbenchmarks** (`bench-jvm` module) — reactive-core propagation, render-pipeline
   Node construction and markdown SSR throughput, minutes-fast for per-PR regression checks.
@@ -94,6 +108,8 @@ single-click table can't see:
   `bench/size-baseline.json`.
 
 ## Performance model
+
+<!-- code: kinetica-runtime/src/Node.kt (diffNodes), kinetica-runtime/src/ComponentScope.kt (renderEachRegion), bench/results/sizes.json -->
 
 - An event costs: handler + node-tree build + **diff O(tree) + patch O(changes)** + paint.
 - Unchanged subtrees compare cheaply; reference-equal subtrees (memoized `each` rows,
@@ -104,10 +120,12 @@ single-click table can't see:
   safe (`n^0.23`) and update as sublinear-to-linear (`n^0.86`), but swap exceeds its near-flat
   threshold (`n^0.84` vs 0.6).
 - The benchmark payload uses a post-link esbuild bundle over Kotlin/JS output while the Kotlin
-  Toolchain `js/app` product is still a preview. Kinetica now starts in 22.6 ms with one
-  82 KB gzip JS file in the benchmark, versus React's 27.3 ms and 60 KB gzip.
+  Toolchain `js/app` product is still a preview. Kinetica now starts in 24.5 ms with one
+  85 KB gzip JS file in the benchmark, versus React's 27.3 ms and 62 KB gzip.
 
 ## Reproducing
+
+<!-- code: bench/run-all.mjs, bench/README.md, scripts/size-report.mjs -->
 
 ```
 cd bench

@@ -1,6 +1,10 @@
 # Lists & keys
 
+<!-- code: kinetica-runtime/src/ComponentScope.kt (each, keyed, lazyEach) -->
+
 ## each
+
+<!-- code: kinetica-runtime/src/ComponentScope.kt (each, renderEachRegion), kinetica-runtime/src/Frames.kt (enterKeyedChild), kinetica-browser/src/ListReconcile.kt -->
 
 ```kotlin
 each(todos, key = { it.id }) { todo ->
@@ -25,6 +29,8 @@ Keys must be unique within one `each`. In debug mode a duplicate key fails the r
 in production the last item wins.
 
 ## Row memoization
+
+<!-- code: kinetica-runtime/src/ComponentScope.kt (renderEachRegion, frameSkipHit, markEachCapturesUnsafe), kinetica-runtime/src/Frames.kt (FrameSkipCache) -->
 
 `each` also **memoizes each row's output**. When an item is `==` to the previous render's, every
 cell the row read reports an unchanged version, and every context value it read is unchanged,
@@ -51,17 +57,23 @@ Two practical consequences:
 
 ## Try it
 
+<!-- code: docs/docs-client/src/main.kt (KeyedListExample) -->
+
 ::: example keyed-list
 
 Reverse moves the existing DOM elements — watch selection and element identity survive.
 
 ## keyed
 
+<!-- code: kinetica-runtime/src/ComponentScope.kt (keyed, keyedRegion) -->
+
 `keyed(key) { … }` gives a single subtree a frame per key — useful when a component's
 identity should follow data rather than the call site (e.g. a detail panel keyed by the
 selected id, so switching ids resets its state deliberately).
 
 ## lazyEach — windowed lists
+
+<!-- code: kinetica-runtime/src/ComponentScope.kt (lazyEach, lazyItems, LazyListState, RetainPolicy) -->
 
 ```kotlin
 val items = lazyItems(allRows, estimatedSize = allRows.size)
@@ -72,8 +84,9 @@ lazyEach(items, key = { it.id }, state = scroll, retain = RetainPolicy.Keyed) { 
 }
 ```
 
-`lazyEach` renders only `state.visibleRange` — the built-in lever for huge lists. `RetainPolicy`
-controls what happens to off-screen items' state:
+`lazyEach` renders only the rows in `state.visibleRange(total)` — the built-in lever for huge
+lists. A `placeholder` parameter renders in place of a visible row whose resources are still
+pending. `RetainPolicy` controls what happens to off-screen items' state:
 
 | Policy | Off-screen item state |
 |--------|-----------------------|
@@ -86,6 +99,8 @@ controls what happens to off-screen items' state:
 navigation restores scroll position.
 
 ## Where keys come from
+
+<!-- code: kinetica-runtime/src/ComponentScope.kt (keyedLastWins, duplicateKey) -->
 
 Prefer stable domain ids. Never use the item index as a key — an insertion at the head would
 re-key every row, which turns a 1-row change into an every-row update (state *and* DOM).

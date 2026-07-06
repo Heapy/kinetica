@@ -57,6 +57,11 @@ public fun parseMarkdown(source: String): List<MdBlock> {
                 blocks += MdCodeBlock(language, code.toString().trimEnd('\n'))
             }
 
+            trimmed.startsWith("<!--") -> {
+                while (index < lines.size && !lines[index].contains("-->")) index++
+                if (index < lines.size) index++ // consume the line closing the comment
+            }
+
             trimmed.startsWith(":::") -> {
                 val body = trimmed.removePrefix(":::").trim()
                 if (body.isNotEmpty()) {
@@ -129,6 +134,7 @@ public fun parseMarkdown(source: String): List<MdBlock> {
                     val nextTrimmed = next.trim()
                     val continues = nextTrimmed.isNotEmpty() &&
                         !nextTrimmed.startsWith("```") &&
+                        !nextTrimmed.startsWith("<!--") &&
                         !nextTrimmed.startsWith(":::") &&
                         !nextTrimmed.startsWith(">") &&
                         headingLevel(nextTrimmed) == 0 &&

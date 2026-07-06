@@ -1,9 +1,13 @@
 # Router & navigation
 
+<!-- code: kinetica-runtime/src/Navigation.kt (BackStack, Route), kinetica-router/src/Router.kt -->
+
 Navigation is core-adjacent by design: `BackStack` lives in the runtime, and the router battery
 (`kinetica-router`) adds the host component, transitions, history and deep links.
 
 ## Routes and the back stack
+
+<!-- code: kinetica-runtime/src/Navigation.kt (BackStack.push, pop, replaceAll) -->
 
 ```kotlin
 @Serializable
@@ -24,6 +28,8 @@ it enforces the invariant that it is never empty.
 
 ## NavHost
 
+<!-- code: kinetica-router/src/Router.kt (NavHost, NavOptions, NavEntry, NavDirection, NavTransition) -->
+
 ```kotlin
 NavHost(stack, options = NavOptions(retainPreviousEntries = 1, restoreScroll = true)) { route ->
     when (route) {
@@ -36,12 +42,15 @@ NavHost(stack, options = NavOptions(retainPreviousEntries = 1, restoreScroll = t
 `NavHost` renders the current route and up to `retainPreviousEntries` previous entries (kept
 mounted, marked retained — the entry you'd return to keeps its state). Dropped entries have
 their non-persistent state disposed. Each entry knows its `NavEntry` — direction
-(`Forward`/`Back`/`Replace`), transition, stack index — via `currentNavEntry()`.
+(`NavDirection`: `Initial`, `Unchanged`, `Forward`, `Back`, `Replace`), transition, stack
+index — via `currentNavEntry()`.
 
 Transitions annotate entries for renderers: `NavOptions(transition = NavTransition.slide(200))`
 (`None`, `fade(ms)`, `slide(ms)`).
 
 ## Scroll restoration
+
+<!-- code: kinetica-router/src/Router.kt (rememberNavScrollState, navLazyEach) -->
 
 ```kotlin
 val scroll = rememberNavScrollState(key = "feed")
@@ -52,6 +61,8 @@ Scroll state persists per navigation entry: navigate away and back, the window p
 restored (`restoreScroll = true`).
 
 ## System back
+
+<!-- code: kinetica-router/src/Router.kt (HostBackDispatcher, InMemoryHostBackDispatcher, bindHostBack) -->
 
 ```kotlin
 val dispatcher = InMemoryHostBackDispatcher()      // adapt to browser/Android back
@@ -65,6 +76,8 @@ a dialog).
 
 ## Serialization, history, deep links
 
+<!-- code: kinetica-router/src/Router.kt (jsonRouteCodec, InMemoryRouteHistory, writeToHistory, restoreFromHistory, deepLink, parseDeepLink) -->
+
 ```kotlin
 val codec = jsonRouteCodec(AppRoute.serializer())   // any RouteCodec<R>
 
@@ -73,7 +86,7 @@ stack.writeToHistory(history, codec)                // push or replace
 stack.restoreFromHistory(history, codec)
 
 val link = codec.deepLink(AppRoute.Details("42"))   // encoded deep link
-val route = codec.parseDeepLink(link.encoded)
+val parsed = codec.parseDeepLink(link.encoded)      // DeepLink<AppRoute>; the route is parsed.route
 ```
 
 Because routes are serializable values, the whole stack round-trips through history storage —

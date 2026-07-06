@@ -1,10 +1,14 @@
 # Resources & boundaries
 
+<!-- code: kinetica-runtime/src/Resources.kt (resource, Resource), kinetica-runtime/src/Boundary.kt (errorBoundary, loadingBoundary) -->
+
 The data-loading loop is **resource → read → invalidate**: declare an async source, read it like
 a value, invalidate it to refetch. Loading and failure are handled structurally by boundaries,
 not by hand-rolled `isLoading` flags.
 
 ## Declaring and reading
+
+<!-- code: kinetica-runtime/src/Resources.kt (resource, ResourceImpl.read, await), kinetica-runtime/src/Boundary.kt (loadingBoundaryRegion) -->
 
 ```kotlin
 data object ProfileKey : ResourceKey
@@ -26,6 +30,8 @@ the nearest `errorBoundary`. `await()` is the suspend variant for use inside eff
 
 ## Cache scopes
 
+<!-- code: kinetica-runtime/src/Resources.kt (CacheScope), kinetica-runtime/src/KineticaRuntime.kt (appResourceTtlMillis) -->
+
 | `CacheScope` | Lifetime |
 |--------------|----------|
 | `App` | shared per runtime, optional TTL (`appResourceTtlMillis`) |
@@ -34,8 +40,10 @@ the nearest `errorBoundary`. `await()` is the suspend variant for use inside eff
 
 ## Invalidation
 
+<!-- code: kinetica-runtime/src/Resources.kt (invalidate, ResourceRegistry.invalidate) -->
+
 ```kotlin
-profile.invalidate()              // this resource
+profile.invalidate()              // this resource's key
 invalidate(ProfileKey)            // by key, from anywhere
 invalidate { it is TodosKey }     // by predicate
 ```
@@ -44,6 +52,8 @@ Invalidation drops the cache and re-renders readers; the loader re-runs. Cancell
 cancelled load never poisons the cache as a permanent failure.
 
 ## Actions
+
+<!-- code: kinetica-runtime/src/Resources.kt (action), kinetica-data/src/Data.kt (optimisticAction, retry) -->
 
 Mutations pair with invalidation declaratively:
 
@@ -58,6 +68,8 @@ The [data battery](/docs/data) adds `optimisticAction` (apply → rollback on fa
 policies on top of this loop.
 
 ## Boundaries
+
+<!-- code: kinetica-runtime/src/Boundary.kt (errorBoundaryRegion, loadingBoundaryRegion, suspendSubtreeRegion) -->
 
 ```kotlin
 errorBoundary(
@@ -86,6 +98,8 @@ how much of the content rendered before it threw.
 
 ## Live demo
 
+<!-- code: docs/docs-client/src/main.kt (ResourceFetchExample), docs/docs-site/src/main.kt (demo/api/stack routes) -->
+
 The stack builder below runs the whole loop against this documentation server. The list is a
 `resource` whose loader fetches `GET /demo/api/stack`; adding a language runs an `action` that
 `POST`s it and invalidates the resource key, so readers refetch. Every visitor gets their own
@@ -99,7 +113,8 @@ The backend has opinions. Try adding **Java** — the server throws a
 error propagates from the action into the nearest `errorBoundary`, and *Try again* clears it,
 handing your input back for another attempt.
 
-The client code is the loop from this page, verbatim:
+The client code is the loop from this page (trimmed of markup — the full source is
+`docs/docs-client/src/main.kt`):
 
 ```kotlin
 data object TeamStackKey : ResourceKey

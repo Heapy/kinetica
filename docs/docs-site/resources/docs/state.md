@@ -1,10 +1,16 @@
 # State & reactivity
 
-Kinetica has **one reactive primitive: the cell**. `state`, `derived`, `store`, contexts and
-resources are all cells; reads inside render are tracked, writes invalidate exactly the
-components that read them.
+<!-- code: kinetica-runtime/src/Cell.kt (Cell, MutableCell, store), kinetica-runtime/src/ComponentScope.kt (state, derived) -->
+
+Kinetica has **one reactive primitive: the cell**. `state`, `derived` and `store` are all cells
+(resources cache their values in the same machinery); reads inside render are tracked, a write
+invalidates the render, and [memoization](/docs/lists-and-keys) prunes the re-render down to the
+components whose inputs actually changed. Contexts are the one ambient mechanism that is *not* a
+cell — they are scoped values, not reactive state.
 
 ## state
+
+<!-- code: kinetica-runtime/src/ComponentScope.kt (state), kinetica-runtime/src/Frames.kt (Frame.slot) -->
 
 ```kotlin
 var count by state { 0 }
@@ -32,7 +38,15 @@ fun <T> ComponentScope.state(
 ): MutableCell<T>
 ```
 
+Signatures on these pages omit the `ordinal: Int = -1` parameter the compiler plugin fills in
+at every slot-consuming call site — you never pass it yourself. A second overload,
+`state(slotId = …, persistent = true) { … }`, addresses a slot by a stable
+[`SlotId`](/docs/persist) for persistence. The returned `MutableCell` also has
+`update { it + 1 }` for read-modify-write.
+
 ## derived
+
+<!-- code: kinetica-runtime/src/ComponentScope.kt (derived), kinetica-runtime/src/Cell.kt (DerivedCell) -->
 
 ```kotlin
 val remaining by derived { todos.count { !it.done } }
@@ -44,6 +58,8 @@ re-render — `derived { count > 0 }` re-renders its readers only when the boole
 
 ## store — cells outside the render tree
 
+<!-- code: kinetica-runtime/src/Cell.kt (store, peek), kinetica-runtime/src/KineticaRuntime.kt (updateRenderSubscriptions) -->
+
 ```kotlin
 val theme = store(Theme.Light)          // plain reactive cell, no component scope needed
 val current = peek { theme.value }      // read without dependency tracking
@@ -53,6 +69,8 @@ val current = peek { theme.value }      // read without dependency tracking
 field state). Renders that read a store re-render when it changes.
 
 ## Events
+
+<!-- code: kinetica-runtime/src/Effects.kt (event, StableEvent), kinetica-browser/src@js/BrowserKineticaApp.kt (dispatchAndRender) -->
 
 ```kotlin
 val add = event { todos = todos + draft }         // () -> Unit
@@ -66,6 +84,8 @@ configure and no torn intermediate state to observe.
 
 ## Try it
 
+<!-- code: docs/docs-client/src/main.kt (CounterExample, InputMirrorExample) -->
+
 ::: example counter
 
 The counter above is `state` + `derived` + two `event` handlers, mounted with the browser
@@ -75,13 +95,20 @@ renderer. So is this input mirror:
 
 ## Equality policies
 
+<!-- code: kinetica-runtime/src/EqualityPolicy.kt -->
+
 | Policy | Behavior |
 |--------|----------|
 | `structural()` | `==` comparison (default) |
 | `referential()` | `===` comparison |
 | `neverEqual()` | every write invalidates |
 
+`EqualityPolicy` is a `fun interface` — pass `EqualityPolicy { a, b -> … }` for custom
+change detection.
+
 ## Rules of thumb
+
+<!-- code: kinetica-runtime/src/Cell.kt, kinetica-runtime/src/Effects.kt -->
 
 - Model state as immutable values (`data class` copies, new lists). The renderer diffs values —
   mutation in place defeats change detection.

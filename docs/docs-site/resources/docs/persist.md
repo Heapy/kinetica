@@ -1,10 +1,14 @@
 # Persistence
 
+<!-- code: kinetica-persist/src/Persist.kt, kinetica-runtime/src/ComponentScope.kt (SlotId) -->
+
 State survives process death through **slot persistence**: state slots addressed by stable ids,
 bridged to a storage backend explicitly. Also here: the theme battery, Kinetica's other ambient
 state module.
 
 ## Stable slot ids
+
+<!-- code: kinetica-runtime/src/ComponentScope.kt (SlotId, state slotId overload), kinetica-runtime/src/Frames.kt (persistentSlotIds) -->
 
 ```kotlin
 val DraftSlot = SlotId(
@@ -25,24 +29,33 @@ itself**; durability comes from the save/restore bridge below.
 
 ## Saving and restoring
 
+<!-- code: kinetica-persist/src/Persist.kt (persistentState, restoreSlot, saveSlot, persistentSlot, restoreSlots, saveSlots) -->
+
 ```kotlin
-val backend = JsonSlotPersistenceBackend()          // or your own SlotPersistenceBackend
+val backend = JsonSlotPersistenceBackend()   // reference backend: JSON over an in-memory store
 
 // on save points (suspend):
 scope.saveSlot(DraftSlot, backend, String.serializer())
 
-// on startup, before rendering (suspend):
-scope.restoreSlot(DraftSlot, backend, String.serializer())
-scope.render {
+// on startup — restore into the scope, then render with it:
+val scope = ComponentScope(runtime)
+scope.restoreSlot(DraftSlot, backend, String.serializer())   // parks the value in the scope
+runtime.render(scope) {
     var draft by persistentState(slotId = DraftSlot, restoredValue = readSlot(DraftSlot)) { "" }
 }
 ```
+
+`JsonSlotPersistenceBackend` handles serialization but stores strings in memory — it is the
+reference implementation, not durable storage. Real durability comes from a
+`StringSlotPersistenceStore` over platform storage (see Backends below).
 
 Writing `null` into a present slot removes the backend entry — cleared state does not resurrect
 on the next launch. Batch variants: `persistentSlot(slotId, serializer)` bindings +
 `restoreSlots` / `saveSlots`.
 
 ## Backends
+
+<!-- code: kinetica-persist/src/Persist.kt (SlotPersistenceBackend, StringSlotPersistenceBackend, DataStoreSlotPersistenceBackend, LocalStorageSlotPersistenceBackend, NSUserDefaultsSlotPersistenceBackend) -->
 
 `SlotPersistenceBackend` is three suspend functions (`read`, `write`, `remove`).
 `StringSlotPersistenceBackend` handles JSON encoding over any `StringSlotPersistenceStore` —
@@ -51,6 +64,8 @@ implement the string store over your platform storage. The shipped
 store you provide**, not built-in platform integrations.
 
 ## Theming (kinetica-theme)
+
+<!-- code: kinetica-theme/src/Theme.kt (Theme, ColorTokens, provideTheme, theme, breakpointFor, directional) -->
 
 Ambient design tokens ride the [context system](/docs/ui-dsl):
 

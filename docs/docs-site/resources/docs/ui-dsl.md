@@ -1,9 +1,15 @@
 # UI DSL & semantics
 
-Components emit nodes with a small DSL. Four node kinds exist: `HostNode` (an element),
-`TextNode`, `FragmentNode`, and `ClientRef` (a [server-component island](/docs/server-components)).
+<!-- code: kinetica-runtime/src/Node.kt (Node, HostNode, TextNode, FragmentNode, TemplateNode, ClientRef) -->
+
+Components emit nodes with a small DSL. Five node kinds exist: `HostNode` (an element),
+`TextNode`, `FragmentNode`, `TemplateNode` (a static skeleton with dynamic holes, emitted by the
+[compiler plugin](/docs/compiler-plugin)), and `ClientRef`
+(a [server-component island](/docs/server-components)).
 
 ## Primitives
+
+<!-- code: kinetica-runtime/src/HostDsl.kt (host, column, row, text, button, textInput, checkbox), kinetica-runtime/src/Html.kt (isSafeHtmlAttributeValue, SafeUrlSchemes), kinetica-browser/src/BrowserMapping.kt -->
 
 ```kotlin
 host("section", props = mapOf("class" to "card", "id" to "intro")) { … }
@@ -28,11 +34,15 @@ like `javascript:` never reach the DOM, on the server serializer and the browser
 
 ## Styling
 
+<!-- code: kinetica-browser/src@js/BrowserKineticaApp.kt (applyFlex) -->
+
 There is no styling system in core — set `class`/`style` props and ship CSS. `row`/`column` own
 their inline `style` (flex layout); use `class` on them, or plain `host("div")` when you want
 full control.
 
 ## Semantics
+
+<!-- code: kinetica-runtime/src/Semantics.kt (Semantics, Role), kinetica-runtime/src/SemanticsTree.kt, kinetica-browser/src@js/BrowserKineticaApp.kt (Semantics.applyTo) -->
 
 Accessibility and testability are one model, carried on the node:
 
@@ -42,7 +52,7 @@ button(
     semantics = Semantics(
         role = Role.Button,        // role attribute (skipped when the native tag covers it)
         label = "Save document",   // aria-label
-        testTag = "save",          // data-testid, used by tests and drivers
+        testTag = "save",          // data-testid + data-kinetica-test-tag, used by tests and drivers
         focusable = true,          // tabindex when the element isn't natively focusable
     ),
 ) { text("Save") }
@@ -57,6 +67,8 @@ semantics tree derives its label from the text value for queries; pass an explic
 `Semantics(label = ...)` only when the accessible label differs from the visible text.
 
 ## Contexts
+
+<!-- code: kinetica-runtime/src/ComponentScope.kt (context, provide, read), kinetica-theme/src/Theme.kt (theme, provideTheme) -->
 
 Ambient values flow through the tree without prop drilling:
 
@@ -73,6 +85,8 @@ The [theme battery](/docs/persist) is built on exactly this: `provideTheme(DarkT
 
 ## Boundaries in the tree
 
+<!-- code: kinetica-runtime/src/Boundary.kt (errorBoundary, loadingBoundary) -->
+
 Two structural components manage failure and loading around any subtree — they compose with
 everything above and are covered in [Resources & boundaries](/docs/resources):
 
@@ -81,7 +95,12 @@ errorBoundary(fallback = { error, info, retry -> … }) { RiskyPanel() }
 loadingBoundary(fallback = { text("Loading…") }) { ProfileCard() }
 ```
 
+`loadingBoundary` also takes `retainPrevious: Boolean = true` — while a refresh is pending it
+keeps showing the previous content instead of flashing the fallback.
+
 ## Conditional subtrees
+
+<!-- code: kinetica-runtime/src/ComponentScope.kt (keyed, keyedRegion) -->
 
 Plain `if/else` just works: slot identity is the call site, so the two arms can never share
 or corrupt each other's state — each branch's `state`/effects live in their own slots, and

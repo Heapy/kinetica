@@ -1,9 +1,13 @@
 # Data & offline
 
+<!-- code: kinetica-data/src/Data.kt -->
+
 `kinetica-data` layers real-world data concerns over the core
 [resource loop](/docs/resources): retries, optimistic mutations, pagination, and offline caches.
 
 ## Retry
+
+<!-- code: kinetica-data/src/Data.kt (RetryPolicy, retry, awaitWithRetry) -->
 
 ```kotlin
 val user = retry(RetryPolicy(attempts = 3, delayMillis = 250, backoffMultiplier = 2.0)) { attempt ->
@@ -19,6 +23,8 @@ cancelled retry loop never spins. `awaitWithRetry` invalidates the resource betw
 each retry re-runs the loader.
 
 ## Optimistic actions
+
+<!-- code: kinetica-data/src/Data.kt (optimisticAction), kinetica-runtime/src/Resources.kt (action) -->
 
 ```kotlin
 val addTodo = optimisticAction(
@@ -37,6 +43,8 @@ version through the normal resource loop.
 
 ## Pagination
 
+<!-- code: kinetica-data/src/Data.kt (Paginator, paginator, asLazyItems), kinetica-runtime/src/ComponentScope.kt (lazyEach) -->
+
 ```kotlin
 val pager = paginator<Article>(key = "feed")
 
@@ -53,6 +61,8 @@ returns `Page(items, next, totalCount)` and `isEnd` falls out of `next == null`.
 `asLazyItems()` plugs straight into [`lazyEach`](/docs/lists-and-keys).
 
 ## Offline cache
+
+<!-- code: kinetica-data/src/Data.kt (OfflineCache, InMemoryOfflineCache, OfflineStrategy, OfflineLoad) -->
 
 ```kotlin
 val cache = InMemoryOfflineCache<String, Orders>()

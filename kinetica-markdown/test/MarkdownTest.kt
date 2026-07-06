@@ -444,6 +444,25 @@ class MarkdownTest {
     }
 
     @Test
+    fun htmlCommentsRenderNothing() {
+        val html = render(
+            """
+            Before.
+            <!-- code: kinetica-runtime/src/ComponentScope.kt -->
+
+            <!-- a comment
+            spanning several lines -->
+            After.
+            """.trimIndent(),
+        )
+        assertTrue("<p>Before.</p>" in html, html)
+        assertTrue("<p>After.</p>" in html, html)
+        assertTrue("code:" !in html, html)
+        assertTrue("spanning" !in html, html)
+        assertTrue("&lt;!--" !in html, html)
+    }
+
+    @Test
     fun plainTextAndSlugs() {
         val inlines = parseInlines("Using **state** and `derived`!")
         assertEquals("Using state and derived!", plainText(inlines))
