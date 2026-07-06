@@ -285,12 +285,14 @@ internal class Frame(
         regions?.values?.forEach { it.removeKeyedDescendants(key, keepPersistentSlots, runtime) }
     }
 
-    /** Disposes everything except persistence-addressed slots; children reset entirely. */
+    /**
+     * Disposes everything except persistence-addressed slots, recursively: row content
+     * lives in region frames below the keyed frame, so persistent cells at any depth must
+     * survive while their siblings (transients, events, caches) are torn down.
+     */
     internal fun stripForPersistentRetention(runtime: KineticaRuntime) {
         skipCache = null
-        forEachChildFrame { it.dispose(runtime) }
-        children = null
-        regions = null
+        forEachChildFrame { it.stripForPersistentRetention(runtime) }
         val keep = persistentOrdinals
         for (ordinal in slots.indices) {
             val value = slots[ordinal] ?: continue

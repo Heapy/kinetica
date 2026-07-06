@@ -361,8 +361,13 @@ internal class KineticaFrameTransformer(
             val extraArguments = mutableMapOf<String, IrExpression>()
             val builder = DeclarationIrBuilder(pluginContext, enclosingFunction.symbol)
             if (name in REGION_STATE_SLOTS) {
-                extraArguments["stateOrdinal"] = builder.irInt(numbering.slots++)
-                if (name != "suspendSubtree") {
+                val stateOrdinal = numbering.slots++
+                extraArguments["stateOrdinal"] = builder.irInt(stateOrdinal)
+                if (name == "suspendSubtree") {
+                    // The subtree state owns a pending coroutine and a nested scope; it must
+                    // expire (and dispose) when a render stops touching the call site.
+                    numbering.transientSlots += stateOrdinal
+                } else {
                     extraArguments["contentOrdinal"] = builder.irInt(numbering.children++)
                 }
                 extraArguments["fallbackOrdinal"] = builder.irInt(numbering.children++)
