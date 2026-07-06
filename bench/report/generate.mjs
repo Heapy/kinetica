@@ -781,5 +781,5 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
 </script>
 `;
 
-writeFileSync(outPath, html);
+writeFileSync(outPath, html.replace(/[ \t]+$/gm, ""));
 console.log(`report written to ${outPath}`);

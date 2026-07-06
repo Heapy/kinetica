@@ -221,7 +221,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
       <span class="chip">Chromium 149.0.7827.55 (headless)</span>
       <span class="chip">2026-07-06</span>
       <span class="chip">10 samples + 3 warmup / op</span>
-      
+
     </div>
     <div class="legend"><span class="legend-item"><span class="swatch" data-fw="kinetica"></span>Kinetica<span class="ver"> dev</span></span><span class="legend-item"><span class="swatch" data-fw="react"></span>React<span class="ver"> 19.2.7</span></span><span class="legend-item"><span class="swatch" data-fw="preact"></span>Preact<span class="ver"> 10.29.4</span></span><span class="legend-item"><span class="swatch" data-fw="vue"></span>Vue<span class="ver"> 3.5.39</span></span><span class="legend-item"><span class="swatch" data-fw="svelte"></span>Svelte<span class="ver"> 5.56.4</span></span><span class="legend-item"><span class="swatch" data-fw="vanilla"></span>Vanilla JS<span class="ver"></span></span></div>
   </header>
@@ -229,43 +229,43 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
   <section>
     <h2>Overall</h2>
     <p class="section-sub">One number per framework: how many times slower it is than the fastest
-    contender, averaged (geometric mean) over all 9 DOM operations. 1.00× would mean
+    contender, averaged (geometric mean) over all 13 DOM operations. 1.00× would mean
     fastest at everything.</p>
     <div class="hero-grid">
   <figure class="chart">
     <figcaption><strong>Geometric mean slowdown</strong><span class="sub">across all measured operations, relative to the fastest framework per operation — lower is better</span></figcaption>
     <div class="bars" data-unit="×">
-      <div class="bar-row" data-tip="Vanilla JS: 1.02× the per-operation fastest, geometric mean over 9 operations">
+      <div class="bar-row" data-tip="Vanilla JS: 1.02× the per-operation fastest, geometric mean over 13 operations">
         <span class="bar-name">Vanilla JS</span>
         <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:67.8%"></span>
         <span class="bar-value">1.02×</span></span>
       </div>
-      <div class="bar-row" data-tip="Svelte: 1.05× the per-operation fastest, geometric mean over 9 operations">
+      <div class="bar-row" data-tip="Svelte: 1.05× the per-operation fastest, geometric mean over 13 operations">
         <span class="bar-name">Svelte</span>
         <span class="bar-track"><span class="bar" data-fw="svelte" style="width:69.9%"></span>
         <span class="bar-value">1.05×</span></span>
       </div>
-      <div class="bar-row" data-tip="Vue: 1.09× the per-operation fastest, geometric mean over 9 operations">
+      <div class="bar-row" data-tip="Vue: 1.09× the per-operation fastest, geometric mean over 13 operations">
         <span class="bar-name">Vue</span>
         <span class="bar-track"><span class="bar" data-fw="vue" style="width:72.5%"></span>
         <span class="bar-value">1.09×</span></span>
       </div>
-      <div class="bar-row" data-tip="Preact: 1.09× the per-operation fastest, geometric mean over 9 operations">
+      <div class="bar-row" data-tip="Preact: 1.09× the per-operation fastest, geometric mean over 13 operations">
         <span class="bar-name">Preact</span>
         <span class="bar-track"><span class="bar" data-fw="preact" style="width:72.8%"></span>
         <span class="bar-value">1.09×</span></span>
       </div>
-      <div class="bar-row" data-tip="Kinetica: 1.25× the per-operation fastest, geometric mean over 9 operations">
+      <div class="bar-row" data-tip="Kinetica: 1.15× the per-operation fastest, geometric mean over 13 operations">
         <span class="bar-name">Kinetica</span>
-        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:83.3%"></span>
-        <span class="bar-value">1.25×</span></span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:76.8%"></span>
+        <span class="bar-value">1.15×</span></span>
       </div>
-      <div class="bar-row" data-tip="React: 1.29× the per-operation fastest, geometric mean over 9 operations">
+      <div class="bar-row" data-tip="React: 1.29× the per-operation fastest, geometric mean over 13 operations">
         <span class="bar-name">React</span>
         <span class="bar-track"><span class="bar" data-fw="react" style="width:86.0%"></span>
         <span class="bar-value">1.29×</span></span>
       </div></div>
-    
+
   </figure></div>
   </section>
 
@@ -275,16 +275,16 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
     paint, measured from Chrome traces. The small factor under each value is the slowdown relative to
     the fastest framework in that row. Hover a cell for the full distribution. Operations 10–13 repeat
     the partial operations on a 10,000-row table — where accidental O(n²) bookkeeping shows up.</p>
-    
+
     <div class="table-scroll">
       <table class="results">
         <thead>
           <tr><th></th><th scope="col"><span class="swatch" data-fw="kinetica"></span>Kinetica</th><th scope="col"><span class="swatch" data-fw="react"></span>React</th><th scope="col"><span class="swatch" data-fw="preact"></span>Preact</th><th scope="col"><span class="swatch" data-fw="vue"></span>Vue</th><th scope="col"><span class="swatch" data-fw="svelte"></span>Svelte</th><th scope="col"><span class="swatch" data-fw="vanilla"></span>Vanilla JS</th></tr>
         </thead>
         <tbody>
-          <tr><th scope="row">create 1,000 rows</th><td class="cell" style="--cell:#9ec5f4" data-dark="false"
-          title="Kinetica · create 1,000 rows: median 38.4ms (mean 38.9 ± 6.1, min 30.6, max 49.1, n=10)">
-          <span class="ms">38.4</span><span class="factor">1.3×</span></td><td class="cell" style="--cell:#b7d3f6" data-dark="false"
+          <tr><th scope="row">create 1,000 rows</th><td class="cell" style="--cell:#86b6ef" data-dark="false"
+          title="Kinetica · create 1,000 rows: median 39.7ms (mean 38.3 ± 6.0, min 27.0, max 44.6, n=10)">
+          <span class="ms">39.7</span><span class="factor">1.3×</span></td><td class="cell" style="--cell:#b7d3f6" data-dark="false"
           title="React · create 1,000 rows: median 32.1ms (mean 32.0 ± 4.5, min 24.7, max 37.9, n=10)">
           <span class="ms">32.1</span><span class="factor">1.1×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
           title="Preact · create 1,000 rows: median 29.4ms (mean 31.4 ± 4.5, min 25.6, max 39.7, n=10)">
@@ -295,8 +295,8 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
           <span class="ms">30.9</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
           title="Vanilla JS · create 1,000 rows: median 30.7ms (mean 29.6 ± 3.1, min 24.1, max 34.2, n=10)">
           <span class="ms">30.7</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">replace all 1,000 rows</th><td class="cell" style="--cell:#9ec5f4" data-dark="false"
-          title="Kinetica · replace all 1,000 rows: median 37.5ms (mean 38.3 ± 3.3, min 34.4, max 44.5, n=10)">
-          <span class="ms">37.5</span><span class="factor">1.2×</span></td><td class="cell" style="--cell:#9ec5f4" data-dark="false"
+          title="Kinetica · replace all 1,000 rows: median 39.5ms (mean 38.9 ± 4.2, min 31.6, max 44.3, n=10)">
+          <span class="ms">39.5</span><span class="factor">1.3×</span></td><td class="cell" style="--cell:#9ec5f4" data-dark="false"
           title="React · replace all 1,000 rows: median 37.7ms (mean 37.5 ± 1.5, min 34.7, max 39.6, n=10)">
           <span class="ms">37.7</span><span class="factor">1.3×</span></td><td class="cell" style="--cell:#b7d3f6" data-dark="false"
           title="Preact · replace all 1,000 rows: median 31.8ms (mean 32.1 ± 4.0, min 27.9, max 40.8, n=10)">
@@ -307,7 +307,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
           <span class="ms">32.6</span><span class="factor">1.1×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
           title="Vanilla JS · replace all 1,000 rows: median 30.0ms (mean 29.5 ± 3.8, min 20.4, max 34.0, n=10)">
           <span class="ms">30.0</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">partial update (every 10th row)</th><td class="cell" style="--cell:#b7d3f6" data-dark="false"
-          title="Kinetica · partial update (every 10th row): median 8.1ms (mean 8.4 ± 0.9, min 7.1, max 10.4, n=10)">
+          title="Kinetica · partial update (every 10th row): median 8.1ms (mean 8.0 ± 0.8, min 6.8, max 9.3, n=10)">
           <span class="ms">8.1</span><span class="factor">1.2×</span></td><td class="cell" style="--cell:#b7d3f6" data-dark="false"
           title="React · partial update (every 10th row): median 7.4ms (mean 7.1 ± 0.8, min 5.1, max 8.2, n=10)">
           <span class="ms">7.4</span><span class="factor">1.1×</span></td><td class="cell" style="--cell:#b7d3f6" data-dark="false"
@@ -318,9 +318,9 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
           title="Svelte · partial update (every 10th row): median 7.5ms (mean 7.6 ± 0.6, min 6.5, max 8.6, n=10)">
           <span class="ms">7.5</span><span class="factor">1.1×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
           title="Vanilla JS · partial update (every 10th row): median 7.0ms (mean 7.3 ± 0.6, min 6.4, max 8.4, n=10)">
-          <span class="ms">7.0</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">select row</th><td class="cell" style="--cell:#b7d3f6" data-dark="false"
-          title="Kinetica · select row: median 7.8ms (mean 7.8 ± 0.4, min 7.1, max 8.4, n=10)">
-          <span class="ms">7.8</span><span class="factor">1.1×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+          <span class="ms">7.0</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">select row</th><td class="cell" style="--cell:#cde2fb" data-dark="false"
+          title="Kinetica · select row: median 7.4ms (mean 7.6 ± 0.6, min 6.8, max 8.6, n=10)">
+          <span class="ms">7.4</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
           title="React · select row: median 7.2ms (mean 7.2 ± 0.9, min 5.1, max 8.5, n=10)">
           <span class="ms">7.2</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
           title="Preact · select row: median 7.1ms (mean 7.3 ± 0.6, min 6.6, max 8.3, n=10)">
@@ -330,9 +330,9 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
           title="Svelte · select row: median 7.4ms (mean 7.4 ± 0.4, min 6.8, max 8.1, n=10)">
           <span class="ms">7.4</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
           title="Vanilla JS · select row: median 7.3ms (mean 7.3 ± 0.4, min 6.6, max 8.1, n=10)">
-          <span class="ms">7.3</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">swap two rows</th><td class="cell" style="--cell:#b7d3f6" data-dark="false"
-          title="Kinetica · swap two rows: median 8.8ms (mean 8.7 ± 0.9, min 7.5, max 10.4, n=10)">
-          <span class="ms">8.8</span><span class="factor">1.2×</span></td><td class="cell" style="--cell:#0d366b" data-dark="true"
+          <span class="ms">7.3</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">swap two rows</th><td class="cell" style="--cell:#cde2fb" data-dark="false"
+          title="Kinetica · swap two rows: median 7.7ms (mean 8.0 ± 0.9, min 6.7, max 9.2, n=10)">
+          <span class="ms">7.7</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#0d366b" data-dark="true"
           title="React · swap two rows: median 29.2ms (mean 27.9 ± 4.7, min 20.0, max 33.2, n=10)">
           <span class="ms">29.2</span><span class="factor">3.8×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
           title="Preact · swap two rows: median 7.7ms (mean 7.7 ± 0.8, min 6.1, max 8.6, n=10)">
@@ -342,9 +342,9 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
           title="Svelte · swap two rows: median 8.1ms (mean 8.0 ± 0.4, min 7.1, max 8.7, n=10)">
           <span class="ms">8.1</span><span class="factor">1.1×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
           title="Vanilla JS · swap two rows: median 7.6ms (mean 7.6 ± 0.7, min 6.4, max 9.3, n=10)">
-          <span class="ms">7.6</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">remove one row</th><td class="cell" style="--cell:#86b6ef" data-dark="false"
-          title="Kinetica · remove one row: median 9.4ms (mean 9.5 ± 1.5, min 7.2, max 12.6, n=10)">
-          <span class="ms">9.4</span><span class="factor">1.4×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+          <span class="ms">7.6</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">remove one row</th><td class="cell" style="--cell:#9ec5f4" data-dark="false"
+          title="Kinetica · remove one row: median 8.5ms (mean 8.8 ± 0.9, min 7.8, max 10.4, n=10)">
+          <span class="ms">8.5</span><span class="factor">1.2×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
           title="React · remove one row: median 6.9ms (mean 6.9 ± 0.5, min 5.9, max 7.9, n=10)">
           <span class="ms">6.9</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#b7d3f6" data-dark="false"
           title="Preact · remove one row: median 7.9ms (mean 7.9 ± 0.5, min 6.8, max 8.5, n=10)">
@@ -355,8 +355,8 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
           <span class="ms">7.3</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
           title="Vanilla JS · remove one row: median 7.1ms (mean 7.1 ± 0.6, min 6.3, max 8.5, n=10)">
           <span class="ms">7.1</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">create 10,000 rows</th><td class="cell" style="--cell:#6da7ec" data-dark="false"
-          title="Kinetica · create 10,000 rows: median 314.3ms (mean 309.2 ± 16.2, min 285.8, max 338.9, n=10)">
-          <span class="ms">314.3</span><span class="factor">1.6×</span></td><td class="cell" style="--cell:#6da7ec" data-dark="false"
+          title="Kinetica · create 10,000 rows: median 302.3ms (mean 302.3 ± 17.6, min 274.7, max 339.9, n=10, gc 122.1ms)">
+          <span class="ms">302.3</span><span class="factor">1.5×</span></td><td class="cell" style="--cell:#6da7ec" data-dark="false"
           title="React · create 10,000 rows: median 316.9ms (mean 322.7 ± 18.5, min 310.4, max 376.8, n=10)">
           <span class="ms">316.9</span><span class="factor">1.6×</span></td><td class="cell" style="--cell:#9ec5f4" data-dark="false"
           title="Preact · create 10,000 rows: median 265.5ms (mean 264.7 ± 11.4, min 245.6, max 287.9, n=10)">
@@ -367,8 +367,8 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
           <span class="ms">213.2</span><span class="factor">1.1×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
           title="Vanilla JS · create 10,000 rows: median 202.6ms (mean 204.1 ± 6.7, min 197.0, max 220.7, n=10)">
           <span class="ms">202.6</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">append 1,000 rows to 1,000</th><td class="cell" style="--cell:#86b6ef" data-dark="false"
-          title="Kinetica · append 1,000 rows to 1,000: median 40.8ms (mean 41.4 ± 4.3, min 37.1, max 49.5, n=10)">
-          <span class="ms">40.8</span><span class="factor">1.4×</span></td><td class="cell" style="--cell:#b7d3f6" data-dark="false"
+          title="Kinetica · append 1,000 rows to 1,000: median 41.9ms (mean 39.9 ± 4.5, min 31.4, max 45.2, n=10)">
+          <span class="ms">41.9</span><span class="factor">1.4×</span></td><td class="cell" style="--cell:#b7d3f6" data-dark="false"
           title="React · append 1,000 rows to 1,000: median 31.8ms (mean 31.6 ± 2.9, min 26.8, max 37.8, n=10)">
           <span class="ms">31.8</span><span class="factor">1.1×</span></td><td class="cell" style="--cell:#9ec5f4" data-dark="false"
           title="Preact · append 1,000 rows to 1,000: median 36.2ms (mean 36.2 ± 2.8, min 32.3, max 41.3, n=10)">
@@ -378,9 +378,9 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
           title="Svelte · append 1,000 rows to 1,000: median 29.8ms (mean 28.3 ± 4.0, min 22.2, max 33.2, n=10)">
           <span class="ms">29.8</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
           title="Vanilla JS · append 1,000 rows to 1,000: median 31.1ms (mean 30.4 ± 2.9, min 23.2, max 33.4, n=10)">
-          <span class="ms">31.1</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">clear 1,000 rows</th><td class="cell" style="--cell:#cde2fb" data-dark="false"
-          title="Kinetica · clear 1,000 rows: median 7.2ms (mean 7.2 ± 0.6, min 6.3, max 8.4, n=10)">
-          <span class="ms">7.2</span><span class="factor">1.1×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
+          <span class="ms">31.1</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">clear 1,000 rows</th><td class="cell" style="--cell:#b7d3f6" data-dark="false"
+          title="Kinetica · clear 1,000 rows: median 7.5ms (mean 7.5 ± 1.0, min 6.1, max 10.1, n=10)">
+          <span class="ms">7.5</span><span class="factor">1.1×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
           title="React · clear 1,000 rows: median 7.0ms (mean 7.0 ± 0.8, min 5.4, max 8.1, n=10)">
           <span class="ms">7.0</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
           title="Preact · clear 1,000 rows: median 6.8ms (mean 6.6 ± 0.9, min 5.1, max 7.8, n=10)">
@@ -390,14 +390,22 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
           title="Svelte · clear 1,000 rows: median 6.8ms (mean 6.7 ± 0.5, min 5.6, max 7.4, n=10)">
           <span class="ms">6.8</span><span class="factor">1.0×</span></td><td class="cell" style="--cell:#cde2fb" data-dark="false"
           title="Vanilla JS · clear 1,000 rows: median 6.8ms (mean 7.0 ± 0.6, min 5.7, max 7.9, n=10)">
-          <span class="ms">6.8</span><span class="factor">1.0×</span></td></tr>
-          <tr class="geo-row"><th scope="row">geometric mean of factors</th><td class="cell geo" style="--cell:#9ec5f4" data-dark="false"><span class="ms">1.25×</span></td><td class="cell geo" style="--cell:#9ec5f4" data-dark="false"><span class="ms">1.29×</span></td><td class="cell geo" style="--cell:#b7d3f6" data-dark="false"><span class="ms">1.09×</span></td><td class="cell geo" style="--cell:#b7d3f6" data-dark="false"><span class="ms">1.09×</span></td><td class="cell geo" style="--cell:#cde2fb" data-dark="false"><span class="ms">1.05×</span></td><td class="cell geo" style="--cell:#cde2fb" data-dark="false"><span class="ms">1.02×</span></td></tr>
+          <span class="ms">6.8</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">select row (10k table)</th><td class="cell" style="--cell:#cde2fb" data-dark="false"
+          title="Kinetica · select row (10k table): median 10.8ms (mean 10.9 ± 1.2, min 9.5, max 13.6, n=10)">
+          <span class="ms">10.8</span><span class="factor">1.0×</span></td><td class="cell empty">—</td><td class="cell empty">—</td><td class="cell empty">—</td><td class="cell empty">—</td><td class="cell empty">—</td></tr><tr><th scope="row">swap two rows (10k table)</th><td class="cell" style="--cell:#cde2fb" data-dark="false"
+          title="Kinetica · swap two rows (10k table): median 45.3ms (mean 45.9 ± 2.5, min 43.0, max 52.1, n=10)">
+          <span class="ms">45.3</span><span class="factor">1.0×</span></td><td class="cell empty">—</td><td class="cell empty">—</td><td class="cell empty">—</td><td class="cell empty">—</td><td class="cell empty">—</td></tr><tr><th scope="row">remove one row (10k table)</th><td class="cell" style="--cell:#cde2fb" data-dark="false"
+          title="Kinetica · remove one row (10k table): median 54.2ms (mean 57.2 ± 9.5, min 49.7, max 82.4, n=10)">
+          <span class="ms">54.2</span><span class="factor">1.0×</span></td><td class="cell empty">—</td><td class="cell empty">—</td><td class="cell empty">—</td><td class="cell empty">—</td><td class="cell empty">—</td></tr><tr><th scope="row">partial update (every 10th of 10k)</th><td class="cell" style="--cell:#cde2fb" data-dark="false"
+          title="Kinetica · partial update (every 10th of 10k): median 50.5ms (mean 52.7 ± 5.8, min 45.0, max 62.1, n=10)">
+          <span class="ms">50.5</span><span class="factor">1.0×</span></td><td class="cell empty">—</td><td class="cell empty">—</td><td class="cell empty">—</td><td class="cell empty">—</td><td class="cell empty">—</td></tr>
+          <tr class="geo-row"><th scope="row">geometric mean of factors</th><td class="cell geo" style="--cell:#b7d3f6" data-dark="false"><span class="ms">1.15×</span></td><td class="cell geo" style="--cell:#9ec5f4" data-dark="false"><span class="ms">1.29×</span></td><td class="cell geo" style="--cell:#b7d3f6" data-dark="false"><span class="ms">1.09×</span></td><td class="cell geo" style="--cell:#b7d3f6" data-dark="false"><span class="ms">1.09×</span></td><td class="cell geo" style="--cell:#cde2fb" data-dark="false"><span class="ms">1.05×</span></td><td class="cell geo" style="--cell:#cde2fb" data-dark="false"><span class="ms">1.02×</span></td></tr>
         </tbody>
       </table>
     </div>
   </section>
 
-  
+
   <section>
     <h2>One fix, measured</h2>
     <p class="section-sub">Profiling traced 60–67% of all CPU to <code>KineticaRuntime.registerEvent</code>:
@@ -414,47 +422,47 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
         <tbody><tr>
         <th scope="row">create 1,000 rows</th>
         <td class="num">252.0</td>
-        <td class="num">38.4</td>
-        <td class="num delta">6.6× faster</td>
+        <td class="num">39.7</td>
+        <td class="num delta">6.4× faster</td>
       </tr><tr>
         <th scope="row">replace all 1,000 rows</th>
         <td class="num">431.2</td>
-        <td class="num">37.5</td>
-        <td class="num delta">11.5× faster</td>
+        <td class="num">39.5</td>
+        <td class="num delta">10.9× faster</td>
       </tr><tr>
         <th scope="row">partial update (every 10th row)</th>
         <td class="num">251.4</td>
         <td class="num">8.1</td>
-        <td class="num delta">30.9× faster</td>
+        <td class="num delta">31.1× faster</td>
       </tr><tr>
         <th scope="row">select row</th>
         <td class="num">61.6</td>
-        <td class="num">7.8</td>
-        <td class="num delta">7.9× faster</td>
+        <td class="num">7.4</td>
+        <td class="num delta">8.3× faster</td>
       </tr><tr>
         <th scope="row">swap two rows</th>
         <td class="num">61.6</td>
-        <td class="num">8.8</td>
-        <td class="num delta">7.0× faster</td>
+        <td class="num">7.7</td>
+        <td class="num delta">8.0× faster</td>
       </tr><tr>
         <th scope="row">remove one row</th>
         <td class="num">473.7</td>
-        <td class="num">9.4</td>
-        <td class="num delta">50.6× faster</td>
+        <td class="num">8.5</td>
+        <td class="num delta">56.0× faster</td>
       </tr><tr>
         <th scope="row">create 10,000 rows</th>
         <td class="num">20,268.6</td>
-        <td class="num">314.3</td>
-        <td class="num delta">64.5× faster</td>
+        <td class="num">302.3</td>
+        <td class="num delta">67.0× faster</td>
       </tr><tr>
         <th scope="row">append 1,000 rows to 1,000</th>
         <td class="num">795.5</td>
-        <td class="num">40.8</td>
-        <td class="num delta">19.5× faster</td>
+        <td class="num">41.9</td>
+        <td class="num delta">19.0× faster</td>
       </tr><tr>
         <th scope="row">clear 1,000 rows</th>
         <td class="num">7.2</td>
-        <td class="num">7.2</td>
+        <td class="num">7.5</td>
         <td class="num delta">≈ same</td>
       </tr></tbody>
       </table>
@@ -469,150 +477,150 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
   <figure class="chart">
     <figcaption><strong>create 1,000 rows</strong></figcaption>
     <div class="bars" data-unit="ms">
-      <div class="bar-row" data-tip="Kinetica: median 38.4ms · mean 38.9 ± 6.1 · range 30.6–49.1ms · 10 samples">
+      <div class="bar-row" data-tip="Kinetica: median 39.7ms · mean 38.3 ± 6.0 · range 27.0–44.6ms · 10 samples">
         <span class="bar-name">Kinetica</span>
         <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
-        <span class="bar-value">38.4</span></span>
+        <span class="bar-value">39.7</span></span>
       </div>
       <div class="bar-row" data-tip="React: median 32.1ms · mean 32.0 ± 4.5 · range 24.7–37.9ms · 10 samples">
         <span class="bar-name">React</span>
-        <span class="bar-track"><span class="bar" data-fw="react" style="width:72.0%"></span>
+        <span class="bar-track"><span class="bar" data-fw="react" style="width:69.6%"></span>
         <span class="bar-value">32.1</span></span>
       </div>
       <div class="bar-row" data-tip="Preact: median 29.4ms · mean 31.4 ± 4.5 · range 25.6–39.7ms · 10 samples">
         <span class="bar-name">Preact</span>
-        <span class="bar-track"><span class="bar" data-fw="preact" style="width:65.9%"></span>
+        <span class="bar-track"><span class="bar" data-fw="preact" style="width:63.7%"></span>
         <span class="bar-value">29.4</span></span>
       </div>
       <div class="bar-row" data-tip="Vue: median 32.9ms · mean 32.2 ± 3.4 · range 24.7–36.3ms · 10 samples">
         <span class="bar-name">Vue</span>
-        <span class="bar-track"><span class="bar" data-fw="vue" style="width:73.8%"></span>
+        <span class="bar-track"><span class="bar" data-fw="vue" style="width:71.4%"></span>
         <span class="bar-value">32.9</span></span>
       </div>
       <div class="bar-row" data-tip="Svelte: median 30.9ms · mean 30.3 ± 4.6 · range 22.6–37.0ms · 10 samples">
         <span class="bar-name">Svelte</span>
-        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:69.2%"></span>
+        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:66.9%"></span>
         <span class="bar-value">30.9</span></span>
       </div>
       <div class="bar-row" data-tip="Vanilla JS: median 30.7ms · mean 29.6 ± 3.1 · range 24.1–34.2ms · 10 samples">
         <span class="bar-name">Vanilla JS</span>
-        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:68.7%"></span>
+        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:66.5%"></span>
         <span class="bar-value">30.7</span></span>
       </div></div>
-    
+
   </figure>
   <figure class="chart">
     <figcaption><strong>replace all 1,000 rows</strong></figcaption>
     <div class="bars" data-unit="ms">
-      <div class="bar-row" data-tip="Kinetica: median 37.5ms · mean 38.3 ± 3.3 · range 34.4–44.5ms · 10 samples">
+      <div class="bar-row" data-tip="Kinetica: median 39.5ms · mean 38.9 ± 4.2 · range 31.6–44.3ms · 10 samples">
         <span class="bar-name">Kinetica</span>
-        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:85.6%"></span>
-        <span class="bar-value">37.5</span></span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
+        <span class="bar-value">39.5</span></span>
       </div>
       <div class="bar-row" data-tip="React: median 37.7ms · mean 37.5 ± 1.5 · range 34.7–39.6ms · 10 samples">
         <span class="bar-name">React</span>
-        <span class="bar-track"><span class="bar" data-fw="react" style="width:86.0%"></span>
+        <span class="bar-track"><span class="bar" data-fw="react" style="width:82.1%"></span>
         <span class="bar-value">37.7</span></span>
       </div>
       <div class="bar-row" data-tip="Preact: median 31.8ms · mean 32.1 ± 4.0 · range 27.9–40.8ms · 10 samples">
         <span class="bar-name">Preact</span>
-        <span class="bar-track"><span class="bar" data-fw="preact" style="width:72.6%"></span>
+        <span class="bar-track"><span class="bar" data-fw="preact" style="width:69.3%"></span>
         <span class="bar-value">31.8</span></span>
       </div>
       <div class="bar-row" data-tip="Vue: median 33.6ms · mean 32.7 ± 3.2 · range 27.4–38.0ms · 10 samples">
         <span class="bar-name">Vue</span>
-        <span class="bar-track"><span class="bar" data-fw="vue" style="width:76.7%"></span>
+        <span class="bar-track"><span class="bar" data-fw="vue" style="width:73.2%"></span>
         <span class="bar-value">33.6</span></span>
       </div>
       <div class="bar-row" data-tip="Svelte: median 32.6ms · mean 31.8 ± 4.4 · range 21.7–39.2ms · 10 samples">
         <span class="bar-name">Svelte</span>
-        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:74.3%"></span>
+        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:71.0%"></span>
         <span class="bar-value">32.6</span></span>
       </div>
       <div class="bar-row" data-tip="Vanilla JS: median 30.0ms · mean 29.5 ± 3.8 · range 20.4–34.0ms · 10 samples">
         <span class="bar-name">Vanilla JS</span>
-        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:68.5%"></span>
+        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:65.5%"></span>
         <span class="bar-value">30.0</span></span>
       </div></div>
-    
+
   </figure>
   <figure class="chart">
     <figcaption><strong>partial update (every 10th row)</strong></figcaption>
     <div class="bars" data-unit="ms">
-      <div class="bar-row" data-tip="Kinetica: median 8.1ms · mean 8.4 ± 0.9 · range 7.1–10.4ms · 10 samples">
+      <div class="bar-row" data-tip="Kinetica: median 8.1ms · mean 8.0 ± 0.8 · range 6.8–9.3ms · 10 samples">
         <span class="bar-name">Kinetica</span>
         <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
         <span class="bar-value">8.1</span></span>
       </div>
       <div class="bar-row" data-tip="React: median 7.4ms · mean 7.1 ± 0.8 · range 5.1–8.2ms · 10 samples">
         <span class="bar-name">React</span>
-        <span class="bar-track"><span class="bar" data-fw="react" style="width:78.6%"></span>
+        <span class="bar-track"><span class="bar" data-fw="react" style="width:79.2%"></span>
         <span class="bar-value">7.4</span></span>
       </div>
       <div class="bar-row" data-tip="Preact: median 7.7ms · mean 7.7 ± 0.6 · range 7.0–8.6ms · 10 samples">
         <span class="bar-name">Preact</span>
-        <span class="bar-track"><span class="bar" data-fw="preact" style="width:81.4%"></span>
+        <span class="bar-track"><span class="bar" data-fw="preact" style="width:82.0%"></span>
         <span class="bar-value">7.7</span></span>
       </div>
       <div class="bar-row" data-tip="Vue: median 7.7ms · mean 7.7 ± 0.7 · range 6.0–8.4ms · 10 samples">
         <span class="bar-name">Vue</span>
-        <span class="bar-track"><span class="bar" data-fw="vue" style="width:81.6%"></span>
+        <span class="bar-track"><span class="bar" data-fw="vue" style="width:82.2%"></span>
         <span class="bar-value">7.7</span></span>
       </div>
       <div class="bar-row" data-tip="Svelte: median 7.5ms · mean 7.6 ± 0.6 · range 6.5–8.6ms · 10 samples">
         <span class="bar-name">Svelte</span>
-        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:79.4%"></span>
+        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:80.0%"></span>
         <span class="bar-value">7.5</span></span>
       </div>
       <div class="bar-row" data-tip="Vanilla JS: median 7.0ms · mean 7.3 ± 0.6 · range 6.4–8.4ms · 10 samples">
         <span class="bar-name">Vanilla JS</span>
-        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:73.6%"></span>
+        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:74.2%"></span>
         <span class="bar-value">7.0</span></span>
       </div></div>
-    
+
   </figure>
   <figure class="chart">
     <figcaption><strong>select row</strong></figcaption>
     <div class="bars" data-unit="ms">
-      <div class="bar-row" data-tip="Kinetica: median 7.8ms · mean 7.8 ± 0.4 · range 7.1–8.4ms · 10 samples">
+      <div class="bar-row" data-tip="Kinetica: median 7.4ms · mean 7.6 ± 0.6 · range 6.8–8.6ms · 10 samples">
         <span class="bar-name">Kinetica</span>
         <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
-        <span class="bar-value">7.8</span></span>
+        <span class="bar-value">7.4</span></span>
       </div>
       <div class="bar-row" data-tip="React: median 7.2ms · mean 7.2 ± 0.9 · range 5.1–8.5ms · 10 samples">
         <span class="bar-name">React</span>
-        <span class="bar-track"><span class="bar" data-fw="react" style="width:79.5%"></span>
+        <span class="bar-track"><span class="bar" data-fw="react" style="width:83.1%"></span>
         <span class="bar-value">7.2</span></span>
       </div>
       <div class="bar-row" data-tip="Preact: median 7.1ms · mean 7.3 ± 0.6 · range 6.6–8.3ms · 10 samples">
         <span class="bar-name">Preact</span>
-        <span class="bar-track"><span class="bar" data-fw="preact" style="width:78.7%"></span>
+        <span class="bar-track"><span class="bar" data-fw="preact" style="width:82.3%"></span>
         <span class="bar-value">7.1</span></span>
       </div>
       <div class="bar-row" data-tip="Vue: median 7.2ms · mean 7.4 ± 0.5 · range 6.7–8.3ms · 10 samples">
         <span class="bar-name">Vue</span>
-        <span class="bar-track"><span class="bar" data-fw="vue" style="width:80.1%"></span>
+        <span class="bar-track"><span class="bar" data-fw="vue" style="width:83.8%"></span>
         <span class="bar-value">7.2</span></span>
       </div>
       <div class="bar-row" data-tip="Svelte: median 7.4ms · mean 7.4 ± 0.4 · range 6.8–8.1ms · 10 samples">
         <span class="bar-name">Svelte</span>
-        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:82.0%"></span>
+        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:85.8%"></span>
         <span class="bar-value">7.4</span></span>
       </div>
       <div class="bar-row" data-tip="Vanilla JS: median 7.3ms · mean 7.3 ± 0.4 · range 6.6–8.1ms · 10 samples">
         <span class="bar-name">Vanilla JS</span>
-        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:80.4%"></span>
+        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:84.0%"></span>
         <span class="bar-value">7.3</span></span>
       </div></div>
-    
+
   </figure>
   <figure class="chart">
     <figcaption><strong>swap two rows</strong></figcaption>
     <div class="bars" data-unit="ms">
-      <div class="bar-row" data-tip="Kinetica: median 8.8ms · mean 8.7 ± 0.9 · range 7.5–10.4ms · 10 samples">
+      <div class="bar-row" data-tip="Kinetica: median 7.7ms · mean 8.0 ± 0.9 · range 6.7–9.2ms · 10 samples">
         <span class="bar-name">Kinetica</span>
-        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:25.8%"></span>
-        <span class="bar-value">8.8</span></span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:22.7%"></span>
+        <span class="bar-value">7.7</span></span>
       </div>
       <div class="bar-row" data-tip="React: median 29.2ms · mean 27.9 ± 4.7 · range 20.0–33.2ms · 10 samples">
         <span class="bar-name">React</span>
@@ -639,50 +647,50 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
         <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:22.4%"></span>
         <span class="bar-value">7.6</span></span>
       </div></div>
-    
+
   </figure>
   <figure class="chart">
     <figcaption><strong>remove one row</strong></figcaption>
     <div class="bars" data-unit="ms">
-      <div class="bar-row" data-tip="Kinetica: median 9.4ms · mean 9.5 ± 1.5 · range 7.2–12.6ms · 10 samples">
+      <div class="bar-row" data-tip="Kinetica: median 8.5ms · mean 8.8 ± 0.9 · range 7.8–10.4ms · 10 samples">
         <span class="bar-name">Kinetica</span>
         <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
-        <span class="bar-value">9.4</span></span>
+        <span class="bar-value">8.5</span></span>
       </div>
       <div class="bar-row" data-tip="React: median 6.9ms · mean 6.9 ± 0.5 · range 5.9–7.9ms · 10 samples">
         <span class="bar-name">React</span>
-        <span class="bar-track"><span class="bar" data-fw="react" style="width:63.4%"></span>
+        <span class="bar-track"><span class="bar" data-fw="react" style="width:70.2%"></span>
         <span class="bar-value">6.9</span></span>
       </div>
       <div class="bar-row" data-tip="Preact: median 7.9ms · mean 7.9 ± 0.5 · range 6.8–8.5ms · 10 samples">
         <span class="bar-name">Preact</span>
-        <span class="bar-track"><span class="bar" data-fw="preact" style="width:72.8%"></span>
+        <span class="bar-track"><span class="bar" data-fw="preact" style="width:80.6%"></span>
         <span class="bar-value">7.9</span></span>
       </div>
       <div class="bar-row" data-tip="Vue: median 8.1ms · mean 8.0 ± 0.4 · range 7.2–8.5ms · 10 samples">
         <span class="bar-name">Vue</span>
-        <span class="bar-track"><span class="bar" data-fw="vue" style="width:74.3%"></span>
+        <span class="bar-track"><span class="bar" data-fw="vue" style="width:82.2%"></span>
         <span class="bar-value">8.1</span></span>
       </div>
       <div class="bar-row" data-tip="Svelte: median 7.3ms · mean 7.2 ± 0.5 · range 6.5–8.1ms · 10 samples">
         <span class="bar-name">Svelte</span>
-        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:66.5%"></span>
+        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:73.7%"></span>
         <span class="bar-value">7.3</span></span>
       </div>
       <div class="bar-row" data-tip="Vanilla JS: median 7.1ms · mean 7.1 ± 0.6 · range 6.3–8.5ms · 10 samples">
         <span class="bar-name">Vanilla JS</span>
-        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:65.5%"></span>
+        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:72.6%"></span>
         <span class="bar-value">7.1</span></span>
       </div></div>
-    
+
   </figure>
   <figure class="chart">
     <figcaption><strong>create 10,000 rows</strong></figcaption>
     <div class="bars" data-unit="ms">
-      <div class="bar-row" data-tip="Kinetica: median 314.3ms · mean 309.2 ± 16.2 · range 285.8–338.9ms · 10 samples">
+      <div class="bar-row" data-tip="Kinetica: median 302.3ms · mean 302.3 ± 17.6 · range 274.7–339.9ms · 10 samples">
         <span class="bar-name">Kinetica</span>
-        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:85.3%"></span>
-        <span class="bar-value">314.3</span></span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:82.1%"></span>
+        <span class="bar-value">302.3</span></span>
       </div>
       <div class="bar-row" data-tip="React: median 316.9ms · mean 322.7 ± 18.5 · range 310.4–376.8ms · 10 samples">
         <span class="bar-name">React</span>
@@ -709,89 +717,211 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
         <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:55.0%"></span>
         <span class="bar-value">202.6</span></span>
       </div></div>
-    
+
   </figure>
   <figure class="chart">
     <figcaption><strong>append 1,000 rows to 1,000</strong></figcaption>
     <div class="bars" data-unit="ms">
-      <div class="bar-row" data-tip="Kinetica: median 40.8ms · mean 41.4 ± 4.3 · range 37.1–49.5ms · 10 samples">
+      <div class="bar-row" data-tip="Kinetica: median 41.9ms · mean 39.9 ± 4.5 · range 31.4–45.2ms · 10 samples">
         <span class="bar-name">Kinetica</span>
         <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
-        <span class="bar-value">40.8</span></span>
+        <span class="bar-value">41.9</span></span>
       </div>
       <div class="bar-row" data-tip="React: median 31.8ms · mean 31.6 ± 2.9 · range 26.8–37.8ms · 10 samples">
         <span class="bar-name">React</span>
-        <span class="bar-track"><span class="bar" data-fw="react" style="width:67.0%"></span>
+        <span class="bar-track"><span class="bar" data-fw="react" style="width:65.3%"></span>
         <span class="bar-value">31.8</span></span>
       </div>
       <div class="bar-row" data-tip="Preact: median 36.2ms · mean 36.2 ± 2.8 · range 32.3–41.3ms · 10 samples">
         <span class="bar-name">Preact</span>
-        <span class="bar-track"><span class="bar" data-fw="preact" style="width:76.2%"></span>
+        <span class="bar-track"><span class="bar" data-fw="preact" style="width:74.3%"></span>
         <span class="bar-value">36.2</span></span>
       </div>
       <div class="bar-row" data-tip="Vue: median 31.9ms · mean 31.5 ± 3.6 · range 25.9–36.5ms · 10 samples">
         <span class="bar-name">Vue</span>
-        <span class="bar-track"><span class="bar" data-fw="vue" style="width:67.3%"></span>
+        <span class="bar-track"><span class="bar" data-fw="vue" style="width:65.6%"></span>
         <span class="bar-value">31.9</span></span>
       </div>
       <div class="bar-row" data-tip="Svelte: median 29.8ms · mean 28.3 ± 4.0 · range 22.2–33.2ms · 10 samples">
         <span class="bar-name">Svelte</span>
-        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:62.9%"></span>
+        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:61.2%"></span>
         <span class="bar-value">29.8</span></span>
       </div>
       <div class="bar-row" data-tip="Vanilla JS: median 31.1ms · mean 30.4 ± 2.9 · range 23.2–33.4ms · 10 samples">
         <span class="bar-name">Vanilla JS</span>
-        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:65.6%"></span>
+        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:63.9%"></span>
         <span class="bar-value">31.1</span></span>
       </div></div>
-    
+
   </figure>
   <figure class="chart">
     <figcaption><strong>clear 1,000 rows</strong></figcaption>
     <div class="bars" data-unit="ms">
-      <div class="bar-row" data-tip="Kinetica: median 7.2ms · mean 7.2 ± 0.6 · range 6.3–8.4ms · 10 samples">
+      <div class="bar-row" data-tip="Kinetica: median 7.5ms · mean 7.5 ± 1.0 · range 6.1–10.1ms · 10 samples">
         <span class="bar-name">Kinetica</span>
         <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
-        <span class="bar-value">7.2</span></span>
+        <span class="bar-value">7.5</span></span>
       </div>
       <div class="bar-row" data-tip="React: median 7.0ms · mean 7.0 ± 0.8 · range 5.4–8.1ms · 10 samples">
         <span class="bar-name">React</span>
-        <span class="bar-track"><span class="bar" data-fw="react" style="width:83.7%"></span>
+        <span class="bar-track"><span class="bar" data-fw="react" style="width:80.7%"></span>
         <span class="bar-value">7.0</span></span>
       </div>
       <div class="bar-row" data-tip="Preact: median 6.8ms · mean 6.6 ± 0.9 · range 5.1–7.8ms · 10 samples">
         <span class="bar-name">Preact</span>
-        <span class="bar-track"><span class="bar" data-fw="preact" style="width:81.8%"></span>
+        <span class="bar-track"><span class="bar" data-fw="preact" style="width:78.8%"></span>
         <span class="bar-value">6.8</span></span>
       </div>
       <div class="bar-row" data-tip="Vue: median 6.8ms · mean 6.8 ± 0.8 · range 5.3–8.0ms · 10 samples">
         <span class="bar-name">Vue</span>
-        <span class="bar-track"><span class="bar" data-fw="vue" style="width:81.7%"></span>
+        <span class="bar-track"><span class="bar" data-fw="vue" style="width:78.7%"></span>
         <span class="bar-value">6.8</span></span>
       </div>
       <div class="bar-row" data-tip="Svelte: median 6.8ms · mean 6.7 ± 0.5 · range 5.6–7.4ms · 10 samples">
         <span class="bar-name">Svelte</span>
-        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:81.7%"></span>
+        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:78.7%"></span>
         <span class="bar-value">6.8</span></span>
       </div>
       <div class="bar-row" data-tip="Vanilla JS: median 6.8ms · mean 7.0 ± 0.6 · range 5.7–7.9ms · 10 samples">
         <span class="bar-name">Vanilla JS</span>
-        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:81.3%"></span>
+        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:78.4%"></span>
         <span class="bar-value">6.8</span></span>
       </div></div>
-    
+
+  </figure>
+  <figure class="chart">
+    <figcaption><strong>select row (10k table)</strong></figcaption>
+    <div class="bars" data-unit="ms">
+      <div class="bar-row" data-tip="Kinetica: median 10.8ms · mean 10.9 ± 1.2 · range 9.5–13.6ms · 10 samples">
+        <span class="bar-name">Kinetica</span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
+        <span class="bar-value">10.8</span></span>
+      </div></div>
+
+  </figure>
+  <figure class="chart">
+    <figcaption><strong>swap two rows (10k table)</strong></figcaption>
+    <div class="bars" data-unit="ms">
+      <div class="bar-row" data-tip="Kinetica: median 45.3ms · mean 45.9 ± 2.5 · range 43.0–52.1ms · 10 samples">
+        <span class="bar-name">Kinetica</span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
+        <span class="bar-value">45.3</span></span>
+      </div></div>
+
+  </figure>
+  <figure class="chart">
+    <figcaption><strong>remove one row (10k table)</strong></figcaption>
+    <div class="bars" data-unit="ms">
+      <div class="bar-row" data-tip="Kinetica: median 54.2ms · mean 57.2 ± 9.5 · range 49.7–82.4ms · 10 samples">
+        <span class="bar-name">Kinetica</span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
+        <span class="bar-value">54.2</span></span>
+      </div></div>
+
+  </figure>
+  <figure class="chart">
+    <figcaption><strong>partial update (every 10th of 10k)</strong></figcaption>
+    <div class="bars" data-unit="ms">
+      <div class="bar-row" data-tip="Kinetica: median 50.5ms · mean 52.7 ± 5.8 · range 45.0–62.1ms · 10 samples">
+        <span class="bar-name">Kinetica</span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
+        <span class="bar-value">50.5</span></span>
+      </div></div>
+
   </figure></div>
   </section>
 
-  
 
-  
+  <section>
+    <h2>GC time inside operations</h2>
+    <p class="section-sub">Milliseconds spent in V8/Blink garbage collection between the click and the
+    last paint (median; the percentage is the share of the whole operation). High GC share means the
+    operation's cost is allocation pressure, not DOM work — the table only lists operations where some
+    framework pays ≥1ms.</p>
+    <div class="table-scroll">
+      <table class="results num-table">
+        <thead>
+          <tr><th></th><th scope="col"><span class="swatch" data-fw="kinetica"></span>Kinetica</th><th scope="col"><span class="swatch" data-fw="react"></span>React</th><th scope="col"><span class="swatch" data-fw="preact"></span>Preact</th><th scope="col"><span class="swatch" data-fw="vue"></span>Vue</th><th scope="col"><span class="swatch" data-fw="svelte"></span>Svelte</th><th scope="col"><span class="swatch" data-fw="vanilla"></span>Vanilla JS</th></tr>
+        </thead>
+        <tbody><tr><th scope="row">create 10,000 rows</th><td class="num" title="Kinetica · create 10,000 rows: 122.1ms GC of 302.3ms total (max 305.1ms, ~653.6 GCs/op)">
+          122.1<span class="factor"> 40%</span></td><td class="num empty">—</td><td class="num empty">—</td><td class="num empty">—</td><td class="num empty">—</td><td class="num empty">—</td></tr></tbody>
+      </table>
+    </div>
+  </section>
 
-  
 
-  
+  <section>
+    <h2>Scaling curves</h2>
+    <p class="section-sub">The same partial operation measured at 1k, 2k, 5k, 10k, 20k
+    rows, fitted as duration ∝ n<sup>exponent</sup> (log-log least squares). Select and swap should be
+    near-flat, update near-linear; a ⚠ cell exceeds its threshold — the complexity-class regression the
+    single-size table can't see. Hover for the per-size medians.</p>
+    <div class="table-scroll">
+      <table class="results num-table">
+        <thead>
+          <tr><th></th><th scope="col"><span class="swatch" data-fw="kinetica"></span>Kinetica</th></tr>
+        </thead>
+        <tbody><tr><th scope="row">select row</th><td class="num "
+          title="Kinetica · select row: 1k: 6.7ms · 2k: 7.1ms · 5k: 7.8ms · 10k: 10.6ms · 20k: 21.8ms (threshold 0.6, r² 0.78)">
+          n<sup>0.36</sup></td></tr><tr><th scope="row">swap two rows</th><td class="num warn"
+          title="Kinetica · swap two rows: 1k: 9.4ms · 2k: 15.6ms · 5k: 26.5ms · 10k: 42.8ms · 20k: 82.5ms (threshold 0.6, r² 0.99)">
+          n<sup>0.70</sup> ⚠</td></tr><tr><th scope="row">update every 10th row</th><td class="num "
+          title="Kinetica · update every 10th row: 1k: 8.8ms · 2k: 15.0ms · 5k: 24.1ms · 10k: 48.3ms · 20k: 104.2ms (threshold 1.3, r² 0.98)">
+          n<sup>0.80</sup></td></tr></tbody>
+      </table>
+    </div>
+  </section>
 
-  
+
+  <section>
+    <h2>Sustained updates</h2>
+    <p class="section-sub">The discrete operations measure a single click; this measures steady-state
+    throughput — the app mutates every 10th of 1,000 rows on every animation frame (dbmonster-style)
+    while a collector records real frame times.</p>
+    <div class="hero-grid">
+  <figure class="chart">
+    <figcaption><strong>p95 frame time under sustained updates</strong><span class="sub">every 10th row re-labelled per animation frame for several seconds — lower is better</span></figcaption>
+    <div class="bars" data-unit="ms">
+      <div class="bar-row" data-tip="Kinetica: 120 fps over 671 frames · median 8.3ms · p95 9.3ms · 0.0% frames >25ms">
+        <span class="bar-name">Kinetica</span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
+        <span class="bar-value">9.3 ms</span></span>
+      </div></div>
+    <p class="chart-note">Frame deltas from a requestAnimationFrame collector injected by the driver; the first 500ms are discarded as ramp-up. A steady 120Hz display budget is 8.3ms; >25ms means visibly dropped frames.</p>
+  </figure></div>
+  </section>
+
+
+  <section>
+    <h2>Deep tree</h2>
+    <p class="section-sub">A keyed tree of 1555 nested nodes (depth 4,
+    fanout 6) instead of a flat table: creation, re-labelling every 10th leaf, reversing the six
+    top-level subtrees (big keyed moves), and a no-op re-render with unchanged data — the last one
+    isolates pure component/reconciliation overhead, where fine-grained frameworks should approach
+    zero work.</p>
+
+    <div class="table-scroll">
+      <table class="results">
+        <thead>
+          <tr><th></th><th scope="col"><span class="swatch" data-fw="kinetica"></span>Kinetica</th></tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">create tree (1555 nodes)</th><td class="cell" style="--cell:#cde2fb" data-dark="false"
+          title="Kinetica · create tree (1555 nodes): median 15.4ms (mean 15.0 ± 3.0, min 10.3, max 19.3, n=10)">
+          <span class="ms">15.4</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">update every 10th leaf</th><td class="cell" style="--cell:#cde2fb" data-dark="false"
+          title="Kinetica · update every 10th leaf: median 6.8ms (mean 6.9 ± 1.2, min 4.8, max 9.9, n=10)">
+          <span class="ms">6.8</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">reverse top-level subtrees</th><td class="cell" style="--cell:#cde2fb" data-dark="false"
+          title="Kinetica · reverse top-level subtrees: median 11.3ms (mean 11.0 ± 2.0, min 7.3, max 13.3, n=10)">
+          <span class="ms">11.3</span><span class="factor">1.0×</span></td></tr><tr><th scope="row">no-op re-render (data unchanged)</th><td class="cell" style="--cell:#cde2fb" data-dark="false"
+          title="Kinetica · no-op re-render (data unchanged): median 6.8ms (mean 6.7 ± 0.8, min 5.3, max 8.2, n=10)">
+          <span class="ms">6.8</span><span class="factor">1.0×</span></td></tr>
+          <tr class="geo-row"><th scope="row">geometric mean of factors</th><td class="cell geo" style="--cell:#cde2fb" data-dark="false"><span class="ms">1.00×</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+
 
   <section>
     <h2>Startup &amp; memory</h2>
@@ -799,29 +929,29 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
   <figure class="chart">
     <figcaption><strong>JS payload (gzip)</strong><span class="sub">kilobytes of JavaScript shipped to render the app</span></figcaption>
     <div class="bars" data-unit="KB">
-      <div class="bar-row" data-tip="Kinetica: 75 KB gzipped · 237 KB raw · 1 file(s)">
+      <div class="bar-row" data-tip="Kinetica: 77 KB gzipped · 244 KB raw · 1 file(s)">
         <span class="bar-name">Kinetica</span>
         <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
-        <span class="bar-value">75 KB</span></span>
+        <span class="bar-value">77 KB</span></span>
       </div>
       <div class="bar-row" data-tip="React: 60 KB gzipped · 192 KB raw · 1 file(s)">
         <span class="bar-name">React</span>
-        <span class="bar-track"><span class="bar" data-fw="react" style="width:68.9%"></span>
+        <span class="bar-track"><span class="bar" data-fw="react" style="width:67.2%"></span>
         <span class="bar-value">60 KB</span></span>
       </div>
       <div class="bar-row" data-tip="Preact: 8 KB gzipped · 21 KB raw · 1 file(s)">
         <span class="bar-name">Preact</span>
-        <span class="bar-track"><span class="bar" data-fw="preact" style="width:9.7%"></span>
+        <span class="bar-track"><span class="bar" data-fw="preact" style="width:9.4%"></span>
         <span class="bar-value">8 KB</span></span>
       </div>
       <div class="bar-row" data-tip="Vue: 65 KB gzipped · 173 KB raw · 1 file(s)">
         <span class="bar-name">Vue</span>
-        <span class="bar-track"><span class="bar" data-fw="vue" style="width:74.6%"></span>
+        <span class="bar-track"><span class="bar" data-fw="vue" style="width:72.8%"></span>
         <span class="bar-value">65 KB</span></span>
       </div>
       <div class="bar-row" data-tip="Svelte: 20 KB gzipped · 53 KB raw · 1 file(s)">
         <span class="bar-name">Svelte</span>
-        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:23.3%"></span>
+        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:22.7%"></span>
         <span class="bar-value">20 KB</span></span>
       </div>
       <div class="bar-row" data-tip="Vanilla JS: 1 KB gzipped · 3 KB raw · 1 file(s)">
@@ -829,15 +959,15 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
         <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:1.2%"></span>
         <span class="bar-value">1 KB</span></span>
       </div></div>
-    
+
   </figure>
   <figure class="chart">
     <figcaption><strong>Time to interactive</strong><span class="sub">navigation → toolbar rendered, local server, median of 5 cold loads</span></figcaption>
     <div class="bars" data-unit="ms">
-      <div class="bar-row" data-tip="Kinetica: median 20.7ms over 5 cold loads (19, 21, 21, 20, 21)">
+      <div class="bar-row" data-tip="Kinetica: median 20.4ms over 5 cold loads (19, 20, 20, 21, 23) · script compile+evaluate 8.8ms · blocking time 0.0ms">
         <span class="bar-name">Kinetica</span>
-        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:67.9%"></span>
-        <span class="bar-value">20.7 ms</span></span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:67.0%"></span>
+        <span class="bar-value">20.4 ms</span></span>
       </div>
       <div class="bar-row" data-tip="React: median 26.2ms over 5 cold loads (26, 26, 26, 26, 30)">
         <span class="bar-name">React</span>
@@ -864,46 +994,68 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
         <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:59.4%"></span>
         <span class="bar-value">18.1 ms</span></span>
       </div></div>
-    
+
+  </figure>
+  <figure class="chart">
+    <figcaption><strong>Script compile + evaluate</strong><span class="sub">merged compile/evaluate intervals from a traced cold load</span></figcaption>
+    <div class="bars" data-unit="ms">
+      <div class="bar-row" data-tip="Kinetica: 8.8ms compile+evaluate · ~0.0ms long-task blocking before mount">
+        <span class="bar-name">Kinetica</span>
+        <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
+        <span class="bar-value">8.8 ms</span></span>
+      </div></div>
+
   </figure>
   <figure class="chart">
     <figcaption><strong>JS heap after creating 1,000 rows</strong><span class="sub">forced GC, then JSHeapUsedSize</span></figcaption>
     <div class="bars" data-unit="MB">
-      <div class="bar-row" data-tip="Kinetica: 8.1 MB after 1k rows · 1.9 MB right after load">
+      <div class="bar-row" data-tip="Kinetica: 7.5 MB after 1k rows · 1.9 MB right after load">
         <span class="bar-name">Kinetica</span>
         <span class="bar-track"><span class="bar" data-fw="kinetica" style="width:86.0%"></span>
-        <span class="bar-value">8.1 MB</span></span>
+        <span class="bar-value">7.5 MB</span></span>
       </div>
       <div class="bar-row" data-tip="React: 4.4 MB after 1k rows · 1.6 MB right after load">
         <span class="bar-name">React</span>
-        <span class="bar-track"><span class="bar" data-fw="react" style="width:46.7%"></span>
+        <span class="bar-track"><span class="bar" data-fw="react" style="width:50.3%"></span>
         <span class="bar-value">4.4 MB</span></span>
       </div>
       <div class="bar-row" data-tip="Preact: 4.3 MB after 1k rows · 1.3 MB right after load">
         <span class="bar-name">Preact</span>
-        <span class="bar-track"><span class="bar" data-fw="preact" style="width:45.4%"></span>
+        <span class="bar-track"><span class="bar" data-fw="preact" style="width:48.9%"></span>
         <span class="bar-value">4.3 MB</span></span>
       </div>
       <div class="bar-row" data-tip="Vue: 4.4 MB after 1k rows · 1.8 MB right after load">
         <span class="bar-name">Vue</span>
-        <span class="bar-track"><span class="bar" data-fw="vue" style="width:46.8%"></span>
+        <span class="bar-track"><span class="bar" data-fw="vue" style="width:50.4%"></span>
         <span class="bar-value">4.4 MB</span></span>
       </div>
       <div class="bar-row" data-tip="Svelte: 3.2 MB after 1k rows · 1.3 MB right after load">
         <span class="bar-name">Svelte</span>
-        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:34.4%"></span>
+        <span class="bar-track"><span class="bar" data-fw="svelte" style="width:37.1%"></span>
         <span class="bar-value">3.2 MB</span></span>
       </div>
       <div class="bar-row" data-tip="Vanilla JS: 1.9 MB after 1k rows · 1.2 MB right after load">
         <span class="bar-name">Vanilla JS</span>
-        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:20.2%"></span>
+        <span class="bar-track"><span class="bar" data-fw="vanilla" style="width:21.7%"></span>
         <span class="bar-value">1.9 MB</span></span>
       </div></div>
-    
+
   </figure></div>
-    
+
+    <h3 class="sub-h">Heap across churn &amp; unmount (MB, forced GC)</h3>
+    <p class="section-sub">Replace/create-clear cycles surface retained garbage; the unmount columns
+    surface leaks — the heap after five mount/unmount cycles should match the heap after the first
+    unmount (⚠ marks &gt;0.3 MB growth).</p>
+    <div class="table-scroll">
+      <table class="results num-table">
+        <thead>
+          <tr><th></th><th scope="col">after load</th><th scope="col">1k rows</th><th scope="col">5× replace</th><th scope="col">10× create+clear</th><th scope="col">unmounted</th><th scope="col">5× remount cycles</th></tr>
+        </thead>
+        <tbody><tr><th scope="row"><span class="swatch" data-fw="kinetica"></span> Kinetica</th><td class="num " title="Kinetica · heap after load: 1.9 MB">1.9</td><td class="num " title="Kinetica · heap 1k rows: 7.5 MB">7.5</td><td class="num " title="Kinetica · heap 5× replace: 11.3 MB">11.3</td><td class="num " title="Kinetica · heap 10× create+clear: 14.9 MB">14.9</td><td class="num " title="Kinetica · heap unmounted: 3.4 MB">3.4</td><td class="num " title="Kinetica · heap 5× remount cycles: 3.5 MB (+0.1 MB vs first unmount)">3.5</td></tr></tbody>
+      </table>
+    </div>
     <div class="callout">
-      <h3>Why Kinetica ships 75 KB &amp; 1 files</h3>
+      <h3>Why Kinetica ships 77 KB &amp; 1 files</h3>
       <p>Kinetica is now measured from the benchmark's esbuild production bundle over the Kotlin/JS
       linked output, so the browser loads one minified module instead of the toolchain preview's
       unminified multi-file graph. Remaining payload is mostly the Kotlin runtime surface that the
@@ -937,7 +1089,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
       clear, plus the same partial operations on the 10,000-row table. Labels come from the benchmark's
       standard adjective-colour-noun generator.</dd>
       <dt>Measurement</dt>
-      <dd>Playwright trusted clicks; per-operation Chrome trace (devtools.timeline); duration = click EventDispatch start -> end of last Paint/Commit event; headless Chrome for Testing; no CPU throttling; local static server. Each operation: 3 warmup runs, then
+      <dd>Playwright trusted clicks; per-operation Chrome trace (devtools.timeline); duration = click EventDispatch start -> end of last Paint/Commit event; headless Chrome for Testing; local static server. No CPU throttling. Each operation: 3 warmup runs, then
       10 measured samples; the table reports medians. State is reset between samples
       so every measured click does identical work. GC time sums V8/Blink collection events inside the
       measured window of the same trace.</dd>
@@ -965,7 +1117,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
   </section>
 
   <footer>
-    Generated 2026-07-06 01:19 UTC ·
+    Generated 2026-07-06 08:11 UTC ·
     versions: Kinetica dev · React 19.2.7 · Preact 10.29.4 · Vue 3.5.39 · Svelte 5.56.4 · Vanilla JS n/a ·
     raw data in <code>bench/results/results.json</code>
   </footer>

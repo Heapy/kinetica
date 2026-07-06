@@ -156,12 +156,11 @@ class EachMemoizationTest {
             }
         }.tree.rows()
 
-        render()
-        val registeredAfterFirst = runtime.registeredEventCount()
+        val eventIdsAfterFirst = render().map { it.findClickEventId() }
         val second = render()
         val third = render()
 
-        assertEquals(registeredAfterFirst, runtime.registeredEventCount())
+        assertEquals(eventIdsAfterFirst, third.map { it.findClickEventId() })
         assertSame(second[1], third[1])
         runtime.dispatch(third[1].findClickEventId())
         assertEquals(listOf(2), clicks)
@@ -190,8 +189,8 @@ class EachMemoizationTest {
 
         val first = render()
         items = listOf(one)
-        render()
-        assertEquals(1, runtime.registeredEventCount())
+        val second = render()
+        assertEquals(1, second.size)
 
         items = listOf(one, two)
         val third = render()
