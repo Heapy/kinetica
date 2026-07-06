@@ -147,7 +147,6 @@ class KineticaFirCheckerTest {
 
                     import io.heapy.kinetica.ComponentScope
                     import io.heapy.kinetica.UiComponent
-                    import io.heapy.kinetica.keyed
 
                     @UiComponent
                     fun ComponentScope.Panel() {
@@ -192,7 +191,6 @@ class KineticaFirCheckerTest {
                     import io.heapy.kinetica.ComponentScope
                     import io.heapy.kinetica.TextNode
                     import io.heapy.kinetica.UiComponent
-                    import io.heapy.kinetica.keyed
                     import io.heapy.kinetica.state
 
                     @UiComponent

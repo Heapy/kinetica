@@ -1,3 +1,7 @@
+// referenceClass/referenceFunctions are deprecated in favor of the finder API;
+// migrating the symbol resolvers is tracked separately.
+@file:Suppress("DEPRECATION")
+
 package io.heapy.kinetica.compiler
 
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext

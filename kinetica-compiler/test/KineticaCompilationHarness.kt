@@ -91,6 +91,10 @@ internal class KineticaCompilationHarness {
         val arguments = K2JVMCompilerArguments().apply {
             freeArgs = listOf(sourceRoot.toString())
             destination = outputDir.toString()
+            // The classpath is passed explicitly; without these the CLI probes a
+            // non-existent kotlin-home and logs STRONG_WARNINGs per compilation.
+            noStdlib = true
+            noReflect = true
             classpath = compilerClasspath().joinToString(File.pathSeparator) { it.absolutePath }
             this.moduleName = moduleName
             pluginClasspaths = arrayOf(pluginJar.absolutePath)

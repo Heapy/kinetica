@@ -12,6 +12,7 @@ settings:
     apiVersion: 2.4
     optIns:
       - org.jetbrains.kotlin.compiler.plugin.ExperimentalCompilerApi
+      - org.jetbrains.kotlin.ir.symbols.UnsafeDuringIrConstructionAPI
   publishing:
     enabled: true
     group: io.heapy.kinetica

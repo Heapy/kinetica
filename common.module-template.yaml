@@ -4,6 +4,8 @@ settings:
     languageVersion: 2.4
     apiVersion: 2.4
     serialization: json
+    freeCompilerArgs:
+      - -Xexpect-actual-classes
     compilerPlugins:
       - id: io.heapy.kinetica.compiler
         dependency: io.heapy.kinetica:kinetica-compiler:0.3.0
