@@ -6,6 +6,7 @@ import io.heapy.kinetica.HostNode
 import io.heapy.kinetica.KineticaRuntime
 import io.heapy.kinetica.Semantics
 import io.heapy.kinetica.TextNode
+import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.exitGroup
 import io.heapy.kinetica.frameBindings
 import io.heapy.kinetica.host
@@ -331,28 +332,22 @@ class MotionSmokeTest {
     fun exitTransitionRunsAndCompletesLeavingGroup() = runTest {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
-        val releaseExit = CompletableDeferred<Unit>()
-        var visible = true
-        var completed = false
+        panelReleaseExit = CompletableDeferred()
+        panelVisible = true
+        panelExitCompleted = false
 
         fun render() = runtime.render(scope) {
-            exitGroup(key = "panel", visible = visible) {
-                exitTransition {
-                    releaseExit.await()
-                    completed = true
-                }
-                text("Panel", semantics = Semantics(testTag = "panel"))
-            }
+            ExitPanel()
         }.tree
 
         assertIs<TextNode>(render())
 
-        visible = false
+        panelVisible = false
         val leaving = assertIs<TextNode>(render())
         assertTrue(leaving.semantics?.leaving == true)
         assertTrue(scope.isLeaving("panel"))
 
-        releaseExit.complete(Unit)
+        panelReleaseExit!!.complete(Unit)
         withContext(Dispatchers.Default) {
             withTimeout(2_000) {
                 while (scope.isLeaving("panel")) {
@@ -361,7 +356,7 @@ class MotionSmokeTest {
             }
         }
 
-        assertTrue(completed)
+        assertTrue(panelExitCompleted)
         assertIs<FragmentNode>(render())
     }
 
@@ -389,5 +384,23 @@ class MotionSmokeTest {
             )
         }
         return animated
+    }
+}
+
+// exitGroup is slot DSL, so the leaving panel must be a @UiComponent; the test drives it
+// through file-level vars.
+
+private var panelVisible = true
+private var panelExitCompleted = false
+private var panelReleaseExit: CompletableDeferred<Unit>? = null
+
+@UiComponent(skippable = false)
+private fun ComponentScope.ExitPanel() {
+    exitGroup(key = "panel", visible = panelVisible) {
+        exitTransition {
+            panelReleaseExit!!.await()
+            panelExitCompleted = true
+        }
+        text("Panel", semantics = Semantics(testTag = "panel"))
     }
 }

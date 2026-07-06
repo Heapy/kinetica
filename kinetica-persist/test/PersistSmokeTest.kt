@@ -3,6 +3,7 @@ package io.heapy.kinetica.persist
 import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.KineticaRuntime
 import io.heapy.kinetica.SlotId
+import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.state
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
@@ -16,27 +17,27 @@ import kotlin.test.assertTrue
 class PersistSmokeTest {
     @Test
     fun jsonBackendRestoresSlotIdAddressedPersistentState() = runTest {
-        val slotId = SlotId("todo", "TodoApp", 2, "draft")
         val backend = JsonSlotPersistenceBackend()
 
         val firstRuntime = KineticaRuntime()
         val firstScope = ComponentScope(firstRuntime)
         firstRuntime.render(firstScope) {
-            var draft by state(slotId = slotId, persistent = true) { "" }
-            draft = "buy milk"
+            DraftEditor()
         }
-        firstScope.saveSlot(slotId, backend, String.serializer())
+        firstScope.saveSlot(draftSlotId, backend, String.serializer())
 
         val restoredRuntime = KineticaRuntime()
         val restoredScope = ComponentScope(restoredRuntime)
-        restoredScope.restoreSlot(slotId, backend, String.serializer())
+        restoredScope.restoreSlot(draftSlotId, backend, String.serializer())
+        // restoreSlot before the first render parks the value in the scope; it seeds the
+        // cell when DraftViewer's state slot is created during render.
+        assertTrue(restoredScope.containsSlot(draftSlotId))
+        assertEquals("buy milk", restoredScope.readSlot(draftSlotId))
+        observedDraft = null
         restoredRuntime.render(restoredScope) {
-            val draft by persistentState(
-                slotId = slotId,
-                restoredValue = readSlot(slotId),
-            ) { "" }
-            assertEquals("buy milk", draft)
+            DraftViewer()
         }
+        assertEquals("buy milk", observedDraft)
     }
 
     @Test
@@ -89,14 +90,12 @@ class PersistSmokeTest {
 
     @Test
     fun batchSaveAndRestoreSlotsUseSerializerBindings() = runTest {
-        val draftSlot = SlotId("todo", "TodoApp", 1, "draft")
-        val countSlot = SlotId("todo", "TodoApp", 2, "count")
         val backend = LocalStorageSlotPersistenceBackend(InMemoryStringSlotPersistenceStore())
-        val draftBinding = persistentSlot(draftSlot, String.serializer())
-        val referentialBinding = persistentSlot(draftSlot, String.serializer(), io.heapy.kinetica.EqualityPolicy.referential())
+        val draftBinding = persistentSlot(batchDraftSlotId, String.serializer())
+        val referentialBinding = persistentSlot(batchDraftSlotId, String.serializer(), io.heapy.kinetica.EqualityPolicy.referential())
         val bindings = listOf(
             draftBinding,
-            persistentSlot(countSlot, Int.serializer()),
+            persistentSlot(batchCountSlotId, Int.serializer()),
         )
         assertTrue(draftBinding.policy.equivalent("draft", "draft"))
         assertFalse(referentialBinding.policy.equivalent(charArrayOf('d').concatToString(), charArrayOf('d').concatToString()))
@@ -104,60 +103,49 @@ class PersistSmokeTest {
         val firstRuntime = KineticaRuntime()
         val firstScope = ComponentScope(firstRuntime)
         firstRuntime.render(firstScope) {
-            var draft by state(slotId = draftSlot, persistent = true) { "" }
-            var count by state(slotId = countSlot, persistent = true) { 0 }
-            draft = "batch"
-            count = 42
+            BatchEditor()
         }
         firstScope.saveSlots(backend, bindings)
 
         val restoredRuntime = KineticaRuntime()
         val restoredScope = ComponentScope(restoredRuntime)
         restoredScope.restoreSlots(backend, bindings)
+        observedBatchDraft = null
+        observedBatchCount = null
         restoredRuntime.render(restoredScope) {
-            val draft by persistentState(
-                slotId = draftSlot,
-                restoredValue = readSlot(draftSlot),
-            ) { "" }
-            val count by persistentState(
-                slotId = countSlot,
-                restoredValue = readSlot(countSlot),
-            ) { 0 }
-            assertEquals("batch", draft)
-            assertEquals(42, count)
+            BatchViewer()
         }
+        assertEquals("batch", observedBatchDraft)
+        assertEquals(42, observedBatchCount)
     }
 
     @Test
     fun inMemoryBackendAndMissingSlotPathsAreExplicit() = runTest {
-        val slotId = SlotId("todo", "TodoApp", 4, "scratch")
         val missingSlot = SlotId("todo", "TodoApp", 5, "missing")
         val backend = InMemorySlotPersistenceBackend()
 
-        assertEquals(null, backend.read(slotId, String.serializer()))
-        backend.write(slotId, String.serializer(), "memo")
-        assertEquals("memo", backend.read(slotId, String.serializer()))
-        backend.remove(slotId)
-        assertEquals(null, backend.read(slotId, String.serializer()))
+        assertEquals(null, backend.read(scratchSlotId, String.serializer()))
+        backend.write(scratchSlotId, String.serializer(), "memo")
+        assertEquals("memo", backend.read(scratchSlotId, String.serializer()))
+        backend.remove(scratchSlotId)
+        assertEquals(null, backend.read(scratchSlotId, String.serializer()))
 
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
-        scope.restoreSlot(slotId, backend, String.serializer())
+        scope.restoreSlot(scratchSlotId, backend, String.serializer())
+        observedScratch = null
         runtime.render(scope) {
-            val restored by persistentState(
-                slotId = slotId,
-                restoredValue = readSlot(slotId),
-            ) { "initial" }
-            assertEquals("initial", restored)
+            ScratchViewer()
         }
+        assertEquals("initial", observedScratch)
 
         scope.saveSlot(missingSlot, backend, String.serializer())
         assertEquals(null, backend.read(missingSlot, String.serializer()))
 
-        backend.write(slotId, String.serializer(), "stale")
-        scope.writeSlot<String?>(slotId, null, persistent = true)
-        scope.saveSlot(slotId, backend, String.serializer())
-        assertEquals(null, backend.read(slotId, String.serializer()))
+        backend.write(scratchSlotId, String.serializer(), "stale")
+        scope.writeSlot<String?>(scratchSlotId, null, persistent = true)
+        scope.saveSlot(scratchSlotId, backend, String.serializer())
+        assertEquals(null, backend.read(scratchSlotId, String.serializer()))
 
         assertFailsWith<IllegalArgumentException> {
             StringSlotPersistenceBackend(InMemoryStringSlotPersistenceStore(), namespace = " ")
@@ -172,3 +160,64 @@ private data class PersistedSettings(
     val theme: String,
     val density: Int,
 )
+
+// Slot DSL is only legal lexically inside @UiComponent functions, so the rendered halves
+// of the persistence round-trips live here as file-level components parameterized (and
+// observed) through file-level vars.
+
+private val draftSlotId = SlotId("todo", "TodoApp", 2, "draft")
+private var observedDraft: String? = null
+
+@UiComponent(skippable = false)
+private fun ComponentScope.DraftEditor() {
+    var draft by state(slotId = draftSlotId, persistent = true) { "" }
+    draft = "buy milk"
+}
+
+@UiComponent(skippable = false)
+private fun ComponentScope.DraftViewer() {
+    val draft by persistentState(
+        slotId = draftSlotId,
+        restoredValue = readSlot(draftSlotId),
+    ) { "" }
+    observedDraft = draft
+}
+
+private val batchDraftSlotId = SlotId("todo", "TodoApp", 1, "draft")
+private val batchCountSlotId = SlotId("todo", "TodoApp", 2, "count")
+private var observedBatchDraft: String? = null
+private var observedBatchCount: Int? = null
+
+@UiComponent(skippable = false)
+private fun ComponentScope.BatchEditor() {
+    var draft by state(slotId = batchDraftSlotId, persistent = true) { "" }
+    var count by state(slotId = batchCountSlotId, persistent = true) { 0 }
+    draft = "batch"
+    count = 42
+}
+
+@UiComponent(skippable = false)
+private fun ComponentScope.BatchViewer() {
+    val draft by persistentState(
+        slotId = batchDraftSlotId,
+        restoredValue = readSlot(batchDraftSlotId),
+    ) { "" }
+    val count by persistentState(
+        slotId = batchCountSlotId,
+        restoredValue = readSlot(batchCountSlotId),
+    ) { 0 }
+    observedBatchDraft = draft
+    observedBatchCount = count
+}
+
+private val scratchSlotId = SlotId("todo", "TodoApp", 4, "scratch")
+private var observedScratch: String? = null
+
+@UiComponent(skippable = false)
+private fun ComponentScope.ScratchViewer() {
+    val restored by persistentState(
+        slotId = scratchSlotId,
+        restoredValue = readSlot(scratchSlotId),
+    ) { "initial" }
+    observedScratch = restored
+}

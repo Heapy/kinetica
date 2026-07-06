@@ -8,6 +8,7 @@ import io.heapy.kinetica.LazyListState
 import io.heapy.kinetica.MutableCell
 import io.heapy.kinetica.Route
 import io.heapy.kinetica.TextNode
+import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.keyed
 import io.heapy.kinetica.lazyItems
 import io.heapy.kinetica.state
@@ -343,32 +344,17 @@ class RouterSmokeTest {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
         val stack = BackStack<TestRoute>(TestRoute.Home)
-        var homeCounter: MutableCell<Int>? = null
-        var homeScroll: MutableCell<LazyListState>? = null
-
-        fun ComponentScope.renderRoute(route: TestRoute) {
-            when (route) {
-                TestRoute.Home -> {
-                    val counter = state(key = "home-counter") { 0 }
-                    val scroll = rememberNavScrollState(initial = LazyListState())
-                    homeCounter = counter
-                    homeScroll = scroll
-                    text("Home ${counter.value}:${scroll.value.firstVisibleIndex}")
-                }
-
-                is TestRoute.Details -> text("Details ${route.id}")
-                TestRoute.Search -> text("Search")
-            }
-        }
+        scrollRouteCounter = null
+        scrollRouteScroll = null
 
         fun renderRoot(): HostNode =
             runtime.render(scope) {
-                NavHost(stack) { route -> renderRoute(route) }
+                NavHost(stack) { route -> ScrollRestoreRoute(route) }
             }.tree as HostNode
 
         renderRoot()
-        homeCounter!!.value = 7
-        val scroll = homeScroll!!
+        scrollRouteCounter!!.value = 7
+        val scroll = scrollRouteScroll!!
         scroll.value = scroll.value.scrollTo(firstVisibleIndex = 4)
         assertEquals("Home 7:4", renderRoot().currentText())
 
@@ -388,28 +374,15 @@ class RouterSmokeTest {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
         val stack = BackStack<TestRoute>(TestRoute.Home)
-        var homeCounter: MutableCell<Int>? = null
+        disposalRouteCounter = null
 
         fun renderRoot(): HostNode =
             runtime.render(scope) {
-                keyed("shell") {
-                    NavHost(stack) { route ->
-                        when (route) {
-                            TestRoute.Home -> {
-                                val counter = state(key = "home-counter") { 0 }
-                                homeCounter = counter
-                                text("Home ${counter.value}")
-                            }
-
-                            is TestRoute.Details -> text("Details ${route.id}")
-                            TestRoute.Search -> text("Search")
-                        }
-                    }
-                }
+                ShellNavHost(stack) { route -> DisposalRoute(route) }
             }.tree as HostNode
 
         renderRoot()
-        homeCounter!!.value = 7
+        disposalRouteCounter!!.value = 7
         assertEquals("Home 7", renderRoot().currentText())
 
         stack.push(TestRoute.Details("42", "reviews"))
@@ -419,6 +392,59 @@ class RouterSmokeTest {
 
         stack.pop()
         assertEquals(listOf("Home 0", "Details 42"), renderRoot().navEntryTexts())
+    }
+}
+
+// Route components live at the top level: slot DSL is only legal lexically inside
+// @UiComponent functions, so tests parameterize them through file-level vars.
+
+private var scrollRouteCounter: MutableCell<Int>? = null
+private var scrollRouteScroll: MutableCell<LazyListState>? = null
+
+@UiComponent(skippable = false)
+private fun ComponentScope.ScrollRestoreRoute(route: TestRoute) {
+    when (route) {
+        TestRoute.Home -> {
+            val counter = state { 0 }
+            val scroll = rememberNavScrollState(initial = LazyListState())
+            scrollRouteCounter = counter
+            scrollRouteScroll = scroll
+            text("Home ${counter.value}:${scroll.value.firstVisibleIndex}")
+        }
+
+        is TestRoute.Details -> text("Details ${route.id}")
+        TestRoute.Search -> text("Search")
+    }
+}
+
+private var disposalRouteCounter: MutableCell<Int>? = null
+
+@UiComponent(skippable = false)
+private fun ComponentScope.DisposalRoute(route: TestRoute) {
+    when (route) {
+        TestRoute.Home -> {
+            val counter = state { 0 }
+            disposalRouteCounter = counter
+            text("Home ${counter.value}")
+        }
+
+        is TestRoute.Details -> text("Details ${route.id}")
+        TestRoute.Search -> text("Search")
+    }
+}
+
+/**
+ * Nests the NavHost inside an enclosing keyed scope. The content lambda is passed through
+ * as a parameter: it must be region-wrapped at its literal site (the test method), because
+ * literals passed to component calls inside component bodies are not wrapped.
+ */
+@UiComponent(skippable = false)
+private fun ComponentScope.ShellNavHost(
+    stack: BackStack<TestRoute>,
+    content: @UiComponent ComponentScope.(TestRoute) -> Unit,
+) {
+    keyed("shell") {
+        NavHost(stack, content = content)
     }
 }
 

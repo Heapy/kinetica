@@ -245,6 +245,54 @@ class KineticaIrFrameCompileTest {
     }
 
     @Test
+    fun componentContentParametersWrapInsideComponentBodies() {
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Shell(content: @UiComponent ComponentScope.() -> Unit) {
+                        text("shell:")
+                        content()
+                    }
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Outer() {
+                        Shell {
+                            val inner = state { "inner-state" }
+                            text(inner.value)
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Outer() }.tree
+                """,
+            ),
+        ).use { compiled ->
+            val render = compiled.loadClass("app.MainKt").getDeclaredMethod(
+                "render",
+                KineticaRuntime::class.java,
+                ComponentScope::class.java,
+            )
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val tree = (render.invoke(null, runtime, scope) as Node).toDebugString()
+            assertTrue(
+                "inner-state" in tree,
+                "content lambdas of component calls inside component bodies must region-wrap: $tree",
+            )
+        }
+    }
+
+    @Test
     fun unstagedComponentCallThrowsMissingPlugin() {
         harness.compile(
             mapOf(

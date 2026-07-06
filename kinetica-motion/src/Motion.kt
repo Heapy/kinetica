@@ -3,6 +3,7 @@ package io.heapy.kinetica.motion
 import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.ExitScope
 import io.heapy.kinetica.FrameValue
+import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.frameValue
 import io.heapy.kinetica.onExit
 import io.heapy.kinetica.state
@@ -146,25 +147,30 @@ public class AnimatedFloat internal constructor(
     }
 }
 
+@UiComponent
 public fun ComponentScope.animate(
     initial: Float,
     target: Float,
     spec: AnimationSpec = AnimationSpec.Spring(),
 ): AnimatedFloat {
+    // The frameValue slot and the AnimatedFloat slot live in the same per-call-site frame,
+    // so their lifetimes are coupled by construction — no dynamic key needed anymore.
     val value = frameValue(initial)
-    val animated = state(key = "animated:${value.id}") {
+    val animated = state {
         AnimatedFloat(value, target, spec)
     }.value
     animated.retargetIfNeeded(target, spec)
     return animated
 }
 
+@UiComponent
 public fun ComponentScope.enterTransition(
     initial: Float = 0f,
     target: Float = 1f,
     spec: AnimationSpec = AnimationSpec.Tween(durationMillis = 180, easing = Easing.EaseOut),
-): AnimatedFloat =
-    animate(initial = initial, target = target, spec = spec)
+): AnimatedFloat {
+    return animate(initial = initial, target = target, spec = spec)
+}
 
 public fun ComponentScope.exitTransition(block: suspend ExitScope.() -> Unit) {
     onExit {
@@ -207,17 +213,19 @@ public class DragGesture internal constructor(
         offset.also(onEnd)
 }
 
+@UiComponent
 public fun ComponentScope.dragGesture(
     initialX: Float = 0f,
     initialY: Float = 0f,
     onEnd: (GestureOffset) -> Unit = {},
-): DragGesture =
-    DragGesture(
+): DragGesture {
+    return DragGesture(
         x = frameValue(initialX),
         y = frameValue(initialY),
         initialOffset = GestureOffset(initialX, initialY),
         onEnd = onEnd,
     )
+}
 
 public fun DragGesture.frameProps(
     xProperty: String = "translateX",

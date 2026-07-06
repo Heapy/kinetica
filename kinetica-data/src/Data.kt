@@ -5,8 +5,10 @@ import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.LazyItems
 import io.heapy.kinetica.Resource
 import io.heapy.kinetica.ResourceKey
+import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.action
 import io.heapy.kinetica.invalidate
+import io.heapy.kinetica.keyed
 import io.heapy.kinetica.lazyItems as kineticaLazyItems
 import io.heapy.kinetica.state
 import kotlinx.coroutines.delay
@@ -108,11 +110,19 @@ public class Paginator<T> internal constructor(
     }
 }
 
+@UiComponent
 public fun <T> ComponentScope.paginator(
     key: String = "kinetica.data/paginator",
     initialRequest: PageRequest = PageRequest(),
-): Paginator<T> =
-    state(key = key) { Paginator<T>(initialRequest) }.value
+): Paginator<T> {
+    // The call site's frame already isolates distinct paginators; the keyed wrap keeps the
+    // documented dynamic-key contract (a new key starts a fresh paginator).
+    var paginator: Paginator<T>? = null
+    keyed(key) {
+        paginator = state { Paginator<T>(initialRequest) }.value
+    }
+    return checkNotNull(paginator) { "paginator: keyed content did not run." }
+}
 
 public fun <T> Paginator<T>.asLazyItems(): LazyItems<T> =
     kineticaLazyItems(items, estimatedSize = totalCount)

@@ -267,6 +267,9 @@ internal class KineticaFrameTransformer(
                 return expression
             }
             if (callee.isUiComponent()) {
+                // Component calls can carry @UiComponent-typed content parameters; their
+                // lambda literals must become regions here too, not only in entry points.
+                wrapAnnotatedContentArguments(expression)
                 return stageComponentCall(expression)
             }
             wrapAnnotatedContentArguments(expression)
