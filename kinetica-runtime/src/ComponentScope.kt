@@ -653,20 +653,22 @@ public class ComponentScope public constructor(
         // cursors) that must run every render, so it disqualifies enclosing row captures;
         // its own rows still memoize independently.
         markEachCapturesUnsafe()
-        val keyedItems = keyedLastWinsMap(items, key)
+        val keyedItems = keyedLastWins(items, key)
         if (!memoize) {
-            keyedItems.forEach { (itemKey, item) ->
+            keyedItems.forEach { keyed ->
+                val itemKey = keyed.key
                 withKeyScope(itemKey) {
-                    content(item)
+                    content(keyed.item)
                 }
             }
             return
         }
         val callsite = eachCallsite()
         var reused = 0
-        keyedItems.forEach { (itemKey, item) ->
+        keyedItems.forEach { keyed ->
+            val itemKey = keyed.key
+            val item = keyed.item
             val rowKey = itemKey.toString()
-            callsite.seenKeys += rowKey
             pushKeyScope(rowKey)
             try {
                 if (emitCachedEachRow(callsite, rowKey, item)) {
@@ -699,7 +701,7 @@ public class ComponentScope public constructor(
         val ordinal = eachOrdinals.getOrElse(prefix) { 0 }
         eachOrdinals[prefix] = ordinal + 1
         return eachCaches.getOrPut("$prefix#$ordinal") { EachCallsiteCache() }.also { callsite ->
-            callsite.seenKeys.clear()
+            callsite.renderGeneration += 1
         }
     }
 
@@ -730,6 +732,7 @@ public class ComponentScope public constructor(
         // this, render subscriptions to externally stored cells would be dropped and a
         // later write to them would no longer invalidate the runtime.
         cache.recordDependencies()
+        cache.renderGeneration = callsite.renderGeneration
         nodeStack.last() += cache.nodes
         return true
     }
@@ -769,6 +772,7 @@ public class ComponentScope public constructor(
                 touchedEventKeys = capture.touchedEventKeys ?: emptyList(),
                 slotCursorDelta = slotCursor - slotCursorBefore,
                 eventCursorDelta = eventCursor - eventCursorBefore,
+                renderGeneration = callsite.renderGeneration,
             )
         } else {
             // The row may have been cached in an earlier render and only now turned
@@ -786,17 +790,17 @@ public class ComponentScope public constructor(
     private fun evictRemovedEachRows(callsite: EachCallsiteCache) {
         if (callsite.rows.isNotEmpty()) {
             val removedScopePrefixes = mutableListOf<String>()
-            val iterator = callsite.rows.keys.iterator()
+            val iterator = callsite.rows.entries.iterator()
             while (iterator.hasNext()) {
-                val rowKey = iterator.next()
-                if (rowKey !in callsite.seenKeys) {
+                val entry = iterator.next()
+                if (entry.value.renderGeneration != callsite.renderGeneration) {
+                    val rowKey = entry.key
                     iterator.remove()
                     removedScopePrefixes += keyScopePrefix(rowKey)
                 }
             }
             evictEachCallsitesUnder(removedScopePrefixes)
         }
-        callsite.seenKeys.clear()
     }
 
     /**
@@ -853,6 +857,7 @@ public class ComponentScope public constructor(
         val touchedEventKeys: List<String>,
         val slotCursorDelta: Int,
         val eventCursorDelta: Int,
+        var renderGeneration: Int,
     ) {
         fun dependenciesUnchanged(): Boolean =
             dependencies.all { (dependency, version) -> dependency.version == version }
@@ -864,7 +869,7 @@ public class ComponentScope public constructor(
 
     private class EachCallsiteCache {
         val rows = HashMap<String, EachRowCache>()
-        val seenKeys = HashSet<String>()
+        var renderGeneration = 0
     }
 
     private data class SkippableCapture(
@@ -1137,23 +1142,22 @@ private data class KeyedItem<T>(
 private fun <T> ComponentScope.keyedLastWins(
     items: Iterable<T>,
     key: (T) -> Any,
-): List<KeyedItem<T>> =
-    keyedLastWinsMap(items, key).map { (itemKey, item) -> KeyedItem(itemKey, item) }
-
-private fun <T> ComponentScope.keyedLastWinsMap(
-    items: Iterable<T>,
-    key: (T) -> Any,
-): LinkedHashMap<Any, T> {
-    val keyedItems = linkedMapOf<Any, T>()
+): List<KeyedItem<T>> {
+    val estimatedSize = (items as? Collection<*>)?.size ?: 10
+    val keyedItems = ArrayList<KeyedItem<T>>(estimatedSize)
+    val seenKeys = HashSet<Any>(estimatedSize)
     items.forEach { item ->
         val itemKey = key(item)
-        if (keyedItems.containsKey(itemKey)) {
+        if (!seenKeys.add(itemKey)) {
             duplicateKey(itemKey)
             if (!runtime.debug) {
-                keyedItems.remove(itemKey)
+                val previousIndex = keyedItems.indexOfFirst { keyed -> keyed.key == itemKey }
+                if (previousIndex >= 0) {
+                    keyedItems.removeAt(previousIndex)
+                }
             }
         }
-        keyedItems[itemKey] = item
+        keyedItems += KeyedItem(itemKey, item)
     }
     return keyedItems
 }
