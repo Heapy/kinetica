@@ -294,9 +294,14 @@ public class BrowserKineticaApp(
     private fun mountTemplate(node: TemplateNode, parent: Element, anchor: DomNode?, path: String): MountedTemplate {
         val prototype = templatePrototype(node.definition)
         val root = prototype.root.cloneNode(true) as Element
+        val key = node.reconcileKey
+        if (key != null) {
+            root.setAttribute(DATA_KINETICA_KEY, key)
+        } else {
+            root.removeAttribute(DATA_KINETICA_KEY)
+        }
         if (runtime.debug) {
             root.setAttribute(DATA_KINETICA_PATH, path)
-            node.key?.let { key -> root.setAttribute(DATA_KINETICA_KEY, key) }
         }
         val mounted = MountedTemplate(
             templateNode = node,
@@ -555,14 +560,12 @@ public class BrowserKineticaApp(
     private fun patchTemplate(mounted: MountedTemplate, next: TemplateNode, path: String) {
         val previous = mounted.templateNode
         mounted.templateNode = next
-        if (previous.key != next.key) {
-            if (runtime.debug) {
-                val key = next.key
-                if (key != null) {
-                    mounted.root.setAttribute(DATA_KINETICA_KEY, key)
-                } else {
-                    mounted.root.removeAttribute(DATA_KINETICA_KEY)
-                }
+        if (previous.reconcileKey != next.reconcileKey) {
+            val key = next.reconcileKey
+            if (key != null) {
+                mounted.root.setAttribute(DATA_KINETICA_KEY, key)
+            } else {
+                mounted.root.removeAttribute(DATA_KINETICA_KEY)
             }
         }
         if (runtime.debug) {

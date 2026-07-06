@@ -83,6 +83,7 @@ history of `perf-rewrite-design.md` (up to commit `7cfde69`).
 - Test (JS/browser test or harness-driven): TemplateDefinition with `event:onInput` + `event:onSubmit` holes on one element — both dispatch.
 
 ### KNT-0007 (was F7) — `data-kinetica-key` debug-gated on templates
+**Status:** Done (2026-07-07, codex TDD) — mount/patch sync `DATA_KINETICA_KEY` unconditionally from `TemplateNode.reconcileKey` (KNT-0010's property; no duplicate helper); explicit→null restores the skeleton fallback; path/tag attrs stay debug-only. Production `innerHtml()` == `toSafeHtml()` snapshot test + all key transitions + reorder element-identity test (focus-restore fallback variant — shim querySelector is stubbed). Browser JS + runtime 181/181 green.
 - `BrowserKineticaApp.kt` `mountTemplate` (:313) and `patchTemplate` (:574): add `TemplateNode.effectiveRootKey() = key ?: definition.skeleton.key`; set/remove `DATA_KINETICA_KEY` unconditionally from it; in patchTemplate compare previous vs next EFFECTIVE keys (explicit-key→null must restore the skeleton fallback, not remove the attribute). Note: production clones may already inherit the skeleton's key attr from the prototype — sync explicitly. Keep path/tag attrs debug-only.
 - Test: production-mode (debug=false) snapshot equality `innerHtml()` vs `tree().toSafeHtml()` for a keyed template row; focus-restore test across a reorder.
 
