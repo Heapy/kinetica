@@ -372,40 +372,43 @@ public class KineticaServerTransport(
     private val json: Json = KineticaJson,
 ) {
     public fun encodeNode(node: Node): String =
-        json.encodeToString(Node.serializer(), node)
+        json.encodeToString(Node.serializer(), node.materializeDeep())
 
     public fun decodeNode(value: String): Node =
         json.decodeFromString(Node.serializer(), value)
 
     public fun encodeChunk(chunk: ServerRenderChunk): String =
-        json.encodeToString(ServerRenderChunk.serializer(), chunk)
+        encodeMaterializedChunk(chunk.materializeDeep())
 
     public fun decodeChunk(value: String): ServerRenderChunk =
         json.decodeFromString(ServerRenderChunk.serializer(), value)
 
     public fun integrityForChunk(chunk: ServerRenderChunk): IntegrityHash =
-        integrityForPayload(encodeChunk(chunk))
+        integrityForPayload(encodeMaterializedChunk(chunk.materializeDeep()))
 
-    public fun encodeSignedChunk(chunk: ServerRenderChunk): String =
-        json.encodeToString(
+    public fun encodeSignedChunk(chunk: ServerRenderChunk): String {
+        val materialized = chunk.materializeDeep()
+        return json.encodeToString(
             SignedServerRenderChunk.serializer(),
             SignedServerRenderChunk(
-                chunk = chunk,
-                integrity = integrityForChunk(chunk),
+                chunk = materialized,
+                integrity = integrityForPayload(encodeMaterializedChunk(materialized)),
             ),
         )
+    }
 
     public fun decodeSignedChunk(value: String): ServerRenderChunk {
         val signed = json.decodeFromString(SignedServerRenderChunk.serializer(), value)
-        val expected = integrityForChunk(signed.chunk)
+        val materialized = signed.chunk.materializeDeep()
+        val expected = integrityForPayload(encodeMaterializedChunk(materialized))
         require(signed.integrity == expected) {
             "Server render chunk integrity mismatch: expected $expected, got ${signed.integrity}."
         }
-        return signed.chunk
+        return materialized
     }
 
     public fun encodeHydrationPlan(plan: HydrationPlan): String =
-        json.encodeToString(plan)
+        json.encodeToString(plan.materializeDeep())
 
     public fun decodeHydrationPlan(value: String): HydrationPlan =
         json.decodeFromString(value)
@@ -427,20 +430,82 @@ public class KineticaServerTransport(
             algorithm = INTEGRITY_ALGORITHM,
             value = fnv1a64(payload.encodeToByteArray()).toHex64(),
         )
+
+    private fun encodeMaterializedChunk(chunk: ServerRenderChunk): String =
+        json.encodeToString(ServerRenderChunk.serializer(), chunk)
 }
 
-public fun Node.hydrationPlan(mountedTree: Node? = null): HydrationPlan =
-    HydrationPlan(
-        initialTree = this,
-        clientIslands = collectClientIslands(),
-        patchesFromMountedTree = mountedTree?.let { diffNodes(it, this) }.orEmpty(),
+private fun ServerRenderChunk.materializeDeep(): ServerRenderChunk =
+    when (this) {
+        is ServerRenderChunk.Tree -> {
+            val materialized = node.materializeDeep()
+            if (materialized === node) this else copy(node = materialized)
+        }
+        is ServerRenderChunk.Patch -> {
+            val materialized = node?.materializeDeep()
+            if (materialized === node) this else copy(node = materialized)
+        }
+        is ServerRenderChunk.BoundaryError -> this
+        is ServerRenderChunk.End -> this
+    }
+
+private fun HydrationPlan.materializeDeep(): HydrationPlan {
+    val materializedTree = initialTree.materializeDeep()
+    val materializedPatches = patchesFromMountedTree.materializeDeep()
+    return if (materializedTree === initialTree && materializedPatches === patchesFromMountedTree) {
+        this
+    } else {
+        copy(
+            initialTree = materializedTree,
+            patchesFromMountedTree = materializedPatches,
+        )
+    }
+}
+
+private fun List<NodeDiff>.materializeDeep(): List<NodeDiff> {
+    var materialized: MutableList<NodeDiff>? = null
+    forEachIndexed { index, diff ->
+        val materializedDiff = diff.materializeDeep()
+        val current = materialized
+        when {
+            current != null -> current += materializedDiff
+            materializedDiff !== diff -> {
+                val next = ArrayList<NodeDiff>(size)
+                for (previous in 0 until index) {
+                    next += this[previous]
+                }
+                next += materializedDiff
+                materialized = next
+            }
+        }
+    }
+    return materialized ?: this
+}
+
+private fun NodeDiff.materializeDeep(): NodeDiff {
+    val materializedBefore = before?.materializeDeep()
+    val materializedAfter = after?.materializeDeep()
+    return if (materializedBefore === before && materializedAfter === after) {
+        this
+    } else {
+        copy(before = materializedBefore, after = materializedAfter)
+    }
+}
+
+public fun Node.hydrationPlan(mountedTree: Node? = null): HydrationPlan {
+    val initialTree = materializeDeep()
+    return HydrationPlan(
+        initialTree = initialTree,
+        clientIslands = initialTree.collectClientIslands(),
+        patchesFromMountedTree = mountedTree?.let { diffNodes(it, initialTree) }.orEmpty(),
     )
+}
 
 public fun Node.toInitialServerChunk(
     sequence: Long = 1,
     manifest: ClientComponentManifest = ClientComponentManifest(),
 ): ServerRenderChunk.Tree =
-    ServerRenderChunk.Tree(sequence = sequence, node = this, manifest = manifest)
+    ServerRenderChunk.Tree(sequence = sequence, node = materializeDeep(), manifest = manifest)
 
 public fun Node.toServerRenderStream(
     manifest: ClientComponentManifest = ClientComponentManifest(),
@@ -493,7 +558,7 @@ public suspend fun Node.toServerRenderStream(
                 chunks += ServerRenderChunk.Patch(
                     sequence = sequence++,
                     path = result.path,
-                    node = result.node,
+                    node = result.node.materializeDeep(),
                 )
             }
             is ServerRenderDeferredResult.Failed -> {

@@ -131,6 +131,41 @@ public fun singleTextTemplateDefinition(
 public fun TemplateNode.materialize(): HostNode =
     materializeTemplateHost(definition.skeleton, this, path = "")
 
+public fun Node.materializeDeep(): Node =
+    when (this) {
+        is TemplateNode -> materialize().materializeDeep()
+        is HostNode -> {
+            val materializedChildren = children.materializeDeep()
+            if (materializedChildren === children) this else copy(children = materializedChildren)
+        }
+        is FragmentNode -> {
+            val materializedChildren = children.materializeDeep()
+            if (materializedChildren === children) this else copy(children = materializedChildren)
+        }
+        is TextNode -> this
+        is ClientRef -> this
+    }
+
+private fun List<Node>.materializeDeep(): List<Node> {
+    var materialized: MutableList<Node>? = null
+    forEachIndexed { index, child ->
+        val materializedChild = child.materializeDeep()
+        val current = materialized
+        when {
+            current != null -> current += materializedChild
+            materializedChild !== child -> {
+                val next = ArrayList<Node>(size)
+                for (previous in 0 until index) {
+                    next += this[previous]
+                }
+                next += materializedChild
+                materialized = next
+            }
+        }
+    }
+    return materialized ?: this
+}
+
 private fun materializeTemplateHost(
     node: HostNode,
     template: TemplateNode,
@@ -200,6 +235,8 @@ public data class NodeDiff(
 }
 
 public fun diffNodes(before: Node?, after: Node?): List<NodeDiff> {
+    val normalizedBefore = before?.materializeDeep()
+    val normalizedAfter = after?.materializeDeep()
     val diffs = mutableListOf<NodeDiff>()
     fun visit(path: List<Int>, left: Node?, right: Node?) {
         when {
@@ -224,17 +261,18 @@ public fun diffNodes(before: Node?, after: Node?): List<NodeDiff> {
             }
         }
     }
-    visit(emptyList(), before, after)
+    visit(emptyList(), normalizedBefore, normalizedAfter)
     return diffs
 }
 
-private fun Node.childrenForDiff(): List<Node>? = when (this) {
-    is FragmentNode -> children
-    is HostNode -> children
-    is TextNode -> null
-    is ClientRef -> null
-    is TemplateNode -> materialize().children
-}
+private fun Node.childrenForDiff(): List<Node>? =
+    if (this is FragmentNode) {
+        children
+    } else if (this is HostNode) {
+        children
+    } else {
+        null
+    }
 
 private fun Node.hasSameDiffContainerAs(other: Node): Boolean =
     when {
@@ -244,12 +282,6 @@ private fun Node.hasSameDiffContainerAs(other: Node): Boolean =
                 props == other.props &&
                 key == other.key &&
                 semantics == other.semantics
-        this is TemplateNode && other is TemplateNode ->
-            materialize().hasSameDiffContainerAs(other.materialize())
-        this is TemplateNode && other is HostNode ->
-            materialize().hasSameDiffContainerAs(other)
-        this is HostNode && other is TemplateNode ->
-            hasSameDiffContainerAs(other.materialize())
         else -> false
     }
 

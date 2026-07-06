@@ -14,6 +14,7 @@ import io.heapy.kinetica.TemplateHoleKinds
 import io.heapy.kinetica.TemplateNode
 import io.heapy.kinetica.TextNode
 import io.heapy.kinetica.UiComponent
+import io.heapy.kinetica.materializeDeep
 import io.heapy.kinetica.toSafeHtml
 import kotlinx.serialization.json.JsonObject
 import org.w3c.dom.Document
@@ -74,7 +75,7 @@ public class BrowserKineticaApp(
         BrowserUiSnapshot(
             innerHtml = innerHtml(),
             treeHtml = tree().toSafeHtml(),
-            treeJson = BrowserSnapshotJson.encodeToString(Node.serializer(), tree()),
+            treeJson = BrowserSnapshotJson.encodeToString(Node.serializer(), tree().materializeDeep()),
         )
 
     public fun assertInnerHtmlSnapshot(expected: String) {
