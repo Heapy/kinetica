@@ -1,15 +1,15 @@
 {
-  "date": "2026-07-06T16:59:54.273Z",
+  "date": "2026-07-06T20:40:03.012Z",
   "sizes": {
     "kinetica/browser-bench-bundle": {
       "files": 1,
-      "rawBytes": 265170,
-      "gzipBytes": 83580
+      "rawBytes": 266614,
+      "gzipBytes": 84189
     },
     "kinetica/browser-bench-js": {
-      "files": 223,
-      "rawBytes": 1109043,
-      "gzipBytes": 271914
+      "files": 224,
+      "rawBytes": 1127198,
+      "gzipBytes": 274920
     },
     "kinetica/docs-client-bundle": {
       "files": 1,
@@ -17,9 +17,9 @@
       "gzipBytes": 126554
     },
     "kinetica/docs-client-js": {
-      "files": 281,
-      "rawBytes": 1711586,
-      "gzipBytes": 396211
+      "files": 282,
+      "rawBytes": 1732877,
+      "gzipBytes": 398618
     },
     "kinetica/server-components-client-bundle": {
       "files": 1,
@@ -27,9 +27,9 @@
       "gzipBytes": 122938
     },
     "kinetica/server-components-client-js": {
-      "files": 264,
-      "rawBytes": 1693108,
-      "gzipBytes": 375247
+      "files": 265,
+      "rawBytes": 1700291,
+      "gzipBytes": 377216
     },
     "bench/vanilla": {
       "files": 1,

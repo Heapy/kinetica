@@ -1,7 +1,4 @@
-// Own package as a workaround: the Kinetica IR plugin numbers its file-level kineticaFrame$N
-// table fields per file, so two files with @UiComponent functions in the same package emit
-// colliding top-level field signatures and fail Kotlin/JS klib linking.
-package io.heapy.kinetica.testing.snapshot
+package io.heapy.kinetica.testing
 
 import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.Role
