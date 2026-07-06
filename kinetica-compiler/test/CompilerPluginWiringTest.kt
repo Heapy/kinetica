@@ -1,13 +1,7 @@
 package io.heapy.kinetica.compiler
 
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
-import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSourceLocation
-import org.jetbrains.kotlin.cli.common.messages.MessageCollector
 import org.jetbrains.kotlin.K1Deprecation
-import org.jetbrains.kotlin.cli.jvm.compiler.EnvironmentConfigFiles
-import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
-import org.jetbrains.kotlin.com.intellij.openapi.application.ApplicationManager
-import org.jetbrains.kotlin.com.intellij.openapi.util.Disposer
 import org.jetbrains.kotlin.compiler.plugin.CliOption
 import org.jetbrains.kotlin.compiler.plugin.CliOptionProcessingException
 import org.jetbrains.kotlin.compiler.plugin.CompilerPluginRegistrar
@@ -17,7 +11,6 @@ import org.jetbrains.kotlin.config.useLightTree
 import org.jetbrains.kotlin.backend.common.extensions.IrGenerationExtension
 import org.jetbrains.kotlin.extensions.ProcessSourcesBeforeCompilingExtension
 import org.jetbrains.kotlin.psi.KtPsiFactory
-import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -204,18 +197,8 @@ class CompilerPluginWiringTest {
     @Test
     @OptIn(CompilerConfiguration.Internals::class, K1Deprecation::class)
     fun processSourcesTransformsAnnotatedPsiAndRegistersGeneratedFiles() {
-        val disposable = Disposer.newDisposable()
-        val ideaHome = createTempDirectory(prefix = "kinetica-compiler-test")
-        val previousIdeaHome = System.setProperty("idea.home.path", ideaHome.toString())
-        val previousIdeaConfig = System.setProperty("idea.config.path", ideaHome.resolve("config").toString())
-        val previousIdeaSystem = System.setProperty("idea.system.path", ideaHome.resolve("system").toString())
-        try {
-            val configuration = CompilerConfiguration()
-            val environment = KotlinCoreEnvironment.createForTests(
-                disposable,
-                configuration,
-                EnvironmentConfigFiles.JVM_CONFIG_FILES,
-            )
+        val configuration = CompilerConfiguration()
+        withKotlinCoreEnvironment(configuration) { environment ->
             val source = KtPsiFactory(environment.project).createPhysicalFile(
                 "Screen.kt",
                 """
@@ -259,13 +242,6 @@ class CompilerPluginWiringTest {
             assertEquals("Screen", plan.previews.single().displayName)
             assertEquals("app/Screen#static#0", plan.staticHoists.single().hoistId)
             assertTrue(assertNotNull(configuration.get(KineticaConfigurationKeys.generatedSources)).isNotEmpty())
-        } finally {
-            restoreSystemProperty("idea.system.path", previousIdeaSystem)
-            restoreSystemProperty("idea.config.path", previousIdeaConfig)
-            restoreSystemProperty("idea.home.path", previousIdeaHome)
-            ApplicationManager.getApplication()?.runWriteAction {
-                Disposer.dispose(disposable)
-            } ?: Disposer.dispose(disposable)
         }
     }
 
@@ -1470,39 +1446,4 @@ class CompilerPluginWiringTest {
         assertFalse(collector.hasErrors())
     }
 
-    private class RecordingMessageCollector : MessageCollector {
-        val messages = mutableListOf<CollectedMessage>()
-
-        override fun clear() {
-            messages.clear()
-        }
-
-        override fun report(
-            severity: CompilerMessageSeverity,
-            message: String,
-            location: CompilerMessageSourceLocation?,
-        ) {
-            messages += CollectedMessage(severity, message, location)
-        }
-
-        override fun hasErrors(): Boolean =
-            messages.any { it.severity.isError }
-    }
-
-    private data class CollectedMessage(
-        val severity: CompilerMessageSeverity,
-        val message: String,
-        val location: CompilerMessageSourceLocation?,
-    )
-
-    private fun restoreSystemProperty(
-        key: String,
-        previousValue: String?,
-    ) {
-        if (previousValue == null) {
-            System.clearProperty(key)
-        } else {
-            System.setProperty(key, previousValue)
-        }
-    }
 }

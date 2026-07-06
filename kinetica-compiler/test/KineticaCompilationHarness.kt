@@ -1,10 +1,10 @@
 package io.heapy.kinetica.compiler
 
+import io.heapy.kinetica.ComponentScope
+import io.heapy.kinetica.KineticaRuntime
+import io.heapy.kinetica.Node
 import org.jetbrains.kotlin.cli.common.ExitCode
 import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
-import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
-import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSourceLocation
-import org.jetbrains.kotlin.cli.common.messages.MessageCollector
 import org.jetbrains.kotlin.cli.jvm.K2JVMCompiler
 import org.jetbrains.kotlin.config.Services
 import java.io.File
@@ -14,6 +14,7 @@ import java.util.jar.JarOutputStream
 import kotlin.io.path.createDirectories
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.writeText
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -194,40 +195,67 @@ internal class CompiledKineticaModule(
     fun loadClass(fqName: String): Class<*> =
         classLoader.loadClass(fqName)
 
+    fun invokeRender(
+        facadeFqName: String,
+        methodName: String,
+        vararg arguments: Pair<Class<*>, Any?>,
+        runtime: KineticaRuntime = KineticaRuntime(),
+        scope: ComponentScope = ComponentScope(runtime),
+    ): Node =
+        invokeRender(loadClass(facadeFqName), methodName, *arguments, runtime = runtime, scope = scope)
+
+    fun invokeRender(
+        facade: Class<*>,
+        methodName: String,
+        vararg arguments: Pair<Class<*>, Any?>,
+        runtime: KineticaRuntime = KineticaRuntime(),
+        scope: ComponentScope = ComponentScope(runtime),
+    ): Node {
+        val parameterTypes = arrayOf(
+            KineticaRuntime::class.java,
+            ComponentScope::class.java,
+            *arguments.map { argument -> argument.first }.toTypedArray(),
+        )
+        val values = arrayOf<Any?>(
+            runtime,
+            scope,
+            *arguments.map { argument -> argument.second }.toTypedArray(),
+        )
+        return facade.getDeclaredMethod(methodName, *parameterTypes).invoke(null, *values) as Node
+    }
+
+    fun assertFileField(
+        facadeFqName: String,
+        namePrefix: String,
+        expectedCount: Int? = null,
+    ) {
+        assertFileField(loadClass(facadeFqName), namePrefix, expectedCount)
+    }
+
+    fun assertFileField(
+        facade: Class<*>,
+        namePrefix: String,
+        expectedCount: Int? = null,
+    ) {
+        val fieldNames = facade.declaredFields.map { field -> field.name }
+        val matches = fieldNames.filter { name -> name.startsWith(namePrefix) }
+        if (expectedCount == null) {
+            assertTrue(
+                matches.isNotEmpty(),
+                "Expected ${facade.name} to declare a field starting with '$namePrefix'. Fields:\n" +
+                    fieldNames.joinToString("\n"),
+            )
+        } else {
+            assertEquals(
+                expectedCount,
+                matches.size,
+                "Expected ${facade.name} to declare $expectedCount field(s) starting with '$namePrefix'. Fields:\n" +
+                    fieldNames.joinToString("\n"),
+            )
+        }
+    }
+
     override fun close() {
         classLoader.close()
-    }
-}
-
-internal data class RecordedCompilerMessage(
-    val severity: CompilerMessageSeverity,
-    val message: String,
-    val location: CompilerMessageSourceLocation?,
-)
-
-private class RecordingMessageCollector : MessageCollector {
-    val messages: MutableList<RecordedCompilerMessage> = mutableListOf()
-
-    override fun clear() {
-        messages.clear()
-    }
-
-    override fun hasErrors(): Boolean =
-        messages.any { message -> message.severity.isError }
-
-    override fun report(
-        severity: CompilerMessageSeverity,
-        message: String,
-        location: CompilerMessageSourceLocation?,
-    ) {
-        messages += RecordedCompilerMessage(severity, message, location)
-    }
-}
-
-private fun restoreSystemProperty(key: String, previous: String?) {
-    if (previous == null) {
-        System.clearProperty(key)
-    } else {
-        System.setProperty(key, previous)
     }
 }

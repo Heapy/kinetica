@@ -4,12 +4,12 @@
 // ES-module graph, then esbuild turns each docs entrypoint into one production
 // browser module.
 
-import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { brotliCompressSync, constants as zlibConstants, gzipSync } from "node:zlib";
+import { run } from "./lib/run.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..");
@@ -37,14 +37,6 @@ const targets = [
     entry: "server-components-client.mjs",
   },
 ];
-
-function run(cmd, args, cwd) {
-  console.log(`$ ${cmd} ${args.join(" ")}`);
-  const result = spawnSync(cmd, args, { cwd, stdio: "inherit" });
-  if (result.status !== 0) {
-    process.exit(result.status ?? 1);
-  }
-}
 
 function measureFile(file) {
   const content = readFileSync(file);
@@ -110,7 +102,7 @@ function writeBrotli(file) {
 
 const kotlin = process.platform === "win32" ? "kotlin.bat" : "./kotlin";
 for (const target of targets) {
-  run(kotlin, ["build", "-m", target.module], repoRoot);
+  run(kotlin, ["build", "-m", target.module], { cwd: repoRoot });
 }
 
 for (const target of targets) {

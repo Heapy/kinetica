@@ -4,7 +4,6 @@ import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.HostNode
 import io.heapy.kinetica.JournalKind
 import io.heapy.kinetica.KineticaRuntime
-import io.heapy.kinetica.Node
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertSame
@@ -42,17 +41,23 @@ class KineticaIrSkippableCompileTest {
             ),
         ).use { compiled ->
             compiled.assertTransformFired("app.Badge: wrapped in skippableNode")
-            val render = compiled.loadClass("app.SkippableSampleKt").getDeclaredMethod(
-                "renderBadge",
-                KineticaRuntime::class.java,
-                ComponentScope::class.java,
-                String::class.java,
-            )
             val runtime = KineticaRuntime()
             val scope = ComponentScope(runtime)
 
-            val first = render.invoke(null, runtime, scope, "Inbox") as Node
-            val second = render.invoke(null, runtime, scope, "Inbox") as Node
+            val first = compiled.invokeRender(
+                "app.SkippableSampleKt",
+                "renderBadge",
+                String::class.java to "Inbox",
+                runtime = runtime,
+                scope = scope,
+            )
+            val second = compiled.invokeRender(
+                "app.SkippableSampleKt",
+                "renderBadge",
+                String::class.java to "Inbox",
+                runtime = runtime,
+                scope = scope,
+            )
 
             assertSame(first, second)
             assertEquals("span", (second as HostNode).tag)

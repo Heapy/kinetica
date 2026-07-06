@@ -1,18 +1,13 @@
 package io.heapy.kinetica.compiler
 
-import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.FragmentNode
 import io.heapy.kinetica.HostNode
-import io.heapy.kinetica.KineticaRuntime
-import io.heapy.kinetica.Node
 import io.heapy.kinetica.NodeFlags
 import io.heapy.kinetica.TemplateNode
 import io.heapy.kinetica.materialize
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
-import kotlin.test.assertTrue
 
 class KineticaIrTemplateCompileTest {
     private val harness = KineticaCompilationHarness()
@@ -22,10 +17,9 @@ class KineticaIrTemplateCompileTest {
         harness.compile(mapOf("app/TemplateSample.kt" to TEMPLATE_SAMPLE)).use { compiled ->
             compiled.assertTransformFired("emitted 1 template definitions")
             val facade = compiled.loadClass("app.TemplateSampleKt")
-            val fieldNames = facade.declaredFields.map { field -> field.name }
-            assertTrue(fieldNames.any { name -> name.startsWith("kineticaTemplate\$") })
+            compiled.assertFileField(facade, "kineticaTemplate\$")
 
-            val rendered = renderLabel(facade, "Inbox")
+            val rendered = compiled.invokeRender(facade, "renderLabel", String::class.java to "Inbox")
             val template = assertIs<TemplateNode>(rendered)
             assertEquals("Inbox", template.values.single())
             assertEquals(
@@ -48,10 +42,9 @@ class KineticaIrTemplateCompileTest {
         ).use { compiled ->
             compiled.assertTransformDidNotFire("emitted 1 template definitions")
             val facade = compiled.loadClass("app.TemplateSampleKt")
-            val fieldNames = facade.declaredFields.map { field -> field.name }
-            assertFalse(fieldNames.any { name -> name.startsWith("kineticaTemplate\$") })
+            compiled.assertFileField(facade, "kineticaTemplate\$", expectedCount = 0)
 
-            val rendered = renderLabel(facade, "Inbox")
+            val rendered = compiled.invokeRender(facade, "renderLabel", String::class.java to "Inbox")
             assertIs<HostNode>(rendered)
             assertEquals("Inbox", rendered.children.single().let { (it as io.heapy.kinetica.TextNode).value })
         }
@@ -63,7 +56,7 @@ class KineticaIrTemplateCompileTest {
             compiled.assertTransformFired("emitted 1 template definitions")
             val facade = compiled.loadClass("app.PropsLessTemplateKt")
 
-            val rendered = renderStringMethod(facade, "renderPropsLess", "Inbox")
+            val rendered = compiled.invokeRender(facade, "renderPropsLess", String::class.java to "Inbox")
             val template = assertIs<TemplateNode>(rendered)
             assertEquals("Inbox", template.values.single())
             assertEquals(
@@ -84,7 +77,7 @@ class KineticaIrTemplateCompileTest {
             compiled.assertTransformFired("emitted 1 template definitions")
             val facade = compiled.loadClass("app.ZeroArgPropsTemplateKt")
 
-            val rendered = renderStringMethod(facade, "renderZeroArgProps", "Inbox")
+            val rendered = compiled.invokeRender(facade, "renderZeroArgProps", String::class.java to "Inbox")
             val template = assertIs<TemplateNode>(rendered)
             assertEquals("Inbox", template.values.single())
             assertEquals(
@@ -105,7 +98,7 @@ class KineticaIrTemplateCompileTest {
             compiled.assertTransformFired("emitted 1 template definitions")
             val facade = compiled.loadClass("app.TextSemanticsTemplateKt")
 
-            val rendered = renderStringMethod(facade, "renderSemantics", "Inbox")
+            val rendered = compiled.invokeRender(facade, "renderSemantics", String::class.java to "Inbox")
             val children = assertIs<FragmentNode>(rendered).children
             assertEquals(2, children.size)
             assertIs<TemplateNode>(children[0])
@@ -123,7 +116,7 @@ class KineticaIrTemplateCompileTest {
             compiled.assertTransformFired("emitted 1 template definitions")
             val facade = compiled.loadClass("app.ReversedOrderTemplateKt")
 
-            val rendered = renderStringMethod(facade, "renderIndexed", "Inbox")
+            val rendered = compiled.invokeRender(facade, "renderIndexed", String::class.java to "Inbox")
             val template = assertIs<TemplateNode>(rendered)
             assertEquals(
                 HostNode(
@@ -143,7 +136,7 @@ class KineticaIrTemplateCompileTest {
             compiled.assertTransformDidNotFire("emitted 1 template definitions")
             val facade = compiled.loadClass("app.SourcePropsFieldTemplateKt")
 
-            val rendered = renderStringMethod(facade, "renderSourcePropsField", "Inbox")
+            val rendered = compiled.invokeRender(facade, "renderSourcePropsField", String::class.java to "Inbox")
             assertEquals(
                 HostNode(
                     tag = "p",
@@ -161,12 +154,15 @@ class KineticaIrTemplateCompileTest {
         harness.compile(mapOf("app/TemplateShapes.kt" to TEMPLATE_SHAPES)).use { compiled ->
             compiled.assertTransformFired("emitted 2 template definitions")
             val facade = compiled.loadClass("app.TemplateShapesKt")
-            assertEquals(
-                2,
-                facade.declaredFields.count { field -> field.name.startsWith("kineticaTemplate\$") },
-            )
+            compiled.assertFileField(facade, "kineticaTemplate\$", expectedCount = 2)
 
-            val rendered = renderAllShapes(facade, "Inbox", "strong", "dynamic")
+            val rendered = compiled.invokeRender(
+                facade,
+                "renderAllShapes",
+                String::class.java to "Inbox",
+                String::class.java to "strong",
+                String::class.java to "dynamic",
+            )
             val children = assertIs<FragmentNode>(rendered).children
             assertEquals(10, children.size)
             assertIs<TemplateNode>(children[0])
@@ -181,7 +177,7 @@ class KineticaIrTemplateCompileTest {
     fun userPropsFunctionIsNotTreatedAsPropsOfTemplateInput() {
         harness.compile(mapOf("app/UserPropsTemplate.kt" to USER_PROPS_TEMPLATE)).use { compiled ->
             val facade = compiled.loadClass("app.UserPropsTemplateKt")
-            val rendered = renderUserProps(facade, "Inbox")
+            val rendered = compiled.invokeRender(facade, "renderUserProps", String::class.java to "Inbox")
             val materialized = if (rendered is TemplateNode) rendered.materialize() else rendered
 
             assertEquals(
@@ -202,7 +198,7 @@ class KineticaIrTemplateCompileTest {
         harness.compile(mapOf("app/ReceiverTextTemplate.kt" to RECEIVER_TEXT_TEMPLATE)).use { compiled ->
             compiled.assertTransformDidNotFire("emitted 1 template definitions")
             val facade = compiled.loadClass("app.ReceiverTextTemplateKt")
-            val rendered = renderReceiverText(facade)
+            val rendered = compiled.invokeRender(facade, "renderReceiverText")
 
             assertEquals(
                 HostNode(
@@ -214,72 +210,6 @@ class KineticaIrTemplateCompileTest {
                 rendered,
             )
         }
-    }
-
-    private fun renderLabel(facade: Class<*>, label: String): Node {
-        val render = facade.getDeclaredMethod(
-            "renderLabel",
-            KineticaRuntime::class.java,
-            ComponentScope::class.java,
-            String::class.java,
-        )
-        val runtime = KineticaRuntime()
-        val scope = ComponentScope(runtime)
-        return render.invoke(null, runtime, scope, label) as Node
-    }
-
-    private fun renderAllShapes(
-        facade: Class<*>,
-        label: String,
-        tag: String,
-        className: String,
-    ): Node {
-        val render = facade.getDeclaredMethod(
-            "renderAllShapes",
-            KineticaRuntime::class.java,
-            ComponentScope::class.java,
-            String::class.java,
-            String::class.java,
-            String::class.java,
-        )
-        val runtime = KineticaRuntime()
-        val scope = ComponentScope(runtime)
-        return render.invoke(null, runtime, scope, label, tag, className) as Node
-    }
-
-    private fun renderUserProps(facade: Class<*>, label: String): Node {
-        val render = facade.getDeclaredMethod(
-            "renderUserProps",
-            KineticaRuntime::class.java,
-            ComponentScope::class.java,
-            String::class.java,
-        )
-        val runtime = KineticaRuntime()
-        val scope = ComponentScope(runtime)
-        return render.invoke(null, runtime, scope, label) as Node
-    }
-
-    private fun renderReceiverText(facade: Class<*>): Node {
-        val render = facade.getDeclaredMethod(
-            "renderReceiverText",
-            KineticaRuntime::class.java,
-            ComponentScope::class.java,
-        )
-        val runtime = KineticaRuntime()
-        val scope = ComponentScope(runtime)
-        return render.invoke(null, runtime, scope) as Node
-    }
-
-    private fun renderStringMethod(facade: Class<*>, methodName: String, value: String): Node {
-        val render = facade.getDeclaredMethod(
-            methodName,
-            KineticaRuntime::class.java,
-            ComponentScope::class.java,
-            String::class.java,
-        )
-        val runtime = KineticaRuntime()
-        val scope = ComponentScope(runtime)
-        return render.invoke(null, runtime, scope, value) as Node
     }
 
     private companion object {
