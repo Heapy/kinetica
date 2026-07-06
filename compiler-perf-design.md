@@ -57,8 +57,18 @@ Status: K0–K3 implemented · 2026-07-06 · owner: kinetica-compiler
   NOT the 10k-partials tax the plan assumed; that cost lives in paint at scale and the patch
   loop itself. The change stays (strictly less work + allocation per patch, matters more on
   weaker hardware) with 9 certification tests (`EachKeyedFlagTest`), 151 runtime tests green.
-- **K5** — not started. Next-target note from K4's measurements: the 10k-partial costs are
-  dominated by paint/patch-loop, not reconcile prep — profile before assuming.
+- **K5** — **rejected on profile evidence (2026-07-06).** CPU-profiling the 10k partials
+  (CDP Profiler, unminified bundle) shows the op cost is browser style/layout/paint;
+  Kinetica's app-JS slice of update10th10k is ~4 ms of a ~50 ms op, split into
+  `emitCachedEachRow` (~0.7 ms — the row-cache HIT replay over unchanged rows),
+  `patchText` (~0.7 ms — legitimate DOM writes), and ~1.1 ms of `hashCode`
+  (`touchedHostEvents` set inserts + row-map lookups, ~20k string hashes per render);
+  `patchKeyedChildren` is ~0.26 ms (K4's flags leave the diff nearly free). K5 would only
+  remove capture-time detection, which runs for CHANGED rows and is trivial branches — it
+  cannot move these numbers. **The identified next lever instead:** the each-row hit path's
+  hash work — for select10k (~10 ms vs vanilla's ~4.6 ms floor) the hit-path cost is roughly
+  half of Kinetica's whole gap on that op. Attack that (pre-hashed row keys, batched event
+  touch, or clock-stamped row caches) before anything else in this plan.
 Companion to `perf-rewrite-design.md` (renderer, P0–P3 done, current 13-op geomean 1.35×):
 every number in that story was measured **without** the plugin. This plan makes the compiler
 contribute, safely.
