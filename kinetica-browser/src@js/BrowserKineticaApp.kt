@@ -72,6 +72,9 @@ public class BrowserKineticaApp(
     public fun innerHtml(): String =
         rootElement.innerHTML
 
+    internal val clientRefCountForTests: Int
+        get() = clientRefCount
+
     public fun snapshot(): BrowserUiSnapshot =
         BrowserUiSnapshot(
             innerHtml = innerHtml(),
@@ -384,25 +387,17 @@ public class BrowserKineticaApp(
     }
 
     private fun unmount(mounted: Mounted, parent: Element) {
+        detach(mounted)
+        removeMountedDom(mounted, parent)
+    }
+
+    private fun removeMountedDom(mounted: Mounted, parent: Element) {
         when (mounted) {
-            is MountedHost -> {
-                mounted.element.asDynamic().__kinetica = null
-                parent.removeChild(mounted.element)
-            }
-            is MountedTemplate -> {
-                mounted.eventBindings.forEach { binding ->
-                    if (binding != null) {
-                        removeTemplateEventBinding(binding)
-                    }
-                }
-                parent.removeChild(mounted.root)
-            }
+            is MountedHost -> parent.removeChild(mounted.element)
+            is MountedTemplate -> parent.removeChild(mounted.root)
             is MountedText -> parent.removeChild(mounted.dom)
-            is MountedFragment -> mounted.children.forEach { child -> unmount(child, parent) }
-            is MountedClientRef -> {
-                clientRefCount--
-                parent.removeChild(mounted.element)
-            }
+            is MountedFragment -> mounted.children.forEach { child -> removeMountedDom(child, parent) }
+            is MountedClientRef -> parent.removeChild(mounted.element)
         }
     }
 
@@ -879,15 +874,19 @@ public class BrowserKineticaApp(
     }
 
     private fun clearOwnedChildren(parent: Element, mounted: MutableList<Mounted>) {
-        mounted.forEach(::disposeMountedSubtree)
+        if (clientRefCount > 0) {
+            mounted.forEach(::detach)
+        }
         mounted.clear()
+        // The DOM subtree is discarded wholesale, so __kinetica/template-event expandos
+        // are GC-collectable with it; clientRefCount is the only app-lifetime bookkeeping.
         parent.textContent = ""
     }
 
-    private fun disposeMountedSubtree(mounted: Mounted) {
+    private fun detach(mounted: Mounted) {
         when (mounted) {
             is MountedHost -> {
-                mounted.children.forEach(::disposeMountedSubtree)
+                mounted.children.forEach(::detach)
                 mounted.element.asDynamic().__kinetica = null
             }
             is MountedTemplate -> {
@@ -898,7 +897,7 @@ public class BrowserKineticaApp(
                 }
             }
             is MountedText -> {}
-            is MountedFragment -> mounted.children.forEach(::disposeMountedSubtree)
+            is MountedFragment -> mounted.children.forEach(::detach)
             is MountedClientRef -> clientRefCount--
         }
     }

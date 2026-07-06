@@ -112,9 +112,11 @@ history of `perf-rewrite-design.md` (up to commit `7cfde69`).
 ## Cleanup batch (verified items below the report cap)
 
 ### KNT-0011 (was C1) — Unify `unmount`/`disposeMountedSubtree`
+**Status:** Done (2026-07-07, codex TDD, with KNT-0012) — `unmount` = recursive `detach()` bookkeeping + `removeMountedDom()` (DOM removals unchanged); the host arm now recurses, fixing the nested-ClientRef `clientRefCount` leak (red test: expected 0, was 1). Internal `clientRefCountForTests` accessor for regressions.
 - BrowserKineticaApp L400/L893: one recursive `detach(mounted)` doing `__kinetica` + `clientRefCount` bookkeeping, with DOM removal as the variation point — fixes the nested-ClientRef `clientRefCount` leak on keyed removal (permanent `refreshGeneratedAttributes` per render).
 
 ### KNT-0012 (was C2) — Bulk-clear walk skip
+**Status:** Done (2026-07-07, with KNT-0011) — `clearOwnedChildren` walks `detach` only when `clientRefCount > 0`; safety argument in a code comment; remount-after-skip covered by test.
 - Skip `disposeMountedSubtree` recursion entirely when `clientRefCount == 0` (verified: expando-nulling on discarded DOM is collectable garbage either way).
 
 ### KNT-0013 (was C3) — `hasNoKeyOverlap` allocation
