@@ -137,19 +137,23 @@ public fun ComponentScope.button(
     enabled: Boolean = true,
     semantics: Semantics? = Semantics(role = Role.Button, focusable = true),
     key: Any? = null,
+    ordinal: Int = -1,
     content: ComponentScope.() -> Unit,
 ) {
     val enabledValue = if (enabled) "true" else "false"
     val props = if (onClick == null) {
         propsOf("enabled", enabledValue)
     } else {
-        propsOf("enabled", enabledValue, "event:onClick", registerHostEvent { onClick() })
+        propsOf("enabled", enabledValue, "event:onClick", registerHostEvent(ordinal) { onClick() })
     }
     emit(HostNode("button", props, collect(content), key?.toString(), semantics))
 }
 
 public fun ComponentScope.hostEvent(onEvent: () -> Unit): String =
-    registerHostEvent { onEvent() }
+    registerHostEvent(-1) { onEvent() }
+
+public fun ComponentScope.hostEvent(ordinal: Int, onEvent: () -> Unit): String =
+    registerHostEvent(ordinal) { onEvent() }
 
 public fun ComponentScope.textInput(
     value: String,
@@ -158,6 +162,7 @@ public fun ComponentScope.textInput(
     placeholder: String? = null,
     semantics: Semantics? = Semantics(role = Role.TextInput, focusable = true),
     key: Any? = null,
+    ordinal: Int = -1,
 ) {
     val buffer = arrayOfNulls<String>(8)
     var count = 0
@@ -169,13 +174,13 @@ public fun ComponentScope.textInput(
     }
     if (onInput != null) {
         buffer[count++] = "event:onInput"
-        buffer[count++] = registerHostEvent { payload ->
+        buffer[count++] = registerHostEvent(ordinal) { payload ->
             onInput(payload?.toString().orEmpty())
         }
     }
     if (onSubmit != null) {
         buffer[count++] = "event:onSubmit"
-        buffer[count++] = registerHostEvent { onSubmit() }
+        buffer[count++] = registerHostEvent(ordinal, role = EVENT_ROLE_SECONDARY) { onSubmit() }
     }
     emit(HostNode("textInput", propsFromBuffer(buffer, count), key = key?.toString(), semantics = semantics))
 }
@@ -185,15 +190,24 @@ public fun ComponentScope.checkbox(
     onToggle: (() -> Unit)? = null,
     semantics: Semantics? = Semantics(role = Role.Checkbox, focusable = true),
     key: Any? = null,
+    ordinal: Int = -1,
 ) {
     val checkedValue = if (checked) "true" else "false"
     val props = if (onToggle == null) {
         propsOf("checked", checkedValue)
     } else {
-        propsOf("checked", checkedValue, "event:onToggle", registerHostEvent { onToggle() })
+        propsOf("checked", checkedValue, "event:onToggle", registerHostEvent(ordinal) { onToggle() })
     }
     emit(HostNode("checkbox", props, key = key?.toString(), semantics = semantics))
 }
 
-private fun ComponentScope.registerHostEvent(callback: (Any?) -> Unit): String =
-    registerHostEvent(key = nextEventKey(SlotKind.HostEvent), callback = callback)
+private fun ComponentScope.registerHostEvent(
+    ordinal: Int,
+    role: Int = EVENT_ROLE_PRIMARY,
+    callback: (Any?) -> Unit,
+): String {
+    if (ordinal >= 0) {
+        return frameEvent(ordinal, role, callback)
+    }
+    return registerHostEvent(key = nextEventKey(SlotKind.HostEvent), callback = callback)
+}

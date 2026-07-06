@@ -303,6 +303,225 @@ public fun ComponentScope.exitGroup(
     }
 }
 
+/**
+ * Frame-native `errorBoundary`; called by compiler-generated code. Content and fallback
+ * render in fixed child frames, so cursor neutrality is structural: the branches cannot
+ * shift each other's — or any sibling's — slot identity.
+ */
+public fun ComponentScope.errorBoundaryRegion(
+    stateOrdinal: Int,
+    contentOrdinal: Int,
+    fallbackOrdinal: Int,
+    fallback: ComponentScope.(Throwable, ErrorInfo, BoundaryRetry) -> Unit,
+    content: ComponentScope.() -> Unit,
+) {
+    // Boundary state (captured error, retry) lives outside the tracked cell graph, so a
+    // memoized each row containing a boundary could replay a stale fallback after retry().
+    markEachCapturesUnsafe()
+    val state = frameSlot(stateOrdinal) { ErrorBoundaryState(boundaryId = nextFrameBoundaryId()) }
+    val retry = BoundaryRetry {
+        state.clear()
+        runtime.invalidate("boundary retry")
+    }
+    val captured = state.error
+    if (captured != null) {
+        enterFixedChildFrame(fallbackOrdinal)
+        try {
+            fallback(captured, ErrorInfo(boundaryId = state.boundaryId), retry)
+        } finally {
+            exitFrame()
+        }
+        return
+    }
+    try {
+        val node = withErrorBoundary(state) {
+            collect {
+                enterFixedChildFrame(contentOrdinal)
+                try {
+                    content()
+                } finally {
+                    exitFrame()
+                }
+            }.toNode()
+        }
+        emit(node)
+    } catch (pending: ResourcePendingException) {
+        throw pending
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Throwable) {
+        state.capture(runtime, error)
+        enterFixedChildFrame(fallbackOrdinal)
+        try {
+            fallback(error, ErrorInfo(boundaryId = state.boundaryId), retry)
+        } finally {
+            exitFrame()
+        }
+    }
+}
+
+/** Frame-native `loadingBoundary`; called by compiler-generated code. */
+public fun ComponentScope.loadingBoundaryRegion(
+    stateOrdinal: Int,
+    contentOrdinal: Int,
+    fallbackOrdinal: Int,
+    retainPrevious: Boolean = true,
+    fallback: ComponentScope.() -> Unit,
+    content: ComponentScope.() -> Unit,
+) {
+    markEachCapturesUnsafe()
+    val state = frameSlot(stateOrdinal) { LoadingBoundaryState() }
+    runtime.record(
+        JournalKind.RenderStarted,
+        "loadingBoundary",
+        mapOf("retainPrevious" to retainPrevious.toString()),
+    )
+    try {
+        val node = collect {
+            enterFixedChildFrame(contentOrdinal)
+            try {
+                content()
+            } finally {
+                exitFrame()
+            }
+        }.toNode()
+        state.previous = node
+        emit(node)
+    } catch (pending: ResourcePendingException) {
+        runtime.record(
+            JournalKind.ResourceLoad,
+            "loading boundary pending",
+            mapOf(
+                "key" to pending.key,
+                "retainPrevious" to retainPrevious.toString(),
+                "retained" to (state.previous != null).toString(),
+            ),
+        )
+        if (retainPrevious && state.previous != null) {
+            emit(state.previous ?: FragmentNode())
+        } else {
+            enterFixedChildFrame(fallbackOrdinal)
+            try {
+                fallback()
+            } finally {
+                exitFrame()
+            }
+        }
+    }
+}
+
+/** Frame-native `suspendSubtree`; called by compiler-generated code. */
+public fun ComponentScope.suspendSubtreeRegion(
+    stateOrdinal: Int,
+    fallbackOrdinal: Int,
+    fallback: ComponentScope.() -> Unit,
+    content: suspend ComponentScope.() -> Unit,
+) {
+    markEachCapturesUnsafe()
+    val state = frameSlot(stateOrdinal, transient = true) {
+        val subtreeKey = nextFrameBoundaryId()
+        SuspendSubtreeState(
+            key = subtreeKey,
+            scope = ComponentScope(runtime, instanceId = "$instanceId/suspend:$subtreeKey"),
+        )
+    }
+
+    val error = state.error
+    if (error != null) {
+        throw error
+    }
+
+    val node = state.node
+    if (node != null) {
+        emit(node)
+        return
+    }
+
+    if (!state.running) {
+        state.start(runtime, content)
+    }
+    val fallbackNode = collect {
+        enterFixedChildFrame(fallbackOrdinal)
+        try {
+            fallback()
+        } finally {
+            exitFrame()
+        }
+    }.toNode()
+    state.previousFallback = fallbackNode
+    emit(fallbackNode)
+}
+
+/** Frame-native `exitGroup`; called by compiler-generated code. */
+public fun ComponentScope.exitGroupRegion(
+    ordinal: Int,
+    key: Any,
+    visible: Boolean,
+    content: ComponentScope.() -> Unit,
+) {
+    val state = exitGroupState(key.toString())
+    if (visible) {
+        state.cancelTasks()
+        state.generation += 1
+        state.phase = ExitPhase.Active
+        state.pendingCallbacks = 0
+        state.callbacks.clear()
+        val nodes = collectExitGroup(state) {
+            enterKeyedChildFrame(ordinal, key)
+            try {
+                content()
+            } finally {
+                exitFrame()
+            }
+        }
+        state.retained = nodes.toNode()
+        emit(state.retained ?: FragmentNode())
+        return
+    }
+
+    val retained = state.retained ?: return
+    if (state.phase == ExitPhase.Active) {
+        state.phase = ExitPhase.Leaving
+        state.generation += 1
+        state.pendingCallbacks = state.callbacks.size
+        runtime.record(JournalKind.Leaving, "exit started", mapOf("key" to state.key))
+
+        if (state.pendingCallbacks == 0) {
+            completeExit(state.key)
+            return
+        }
+
+        val generation = state.generation
+        state.callbacks.forEach { callback ->
+            state.addTask(
+                runtime.launchTrackedTask {
+                    callback(ExitScopeImpl(state.key) { completeExitCallback(state.key, generation) })
+                },
+            )
+        }
+        val timeoutMillis = runtime.exitTimeoutMillis
+        if (timeoutMillis != null) {
+            state.addTask(
+                runtime.launchTrackedTask {
+                    delay(timeoutMillis)
+                    if (state.phase == ExitPhase.Leaving && state.generation == generation) {
+                        runtime.record(
+                            JournalKind.Leaving,
+                            "exit timeout",
+                            mapOf("key" to state.key, "timeoutMillis" to timeoutMillis.toString()),
+                        )
+                        completeExit(state.key)
+                    }
+                },
+            )
+        }
+    }
+
+    if (state.phase == ExitPhase.Leaving) {
+        emit(retained.asLeaving())
+    }
+}
+
 internal enum class ExitPhase {
     Active,
     Leaving,
@@ -404,11 +623,15 @@ public class FrameValue internal constructor(
     }
 }
 
-public fun ComponentScope.frameValue(initial: Float): FrameValue =
-    nextSlotKey(null, SlotKind.Frame).let { slotKey ->
+public fun ComponentScope.frameValue(initial: Float, ordinal: Int = -1): FrameValue {
+    if (ordinal >= 0) {
+        return frameSlot(ordinal) { runtime.createFrameValue(initial) }
+    }
+    return nextSlotKey(null, SlotKind.Frame).let { slotKey ->
         registerSlot(SlotMetadata(slotKey, slotId = null, persistent = false, transient = false))
         checkedSlot(slotKey, FrameValue::class) { runtime.createFrameValue(initial) }
     }
+}
 
 private fun Float.frameValueEquals(other: Float): Boolean =
     this == other || (isNaN() && other.isNaN())

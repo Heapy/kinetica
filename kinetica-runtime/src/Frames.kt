@@ -79,6 +79,11 @@ internal class Frame(
     private var childEnterStamp: IntArray? = null
     private var childForks: IntArray? = null
 
+    // Region frames created by compiler-wrapped content lambdas, keyed by the identity of
+    // their FrameTable static — one table per wrapped lambda literal, so table identity is
+    // call-site identity.
+    private var regions: HashMap<FrameTable, Frame>? = null
+
     internal var enteredGeneration: Int = -1
         private set
     internal var keptGeneration: Int = -1
@@ -116,6 +121,14 @@ internal class Frame(
     }
 
     internal fun slotValueOrNull(ordinal: Int): Any? = slots.getOrNull(ordinal)
+
+    /** Replaces a slot's holder (identity-keyed slots such as resources); disposes nothing. */
+    internal fun setSlotValue(ordinal: Int, generation: Int, transient: Boolean, value: Any?) {
+        ensureSlotCapacity(ordinal)
+        slotTouch[ordinal] = generation
+        growableTransient?.set(ordinal, transient)
+        slots[ordinal] = value
+    }
 
     // --- Events ---
 
@@ -182,6 +195,11 @@ internal class Frame(
         return map.getOrPut(key) { Frame(table, this) }
     }
 
+    internal fun enterRegionChild(table: FrameTable): Frame {
+        val map = regions ?: HashMap<FrameTable, Frame>(4).also { regions = it }
+        return map.getOrPut(table) { Frame(table, this) }
+    }
+
     /** Keeps a fixed child alive for this render without entering it (memoized skip hit). */
     internal fun touchFixedChild(ordinal: Int, generation: Int) {
         ensureChildCapacity(ordinal)
@@ -244,6 +262,9 @@ internal class Frame(
                 }
             }
         }
+        regions?.values?.forEach { region ->
+            if (region.keptGeneration != generation) region.deactivate(runtime)
+        }
     }
 
     internal fun deactivate(runtime: KineticaRuntime) {
@@ -272,6 +293,7 @@ internal class Frame(
     internal fun dispose(runtime: KineticaRuntime) {
         forEachChildFrame { it.dispose(runtime) }
         children = null
+        regions = null
         for (ordinal in slots.indices) {
             slots[ordinal]?.let { value ->
                 disposeFrameSlotValue(value)
@@ -294,14 +316,16 @@ internal class Frame(
     }
 
     private inline fun forEachChildFrame(action: (Frame) -> Unit) {
-        val entries = children ?: return
-        for (entry in entries) {
-            when (entry) {
-                is Frame -> action(entry)
-                is HashMap<*, *> -> childMap(entry).values.forEach(action)
-                else -> {}
+        children?.let { entries ->
+            for (entry in entries) {
+                when (entry) {
+                    is Frame -> action(entry)
+                    is HashMap<*, *> -> childMap(entry).values.forEach(action)
+                    else -> {}
+                }
             }
         }
+        regions?.values?.forEach(action)
     }
 
     @Suppress("UNCHECKED_CAST")

@@ -99,27 +99,31 @@ public class ComponentScope public constructor(
     internal val rootFrame: Frame = Frame(table = null, parent = null)
     internal var currentFrame: Frame = rootFrame
         private set
-    private var stagedOrdinal: Int = -1
+    // LIFO because a component call can appear in argument position of another component
+    // call: the inner callee's prologue pops its own ordinal before the outer one resolves.
+    private var ordinalStack = IntArray(8)
+    private var ordinalStackSize = 0
     private val enteredFrames = mutableListOf<Frame>()
 
     public val coroutineScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /**
-     * Stages the ordinal of the next slot/event/child-consuming call. Written exclusively
-     * by compiler-generated code immediately before the call it identifies; user code
-     * never calls this.
+     * Stages the child ordinal of the next `@UiComponent` call. Written exclusively by
+     * compiler-generated code immediately before the call it identifies; user code never
+     * calls this.
      */
     public fun ordinal(n: Int) {
-        stagedOrdinal = n
+        if (ordinalStackSize == ordinalStack.size) {
+            ordinalStack = ordinalStack.copyOf(ordinalStack.size * 2)
+        }
+        ordinalStack[ordinalStackSize++] = n
     }
 
     internal fun consumeStagedOrdinal(construct: String): Int {
-        val staged = stagedOrdinal
-        stagedOrdinal = -1
-        if (staged < 0) {
+        if (ordinalStackSize == 0) {
             throw MissingKineticaPluginException(construct)
         }
-        return staged
+        return ordinalStack[--ordinalStackSize]
     }
 
     /**
@@ -132,6 +136,19 @@ public class ComponentScope public constructor(
     }
 
     public fun endComponentFrame() {
+        currentFrame = currentFrame.parent ?: rootFrame
+    }
+
+    /**
+     * Enters the region frame of a compiler-wrapped content lambda (render roots, region
+     * construct bodies, `@UiComponent`-typed content parameters). Keyed by the identity of
+     * the wrapped lambda's [table] static. Paired with [endRegionFrame].
+     */
+    public fun beginRegionFrame(table: FrameTable) {
+        enterFrame(currentFrame.enterRegionChild(table))
+    }
+
+    public fun endRegionFrame() {
         currentFrame = currentFrame.parent ?: rootFrame
     }
 
@@ -149,6 +166,34 @@ public class ComponentScope public constructor(
     internal fun <T> frameSlot(ordinal: Int, transient: Boolean = false, initial: () -> T): T =
         currentFrame.slot(ordinal, slotGeneration, transient, initial)
 
+    internal fun frameSlotValueOrNull(ordinal: Int): Any? =
+        currentFrame.slotValueOrNull(ordinal)
+
+    /** Stores [value] in the slot, replacing any previous holder (identity-keyed slots). */
+    internal fun <T> frameSlotTouch(ordinal: Int, transient: Boolean, value: T): T {
+        currentFrame.setSlotValue(ordinal, slotGeneration, transient, value)
+        return value
+    }
+
+    internal fun enterKeyedChildFrame(ordinal: Int, key: Any) {
+        enterFrame(currentFrame.enterKeyedChild(ordinal, key, table = null, generation = slotGeneration))
+    }
+
+    internal fun enterFixedChildFrame(ordinal: Int) {
+        enterFrame(currentFrame.enterFixedChild(ordinal, table = null, generation = slotGeneration))
+    }
+
+    internal fun keyedChildFrameKeys(ordinal: Int): Set<Any> =
+        currentFrame.keyedChildKeys(ordinal)
+
+    internal fun disposeKeyedChildFrame(ordinal: Int, key: Any) {
+        currentFrame.removeKeyedChild(ordinal, key, runtime)
+    }
+
+    private var frameBoundaryCounter = 0
+
+    internal fun nextFrameBoundaryId(): String = "$instanceId:fb${frameBoundaryCounter++}"
+
     internal fun frameEvent(ordinal: Int, role: Int = EVENT_ROLE_PRIMARY, callback: (Any?) -> Unit): String =
         currentFrame.event(ordinal, role, slotGeneration, runtime, callback)
 
@@ -162,7 +207,7 @@ public class ComponentScope public constructor(
         rootFrame.markEntered(slotGeneration)
         enteredFrames += rootFrame
         currentFrame = rootFrame
-        stagedOrdinal = -1
+        ordinalStackSize = 0
         eachOrdinals.clear()
         eachCaptures.clear()
         resourceKeyCounts.clear()
@@ -366,6 +411,26 @@ public class ComponentScope public constructor(
 
     public suspend fun suspendKeyed(key: Any, content: suspend ComponentScope.() -> Unit) {
         withSuspendKeyScope(key, content)
+    }
+
+    /** Frame-native `keyed`; called by compiler-generated code with a static child [ordinal]. */
+    public fun keyedRegion(ordinal: Int, key: Any, content: ComponentScope.() -> Unit) {
+        enterKeyedChildFrame(ordinal, key)
+        try {
+            content()
+        } finally {
+            exitFrame()
+        }
+    }
+
+    /** Frame-native `suspendKeyed`; called by compiler-generated code. */
+    public suspend fun suspendKeyedRegion(ordinal: Int, key: Any, content: suspend ComponentScope.() -> Unit) {
+        enterKeyedChildFrame(ordinal, key)
+        try {
+            content()
+        } finally {
+            exitFrame()
+        }
     }
 
     internal fun pushKeyScope(key: String) {
@@ -1204,40 +1269,61 @@ public fun <T> ComponentScope.state(
     persistent: Boolean = false,
     transient: Boolean = false,
     key: String? = null,
+    ordinal: Int = -1,
     initial: () -> T,
 ): MutableCell<T> {
+    if (ordinal >= 0) {
+        return frameSlot(ordinal, transient) {
+            newStateCell("slot:$ordinal", policy, persistent, transient, initial)
+        }
+    }
     val slotKey = nextSlotKey(key, SlotKind.State)
     registerSlot(SlotMetadata(slotKey, slotId = null, persistent = persistent, transient = transient))
     val cell = checkedSlot(slotKey, MutableCellImpl::class) {
-        MutableCellImpl(
-            initial = initial(),
-            policy = policy,
-            onWrite = { _, next ->
-                recordStateWrite()
-                runtime.record(
-                    JournalKind.CellWrite,
-                    "cell write",
-                    mapOf(
-                        "slot" to slotKey,
-                        "persistent" to persistent.toString(),
-                        "transient" to transient.toString(),
-                        "value" to next.toString(),
-                    ),
-                )
-                runtime.invalidate("cell write")
-            },
-        )
+        newStateCell(slotKey, policy, persistent, transient, initial)
     }
     return cell
 }
+
+private fun <T> ComponentScope.newStateCell(
+    slotLabel: String,
+    policy: EqualityPolicy<T>,
+    persistent: Boolean,
+    transient: Boolean,
+    initial: () -> T,
+): MutableCellImpl<T> =
+    MutableCellImpl(
+        initial = initial(),
+        policy = policy,
+        onWrite = { _, next ->
+            recordStateWrite()
+            runtime.record(
+                JournalKind.CellWrite,
+                "cell write",
+                mapOf(
+                    "slot" to slotLabel,
+                    "persistent" to persistent.toString(),
+                    "transient" to transient.toString(),
+                    "value" to next.toString(),
+                ),
+            )
+            runtime.invalidate("cell write")
+        },
+    )
 
 public fun <T> ComponentScope.state(
     slotId: SlotId,
     policy: EqualityPolicy<T> = EqualityPolicy.structural(),
     persistent: Boolean = false,
     transient: Boolean = false,
+    ordinal: Int = -1,
     initial: () -> T,
 ): MutableCell<T> {
+    if (ordinal >= 0) {
+        return frameSlot(ordinal, transient) {
+            newStateCell(slotId.stableKey(), policy, persistent, transient, initial)
+        }
+    }
     val slotKey = nextSlotKey(slotId.stableKey(), SlotKind.State)
     migrateRestoredSlot(slotId, slotKey)
     registerSlot(SlotMetadata(slotKey, slotId = slotId, persistent = persistent, transient = transient))
@@ -1267,16 +1353,21 @@ public fun <T> ComponentScope.state(
 
 public fun <T> ComponentScope.derived(
     policy: EqualityPolicy<T> = EqualityPolicy.structural(),
+    ordinal: Int = -1,
     compute: () -> T,
 ): Cell<T> {
-    // Back derived{} with a positional slot, exactly like state(): the DerivedCell is
-    // allocated once and reused across renders, so its lazy cache and version counter
-    // survive instead of restarting from zero on every render. The compute closure is
-    // refreshed because it may capture render-local inputs from the current invocation.
-    val slotKey = nextSlotKey(null, SlotKind.Derived)
-    registerSlot(SlotMetadata(slotKey, slotId = null, persistent = false, transient = false))
-    val cell = checkedSlot(slotKey, DerivedCell::class) {
-        DerivedCell(policy, compute)
+    // Back derived{} with a slot, exactly like state(): the DerivedCell is allocated once
+    // and reused across renders, so its lazy cache and version counter survive instead of
+    // restarting from zero on every render. The compute closure is refreshed because it
+    // may capture render-local inputs from the current invocation.
+    val cell = if (ordinal >= 0) {
+        frameSlot(ordinal) { DerivedCell(policy, compute) }
+    } else {
+        val slotKey = nextSlotKey(null, SlotKind.Derived)
+        registerSlot(SlotMetadata(slotKey, slotId = null, persistent = false, transient = false))
+        checkedSlot(slotKey, DerivedCell::class) {
+            DerivedCell(policy, compute)
+        }
     }
     cell.updateDefinition(policy, compute)
     return cell
@@ -1314,6 +1405,40 @@ public fun <T> ComponentScope.each(
     content: ComponentScope.(T) -> Unit,
 ) {
     renderEach(items, key, memoize, content)
+}
+
+/**
+ * Frame-native `each`; called by compiler-generated code with a static child [ordinal].
+ * Every row renders into its own keyed frame; rows whose keys left the list are disposed
+ * at the end of the pass (state does not resurrect when a key returns). Row memoization
+ * for frames lands with the frame-native skippable cache; until then rows re-render.
+ */
+public fun <T> ComponentScope.eachRegion(
+    ordinal: Int,
+    items: Iterable<T>,
+    key: (T) -> Any,
+    memoize: Boolean = true,
+    content: ComponentScope.(T) -> Unit,
+) {
+    // No frame-row caches yet, and the string-keyed capture machinery cannot validate
+    // frame-backed subtrees — keep enclosing legacy captures from caching across this.
+    markEachCapturesUnsafe()
+    val snapshot = keyedLastWins(items, key)
+    val seen = HashSet<Any>(snapshot.size)
+    snapshot.forEach { keyed ->
+        seen += keyed.key
+        enterKeyedChildFrame(ordinal, keyed.key)
+        try {
+            content(keyed.item)
+        } finally {
+            exitFrame()
+        }
+    }
+    keyedChildFrameKeys(ordinal).forEach { existingKey ->
+        if (existingKey !in seen) {
+            disposeKeyedChildFrame(ordinal, existingKey)
+        }
+    }
 }
 
 public interface LazyItems<out T> : Iterable<T> {
@@ -1415,6 +1540,61 @@ public fun <T> ComponentScope.lazyEach(
         RetainPolicy.Keyed -> Unit
         RetainPolicy.VisibleOnly -> hiddenKeys.forEach { clearKeyScope(it, keepPersistentSlots = false) }
         RetainPolicy.PersistentSlots -> hiddenKeys.forEach { clearKeyScope(it, keepPersistentSlots = true) }
+    }
+}
+
+/**
+ * Frame-native `lazyEach`; called by compiler-generated code. Visible rows render into
+ * keyed frames; hidden rows are retained, disposed, or deactivated (transients dropped,
+ * state kept) according to [retain].
+ */
+public fun <T> ComponentScope.lazyEachRegion(
+    ordinal: Int,
+    items: LazyItems<T>,
+    key: (T) -> Any,
+    retain: RetainPolicy = RetainPolicy.Keyed,
+    state: LazyListState = LazyListState(),
+    placeholder: ComponentScope.(T) -> Unit = {},
+    content: ComponentScope.(T) -> Unit,
+) {
+    markEachCapturesUnsafe()
+    val snapshot = keyedLastWins(items, key)
+    val visibleRange = state.visibleRange(snapshot.size)
+    val visibleKeys = mutableSetOf<Any>()
+    runtime.record(
+        JournalKind.RenderStarted,
+        "lazyEach",
+        mapOf(
+            "retain" to retain.name,
+            "firstVisibleIndex" to state.firstVisibleIndex.toString(),
+            "visibleCount" to state.visibleCount.toString(),
+            "estimatedSize" to items.estimatedSize.toString(),
+        ),
+    )
+    snapshot.forEachIndexed { index, keyed ->
+        if (index in visibleRange) {
+            visibleKeys += keyed.key
+            enterKeyedChildFrame(ordinal, keyed.key)
+            try {
+                content(keyed.item)
+            } catch (pending: ResourcePendingException) {
+                runtime.record(
+                    JournalKind.ResourceLoad,
+                    "lazyEach item pending",
+                    mapOf("key" to keyed.key.toString(), "resource" to pending.key),
+                )
+                placeholder(keyed.item)
+            } finally {
+                exitFrame()
+            }
+        }
+    }
+    if (retain != RetainPolicy.Keyed) {
+        keyedChildFrameKeys(ordinal).forEach { existingKey ->
+            if (existingKey !in visibleKeys) {
+                disposeKeyedChildFrame(ordinal, existingKey)
+            }
+        }
     }
 }
 

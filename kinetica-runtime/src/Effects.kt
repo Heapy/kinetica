@@ -230,10 +230,17 @@ private class StableUnitEvent(
     }
 }
 
-public fun ComponentScope.launchEffect(block: suspend EffectScope.() -> Unit): EffectHandle {
-    val key = nextEffectKey(SlotKind.Launch)
-    registerSlot(SlotMetadata(key, slotId = null, persistent = false, transient = true))
-    val state = checkedSlot(key, LaunchEffectState::class) { LaunchEffectState(runtime) }
+public fun ComponentScope.launchEffect(
+    ordinal: Int = -1,
+    block: suspend EffectScope.() -> Unit,
+): EffectHandle {
+    val state = if (ordinal >= 0) {
+        frameSlot(ordinal, transient = true) { LaunchEffectState(runtime) }
+    } else {
+        val key = nextEffectKey(SlotKind.Launch)
+        registerSlot(SlotMetadata(key, slotId = null, persistent = false, transient = true))
+        checkedSlot(key, LaunchEffectState::class) { LaunchEffectState(runtime) }
+    }
     state.configure(block, currentErrorBoundary())
     schedulePostCommitEffect { state.runAfterCommit() }
     return state
@@ -242,11 +249,16 @@ public fun ComponentScope.launchEffect(block: suspend EffectScope.() -> Unit): E
 public fun <T> ComponentScope.watch(
     source: () -> T,
     equals: EqualityPolicy<T> = EqualityPolicy.structural(),
+    ordinal: Int = -1,
     block: suspend EffectScope.(T) -> Unit,
 ): EffectHandle {
-    val key = nextEffectKey(SlotKind.Watch)
-    registerSlot(SlotMetadata(key, slotId = null, persistent = false, transient = true))
-    val state = checkedSlot(key, WatchEffectState::class) { WatchEffectState<T>(runtime, key) }
+    val state = if (ordinal >= 0) {
+        frameSlot(ordinal, transient = true) { WatchEffectState<T>(runtime, "watch:$ordinal") }
+    } else {
+        val key = nextEffectKey(SlotKind.Watch)
+        registerSlot(SlotMetadata(key, slotId = null, persistent = false, transient = true))
+        checkedSlot(key, WatchEffectState::class) { WatchEffectState<T>(runtime, key) }
+    }
     state.configure(source, equals, currentErrorBoundary(), block)
     schedulePostCommitEffect { state.runAfterCommit() }
     return state
@@ -258,16 +270,24 @@ public fun ComponentScope.layoutEffect(block: LayoutScope.() -> Unit) {
     }
 }
 
-public fun <A> ComponentScope.event(block: EventScope.(A) -> Unit): (A) -> Unit {
-    val key = nextEventKey(SlotKind.TypedEvent)
-    val stable = checkedSlot(key, StableEvent::class) { StableEvent(runtime, block) }
+public fun <A> ComponentScope.event(ordinal: Int = -1, block: EventScope.(A) -> Unit): (A) -> Unit {
+    val stable = if (ordinal >= 0) {
+        frameSlot(ordinal) { StableEvent(runtime, block) }
+    } else {
+        val key = nextEventKey(SlotKind.TypedEvent)
+        checkedSlot(key, StableEvent::class) { StableEvent(runtime, block) }
+    }
     stable.block = block
     return stable.callback
 }
 
-public fun ComponentScope.event(block: EventScope.() -> Unit): () -> Unit {
-    val key = nextEventKey(SlotKind.UnitEvent)
-    val stable = checkedSlot(key, StableUnitEvent::class) { StableUnitEvent(runtime, block) }
+public fun ComponentScope.event(ordinal: Int = -1, block: EventScope.() -> Unit): () -> Unit {
+    val stable = if (ordinal >= 0) {
+        frameSlot(ordinal) { StableUnitEvent(runtime, block) }
+    } else {
+        val key = nextEventKey(SlotKind.UnitEvent)
+        checkedSlot(key, StableUnitEvent::class) { StableUnitEvent(runtime, block) }
+    }
     stable.block = block
     return stable.callback
 }
