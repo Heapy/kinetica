@@ -424,7 +424,7 @@ if (existsSync(beforePath) && data.results.kinetica) {
     <p class="section-sub">Profiling traced 60–67% of all CPU to <code>KineticaRuntime.registerEvent</code>:
     an O(n) linear scan of a never-evicted identity list, run once per handler per render — O(n²) per
     operation and growing with app lifetime. Replacing the list with a hash map
-    (phase 0, part 1 of <code>perf-rewrite-design.md</code>) produced the numbers used throughout this
+    (phase 0, part 1 of <code>perf-rewrite-design.md</code>, since retired into <code>plan.md</code>) produced the numbers used throughout this
     report. The remaining gap versus the keyed frameworks is the full-DOM rebuild, addressed by the
     retained-renderer phase.</p>
     <div class="table-scroll">
@@ -710,7 +710,8 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
       are create-op node construction and allocation pressure — visible directly in the
       <em>GC time inside operations</em> section — plus the Kotlin runtime payload that remains
       after the benchmark's esbuild bundling step.</p>
-      <p>History, phase gates and root-cause analysis live in <code>perf-rewrite-design.md</code>;
+      <p>History, phase gates and root-cause analysis live in the git history of
+      <code>perf-rewrite-design.md</code> (retired into <code>plan.md</code>);
       the scaling-curve and 10k-table sections exist to catch complexity-class regressions before
       they reach the headline numbers.</p>
     </div>

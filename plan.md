@@ -20,7 +20,16 @@ FIR checks=error): KNT-0001–0004 and 0006–0010 STILL-VALID (anchors updated 
 bodies); KNT-0005 fixed by the rework; KNT-0015 obsolete; KNT-0022 already done. One new
 round-2 Codex catch folded in: label BAKING at wire boundaries (an early KNT-0004/0008 idea)
 would make hydrated clients span-wrap texts via label-based `textNeedsElement` — baking is
-dropped; derived labels are a live-tree projection only.
+dropped; derived labels are a live-tree projection only. Round 3 (ultrareview 2026-07-07):
+substance held on every claim and the bench geomean reproduces exactly; KNT-0006 reframed to
+the actual defect (single-slot `__kinetica` overwrite), KNT-0016/0018 closed (targets deleted
+by the rework), line anchors refreshed against the current tree (drift was 1-6 lines;
+`asLeaving` ~80). Line numbers are hints — grep the symbol when implementing. Round 4
+(second opinion 2026-07-07): KNT-0004 gained the missed `encodeSignedChunk` boundary (:389
+serializes the raw chunk into the signed wrapper); Order-of-work flipped to publish-then-test
+(ci.yml:26-30); KNT-0009/0017 aligned on empty props (both shapes template); KNT-0016 reworded
+(the runtime helper survives as a branch-free `frameEvent` delegate); stale README/docs
+pointers to the retired perf-rewrite-design.md repointed at plan.md.
 
 **Perf stream (KNT-0023–0031).** Status 2026-07-07: P0–P4 landed (registry eviction,
 retained renderer with keyed LIS diff + event delegation, each-row memoization, allocation
@@ -37,27 +46,27 @@ history of `perf-rewrite-design.md` (up to commit `7cfde69`).
 
 ### KNT-0001 (was F1) — Stale `CHILDREN_SINGLE_TEXT` flag: make the fast path self-defending + strip flags in `asLeaving`
 - `kinetica-browser/src@js/BrowserKineticaApp.kt` `patchSingleTextChild` (L684): add guards — bail to the slow path when `mountedText.wrapped` is true OR `textNeedsElement(nextText)` is true. This makes ANY lying/stale flag degrade safely instead of freezing text (covers future predicate drift too).
-- `kinetica-runtime/src/Boundary.kt` `asLeaving()` HostNode branch (L326-330): the copy rewrites child semantics (leaving=true) so strip `CHILDREN_SINGLE_TEXT` from `flags` (keep `CHILDREN_KEYED` — keys are preserved by asLeaving).
+- `kinetica-runtime/src/Boundary.kt` `asLeaving()` (L407-420; HostNode branch L412-416): the copy rewrites child semantics (leaving=true) so strip `CHILDREN_SINGLE_TEXT` from `flags` (keep `CHILDREN_KEYED` — keys are preserved by asLeaving).
 - Prefer a small shared helper that strips child-shape flags whenever a transform replaces children (asLeaving today; future transforms get it for free).
 - Test: exit-group over `host("div") { text("Item") }` → after asLeaving patch, the DOM text is wrapped in `<span data-kinetica-leaving>` (runtime flags assertion + JS regression).
 
 ### KNT-0002 (was F2) — Template transform: props callee unchecked (wrong DOM)
-- `kinetica-compiler/src/KineticaIrTemplate.kt` L175-179: the props branch accepts any `IrCall`. Require `propsArgument.symbol.owner.kotlinFqName == propsOf` (add `propsOfFqName` to `KineticaTemplateSymbols`; the hoister's check at `KineticaIrHoist.kt:121` is the model — implement via the shared helper from KNT-0017).
+- `kinetica-compiler/src/KineticaIrTemplate.kt` L179-183: the props branch accepts any `IrCall`. Require `propsArgument.symbol.owner.kotlinFqName == propsOf` (add `propsOfFqName` to `KineticaTemplateSymbols`; the hoister's check at `KineticaIrHoist.kt:124-125` is the model — implement via the shared helper from KNT-0017).
 - Test (harness): a component with `props = myProps("class", "x")` must NOT template (assert no "emitted N template definitions" message + rendered tree keeps computed props).
 
 ### KNT-0003 (was F3) — Template transform: unguarded expression lift (compiler ICE risk)
-- `KineticaIrTemplate.kt` `extractSingleTextTemplate` (L171-199): before lifting `textValue`, walk it for `IrGetValue`/receiver references to symbols declared inside the content lambda (the lambda's own parameters incl. its ComponentScope receiver, and any local declarations). Any hit → return null (callsite stays on the current path). Implementation: collect the lambda's `IrValueSymbol`s (its receiver/params + declarations directly inside it, EXCLUDING symbols declared within the value expression itself or nested lambdas' own params — over-disqualifying is safe, but outer component params/receiver must NOT disqualify or valid `text(label, semantics = null)` stops templating).
+- `KineticaIrTemplate.kt` `extractSingleTextTemplate` (L175-203): before lifting `textValue`, walk it for `IrGetValue`/receiver references to symbols declared inside the content lambda (the lambda's own parameters incl. its ComponentScope receiver, and any local declarations). Any hit → return null (callsite stays on the current path). Implementation: collect the lambda's `IrValueSymbol`s (its receiver/params + declarations directly inside it, EXCLUDING symbols declared within the value expression itself or nested lambdas' own params — over-disqualifying is safe, but outer component params/receiver must NOT disqualify or valid `text(label, semantics = null)` stops templating).
 - Test (harness): `host("p", props = propsOf("class","x")) { text(scopeExtension(), semantics = null) }` where `scopeExtension()` is a ComponentScope extension — must compile, not template, and render correctly.
 
 ### KNT-0004 (was F4) — TemplateNode leaks to serialization/diff: one normalization boundary
 - `kinetica-runtime/src/Node.kt`: add `public fun Node.materializeDeep(): Node` (TemplateNode → materialize() then recurse; Host/Fragment map children; Text/ClientRef identity — reuse existing `materializeTemplateNode` machinery L157-179).
-- Apply at ALL boundaries where trees leave the render/patch world (Codex-verified list): `hydrationPlan` (`initialTree`, ServerComponents.kt:432), both `toServerRenderStream` paths incl. deferred patch nodes (L443, L493-497), `toInitialServerChunk`, `KineticaServerTransport.encodeNode/encodeChunk/encodeHydrationPlan` (L374-375 — direct transport callers must not leak `"type":"template"`), `BrowserUiSnapshot.treeJson` (BrowserKineticaApp.kt:76), and `diffNodes` entry (normalize both sides).
+- Apply at ALL boundaries where trees leave the render/patch world (Codex-verified list): `hydrationPlan` (`initialTree`, ServerComponents.kt:432), both `toServerRenderStream` paths incl. deferred patch nodes (L443, L493-497), `toInitialServerChunk`, `KineticaServerTransport.encodeNode/encodeChunk/encodeSignedChunk/encodeHydrationPlan` (L374/380/389/407 — direct transport callers must not leak `"type":"template"`; round-4 catch: `encodeSignedChunk` serializes the RAW chunk into the signed wrapper (:390-396) while hashing `encodeChunk`'s output (:387) — normalize once at its top so payload and integrity agree, else a fixed `encodeChunk` alone leaves the signed wire leaking templates with a still-passing integrity check), `BrowserUiSnapshot.treeJson` (BrowserKineticaApp.kt:77), and `diffNodes` entry (normalize both sides).
 - After diff-entry normalization, DELETE all Template arms of `hasSameDiffContainerAs`/`childrenForDiff` outright. **Do NOT replace the Template/Template arm with an id/values/key compare** (original plan error, caught by Codex): values differing would fail container equality and degrade to whole-subtree Replace, losing exactly the child-level diff being restored.
 - Do NOT bake derived text labels here (round-2 Codex catch: labels on wire TextNodes would make hydrating clients span-wrap every text via label-based `textNeedsElement`). Deserialized trees simply don't carry derived labels — documented limitation; an explicit `deriveTextLabel` marker is the follow-up if it ever matters.
 - Keep the browser live renderer's TemplateNode fast path intact — samples/browser-tests asserts template patching without DOM recreation; normalization applies only at wire/snapshot/diff boundaries. Raw-HTML SSR (Html.kt:37,43) already materializes.
-- Current anchors: transport `encodeNode`/`encodeChunk`/`encodeHydrationPlan` (ServerComponents.kt:374/380/407), `hydrationPlan.initialTree` (:432), stream chunks (:443, :493), `BrowserUiSnapshot.treeJson` (BrowserKineticaApp.kt:73), `diffNodes` (Node.kt:205).
+- Current anchors: transport `encodeNode`/`encodeChunk`/`encodeSignedChunk`/`encodeHydrationPlan` (ServerComponents.kt:374/380/389/407), `hydrationPlan.initialTree` (:432), stream chunks (:443, :493), `BrowserUiSnapshot.treeJson` (BrowserKineticaApp.kt:77), `diffNodes` (Node.kt:199).
 - Outcome: wire format stays plain HostNode; diff granularity restored. Update NodeDiff tests expecting TemplateNode to materialized HostNode.
-- Tests: RuntimeSmokeTest — serialize a template-bearing tree, assert JSON contains no `"template"` discriminator and one skeleton copy total; diff TemplateNode vs its materialized form yields child-level diff, not whole-subtree Replace.
+- Tests: RuntimeSmokeTest — serialize a template-bearing tree via `encodeChunk` AND `encodeSignedChunk`, assert JSON contains no `"template"` discriminator and one skeleton copy total; diff TemplateNode vs its materialized form yields child-level diff, not whole-subtree Replace.
 - Related: KNT-0025 wants to replace `diffNodes` with the unified keyed reconciler — the normalization boundary added here must survive that move.
 
 ### KNT-0005 (was F5) — Each-row cache prefix eviction destroys sibling rows
@@ -66,7 +75,8 @@ history of `perf-rewrite-design.md` (up to commit `7cfde69`).
 - Optional (not scheduled): numeric representation flips (Int 1 vs Long 1L) still memo-miss because frame identity is raw-key; if that ever matters, canonicalize row keys before `seen`/`enterKeyedChild`.
 
 ### KNT-0006 (was F6) — Template events: one binding per element
-- `BrowserKineticaApp.kt` `patchTemplateValues` EVENT_PROP branch (L625-637): per-element container `MountedTemplateEvents(element, byPropName: MutableMap<String, MountedTemplateEvent>)` in `__kinetica` (map keyed by propName — dispatch becomes one lookup after the event-type→propName mapping from KNT-0014, and duplicate holes can't accumulate). Keep the per-hole `eventBindings` array for eventId updates; the container is the dispatch view. Disposal: dispose the container once — one binding's cleanup must not clear siblings'. Preserve keydown Enter filtering + preventDefault. Click parity: gate on the element's `disabled` DOM attribute AND special-case template Prop holes named `enabled` → map to the `disabled` attribute (generic template prop patching only handles public attrs; `enabled` is private in BrowserMapping.kt:136).
+- Current state (re-verified 2026-07-07): the per-element `__kinetica` slot already exists and IS the dispatch view — `patchTemplateValues`' `TemplateHoleKinds.EventProp` branch (BrowserKineticaApp.kt:626-638) sets `element.asDynamic().__kinetica = created` per hole (:635), but the slot holds a SINGLE `MountedTemplateEvent`, so two event holes on one element overwrite each other — last hole wins at dispatch (`handleDelegatedEvent` reads one binding per element, :141-148). The per-hole `mounted.eventBindings[index]` array is the bookkeeping view (eventId updates), NOT the dispatch view.
+- Fix: widen the slot to a per-element container `MountedTemplateEvents(element, byPropName: MutableMap<String, MountedTemplateEvent>)`; `handleDelegatedEvent`'s `as? MountedTemplateEvent` cast (:146) switches to the container, and dispatch stays one lookup — event-type→propName via the KNT-0014 shared table, then `byPropName[propName]` — so duplicate holes can't accumulate. Keep the per-hole `eventBindings` array for eventId updates. Disposal: dispose the container once — one binding's cleanup must not clear siblings'. Preserve keydown Enter filtering + preventDefault. Click parity: gate on the element's `disabled` DOM attribute AND special-case template Prop holes named `enabled` → map to the `disabled` attribute (the template Prop branch :615-625 only handles public attrs; `enabled` maps to `disabled` on the host path at :502/:528 — BrowserMapping.kt no longer exists, it was folded into BrowserKineticaApp.kt).
 - Test (JS/browser test or harness-driven): TemplateDefinition with `event:onInput` + `event:onSubmit` holes on one element — both dispatch.
 
 ### KNT-0007 (was F7) — `data-kinetica-key` debug-gated on templates
@@ -81,14 +91,14 @@ history of `perf-rewrite-design.md` (up to commit `7cfde69`).
 - Tests: `hasLabel("Save")` finds plain `text("Save")`; explicit `Semantics(role = Role.Text)` yields NO derived label in tree or matcher; direct `TextNode("x")` derives.
 
 ### KNT-0009 (was F9) — Template qualification fragility (source regex / props-less / transform order)
-- `KineticaIrTemplate.kt`: DELETE `hasExplicitNullArgument` + `sourceText` (L85-89, 219-226) — verified redundant: at IrGenerationExtension time a defaulted arg is an absent slot (already rejected at L189), an explicit null is a present IrConst null (L190). This also removes the silent templating kill on unreadable source paths.
-- Props-less hosts: change `null -> return null` (L175) to produce an empty-props template (`buildPropsOfCall` arity-0 `propsOf()` exists).
-- Order-independence with a proof boundary: one per-file ConstProps index OWNED BY `KineticaIrGenerationExtension` and passed to both transformers (round-2: the hoister's `internedProps` is private to `KineticaHoistTransformer` — the index cannot live there); `IrGetField` props recognized only via that index; comment states the shared-analysis contract. Current order (templater at KineticaIrTransform.kt:94, before hoister) keeps working either way.
+- `KineticaIrTemplate.kt`: DELETE `hasExplicitNullArgument` + `sourceText` (L223-230, L89-93) — verified redundant: at IrGenerationExtension time a defaulted arg is an absent slot (already rejected at L193), an explicit null is a present IrConst null (L194). This also removes the silent templating kill on unreadable source paths.
+- Props-less hosts: change `null -> return null` (L180) to produce an empty-props template (`buildPropsOfCall` arity-0 `propsOf()` exists). Same end-state for an explicit zero-arg `propsOf()`: relax `constPropsPairs` (L241 — currently returns null on empty) to return the empty list, keeping the odd-arity rejection — absent and explicit-empty props must template identically, or the KNT-0017 shared helper ends up with two contracts.
+- Order-independence with a proof boundary: one per-file ConstProps index OWNED BY `KineticaIrGenerationExtension` and passed to both transformers (round-2: the hoister's `internedProps` is private to `KineticaHoistTransformer` — the index cannot live there); `IrGetField` props recognized only via that index; comment states the shared-analysis contract. Current order (templater at KineticaIrTransform.kt:100, before hoister at :101) keeps working either way.
 - IR claim independently validated: defaulted args are absent slots at IrGenerationExtension time (JVM verified by running KineticaIrTemplateCompileTest — 3/3; JS uses the same common extension with default-parameter injection as a later lowering). Add a JS compile canary via samples/annotated-js.
 - Tests (harness): props-less single-text host templates; propsOf host templates regardless of transform order.
 
 ### KNT-0010 (was F10) — Template rows lose K4 certification (gate-metric regression)
-- Add `public val Node.reconcileKey: String?` to Node.kt (`HostNode -> key; TemplateNode -> key ?: definition.skeleton.key; else -> null`) — PUBLIC (internal isn't visible to kinetica-browser). Replace BOTH browser-private duplicates (`Node.reconcileKey()` AND `Mounted.reconcileKey()`, BrowserKineticaApp.kt:1093-1107 — they also ignore the skeleton fallback today).
+- Add `public val Node.reconcileKey: String?` to Node.kt (`HostNode -> key; TemplateNode -> key ?: definition.skeleton.key; else -> null`) — PUBLIC (internal isn't visible to kinetica-browser). Replace BOTH browser-private duplicates (`Node.reconcileKey()` AND `Mounted.reconcileKey()`, BrowserKineticaApp.kt:1093-1111 — they also ignore the skeleton fallback today).
 - Site moved by the rework: certification now lives in `ComponentScope.renderEachRegion` (:659, host-only check at :696, cached bit stored at :704) — generalize it (and any non-memoized sibling) to `nodes[0].reconcileKey == rowKey`; cached hits inherit the fixed bit.
 - Then DELETE `areKeyedTemplateRows` + its per-render HashSet fallback in `HostDsl.childShapeFlags` (:98-118).
 - Test: EachKeyedFlagTest — keyed templateNode rows certify CHILDREN_KEYED in memoized AND non-memoized each, first and cached renders (current tests cover host rows only).
@@ -96,13 +106,13 @@ history of `perf-rewrite-design.md` (up to commit `7cfde69`).
 ## Cleanup batch (verified items below the report cap)
 
 ### KNT-0011 (was C1) — Unify `unmount`/`disposeMountedSubtree`
-- BrowserKineticaApp L399/L892: one recursive `detach(mounted)` doing `__kinetica` + `clientRefCount` bookkeeping, with DOM removal as the variation point — fixes the nested-ClientRef `clientRefCount` leak on keyed removal (permanent `refreshGeneratedAttributes` per render).
+- BrowserKineticaApp L400/L893: one recursive `detach(mounted)` doing `__kinetica` + `clientRefCount` bookkeeping, with DOM removal as the variation point — fixes the nested-ClientRef `clientRefCount` leak on keyed removal (permanent `refreshGeneratedAttributes` per render).
 
 ### KNT-0012 (was C2) — Bulk-clear walk skip
 - Skip `disposeMountedSubtree` recursion entirely when `clientRefCount == 0` (verified: expando-nulling on discarded DOM is collectable garbage either way).
 
 ### KNT-0013 (was C3) — `hasNoKeyOverlap` allocation
-- L863-884: reuse the scratch frame's `keyToNewIndex` (build new-side map first, probe old keys) instead of allocating a fresh HashSet per reorder patch.
+- L864-885: reuse the scratch frame's `keyToNewIndex` (build new-side map first, probe old keys) instead of allocating a fresh HashSet per reorder patch.
 
 ### KNT-0014 (was C4) — `dispatchTo` duplication
 - One shared eventType→propName table used by the HostNode and template overloads (feeds KNT-0006).
@@ -111,16 +121,16 @@ history of `perf-rewrite-design.md` (up to commit `7cfde69`).
 **Status:** Closed — obsolete; the rework already collapsed to a single `slotGeneration` driving slots and events (ComponentScope.kt:39,152-156; event roles are ordinal groups in Frames.kt).
 
 ### KNT-0016 (was C6) — `registerHostEvent` tail dedup
-- L451-470: dedup the touch+capture-recording tail shared by both branches.
+**Status:** Closed — obsolete; the duplicated touch+capture-recording tail is gone: browser-side per-element registration was replaced by event delegation (one listener per type, BrowserKineticaApp.kt:49 over `DelegatedEventTypes`), and the surviving runtime `registerHostEvent` (HostDsl.kt:201-208) is a single branch-free `frameEvent` delegate. Nothing left to dedup.
 
 ### KNT-0017 (was C7) — Compiler duplication: shared helpers for hoist + template transformers
-- Extract `constPropsOf(call)` (propsOf fqName check; empty-pairs semantics decided per call site — template rejects empty, hoist skips), the shared per-file ConstProps interned-field index (proof boundary for KNT-0009), `addStaticFileField(...)`, `isNullConst`.
+- Extract `constPropsOf(call)` (propsOf fqName check; empty-pairs semantics: hoist skips empty — nothing to intern; template ACCEPTS empty per KNT-0009 — absent and zero-arg `propsOf()` both yield the empty-props template), the shared per-file ConstProps interned-field index (proof boundary for KNT-0009), `addStaticFileField(...)`, `isNullConst`.
 
 ### KNT-0018 (was C8) — `emitCachedEachRow` double lookup
-- L807: return the `EachRowCache?` so the caller reads `certifiedKeyedHost` off it — removes the double map lookup per hit.
+**Status:** Closed — obsolete; `emitCachedEachRow`/`EachRowCache` were deleted by the frames rework (each-row caching moved to row frames — see KNT-0005/KNT-0023; L807 now sits inside `patchKeyedChildren`). Nothing left to dedup.
 
 ### KNT-0019 (was C9) — Scratch pool free-list
-- L847-861, 1028-1062: replace depth-counter + cap with a free-list (`pool.removeLastOrNull() ?: Frame()` / `pool.add(frame)`), removing the desync failure class; keep a size cap.
+- L848-862 (`acquireKeyedPatchScratch`/`releaseKeyedPatchScratch`), L1029-1063 (`KeyedPatchScratchFrame`): replace depth-counter + cap with a free-list (`pool.removeLastOrNull() ?: Frame()` / `pool.add(frame)`), removing the desync failure class; keep a size cap.
 
 ### KNT-0020 (was C10) — Debug-mode template clones carry stale path/tag attrs
 - (A#4): after cloning under `runtime.debug`, strip or rewrite descendant `data-kinetica-path`/`tag` attrs (they're stale copies of the prototype's paths and corrupt path-based focus fallback); simplest: remove those attrs from the prototype after `templatePrototype` builds it, since per-instance paths were never correct for clones.
@@ -131,7 +141,7 @@ history of `perf-rewrite-design.md` (up to commit `7cfde69`).
 ### KNT-0022 — CI coverage for bench-jvm/docs-site
 **Status:** Closed — done by the rework (bench-jvm/docs-site test steps present in ci.yml; plugin published first as mandatory).
 
-**Cleanup re-verification note:** KNT-0011–0014, 0016, 0018–0020 were verified against the PRE-rework tree; re-check each site briefly before applying (the frames migration moved runtime internals; KNT-0016's registerHostEvent and KNT-0018's emitCachedEachRow shapes have changed or vanished — apply only where the pattern still exists).
+**Cleanup re-verification note:** KNT-0011–0014, 0019, 0020 were verified against the PRE-rework tree; re-check each site briefly before applying (the frames migration moved runtime internals). Round-3 check (2026-07-07): KNT-0014's two `dispatchTo` overloads survive event delegation (BrowserKineticaApp.kt:157/:202) — still valid; KNT-0016's and KNT-0018's target code is gone — both closed above.
 
 ## Renderer perf & spec backlog (formerly perf-rewrite-design.md)
 
@@ -170,7 +180,7 @@ history of `perf-rewrite-design.md` (up to commit `7cfde69`).
 ## Order of work
 
 1. Review fixes: KNT-0008 (semantics singleton first — KNT-0001's predicate and tests read it) → KNT-0001 → KNT-0004 → KNT-0010 (frame-era certification; one runtime pass with surviving cleanup items) → KNT-0006 + KNT-0007 (+ KNT-0011–0014, 0019, 0020 where still applicable — one renderer pass) → KNT-0002 + KNT-0003 + KNT-0009 + KNT-0017 (one compiler pass) → KNT-0021 (harness dedup).
-2. The compiler plugin is MANDATORY for every module: each pass starts with `./kotlin test -m kinetica-compiler --platform jvm && ./kotlin publish mavenLocal -m kinetica-compiler` before building dependents (mirrors ci.yml).
+2. The compiler plugin is MANDATORY for every module: each pass starts with `./kotlin publish mavenLocal -m kinetica-compiler && ./kotlin test -m kinetica-compiler --platform jvm` before building dependents — publish FIRST: the plugin resolves from the toolchain-local repo and even the compiler's own test fragment (via kinetica-runtime) needs the published artifact (mirrors ci.yml:26-30).
 3. Each pass: build + module tests before moving on.
 4. Perf/spec backlog (KNT-0024–0031): unscheduled, after the review fixes; KNT-0031 starts with a re-measure.
 
@@ -178,7 +188,7 @@ history of `perf-rewrite-design.md` (up to commit `7cfde69`).
 
 - Full sweeps: `./kotlin test -m kinetica-runtime --platform jvm` (151+ tests incl. new KNT-0001/0008/0010 cases), `./kotlin test -m kinetica-compiler --platform jvm`, kinetica-browser build + `node build/tasks/_kinetica-browser_linkJsTest/kinetica-browser_test.mjs`, both annotated samples (JVM + JS).
 - Renderer behavior: browser-bench 13-op + tree smoke through the plugin-built bundle (`node bench/build-kinetica.mjs`, then `node bench/driver/bench.mjs --frameworks=kinetica --samples=3` and `driver/tree.mjs`) — all assertions green.
-- Perf-backlog changes (KNT-0024+): `./kotlin build -m browser-bench && cd bench && node run-all.mjs --frameworks=kinetica`, then `node scripts/verify-browser.mjs` (15 self-tests must stay green).
+- Perf-backlog changes (KNT-0024+): `./kotlin build -m browser-bench && cd bench && node run-all.mjs --frameworks=kinetica`, then `node scripts/verify-browser.mjs` from the repo root — the script lives in root `scripts/`, not `bench/` (15 self-tests must stay green).
 - Gate integrity: KNT-0010 must restore certification without the HashSet fallback — re-run the select10k/update10k A/B numbers and the K5 gate ops (pre-review plan.md, in git history) afterward (these fixes should only help); dom-count for the bulk-clear path (KNT-0012) — clear10k removeChild ~1.
-- Wire format: serialize a template-bearing tree — no `"template"` discriminator (KNT-0004).
+- Wire format: serialize a template-bearing tree — no `"template"` discriminator, including via `encodeSignedChunk` (KNT-0004).
 - Size check: `node scripts/size-report.mjs` within baseline tolerance.
