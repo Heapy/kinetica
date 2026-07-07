@@ -148,13 +148,10 @@ public class BrowserKineticaApp(
             if (mounted != null && dispatchTo(mounted.hostNode, element, event)) {
                 return
             }
-            val templateEvents = candidate as? MountedTemplateEvents
-            if (templateEvents != null) {
-                val propName = DelegatedEventPropNames[event.type]
-                val templateEvent = if (propName == null) null else templateEvents.byPropName[propName]
-                if (templateEvent != null && dispatchTo(templateEvent, element, event)) {
-                    return
-                }
+            val propName = DelegatedEventPropNames[event.type]
+            val templateEvent = templateEventBinding(candidate, propName)
+            if (templateEvent != null && dispatchTo(templateEvent, element, event)) {
+                return
             }
             if (element == rootElement) {
                 return
@@ -639,7 +636,7 @@ public class BrowserKineticaApp(
                         eventId = nextValue,
                     ).also { created ->
                         mounted.eventBindings[index] = created
-                        templateEventContainer(element).byPropName[propName] = created
+                        storeTemplateEventBinding(created)
                     }
                     binding.eventId = nextValue
                 }
@@ -1535,25 +1532,54 @@ private fun moveDom(mounted: Mounted, parent: Element, anchor: DomNode?) {
     }
 }
 
-private fun templateEventContainer(element: Element): MountedTemplateEvents {
-    val candidate: Any? = element.asDynamic().__kinetica
-    val existing = candidate as? MountedTemplateEvents
-    if (existing != null) {
-        return existing
+private fun templateEventBinding(candidate: Any?, propName: String?): MountedTemplateEvent? {
+    if (propName == null) {
+        return null
     }
-    return MountedTemplateEvents(element, mutableMapOf()).also { created ->
-        element.asDynamic().__kinetica = created
+    return when (candidate) {
+        is MountedTemplateEvent ->
+            if (candidate.propName == propName) candidate else null
+        is MountedTemplateEvents -> candidate.byPropName[propName]
+        else -> null
+    }
+}
+
+private fun storeTemplateEventBinding(binding: MountedTemplateEvent) {
+    val element = binding.element
+    when (val candidate: Any? = element.asDynamic().__kinetica) {
+        is MountedTemplateEvent ->
+            if (candidate.propName == binding.propName) {
+                element.asDynamic().__kinetica = binding
+            } else {
+                element.asDynamic().__kinetica = MountedTemplateEvents(
+                    element = element,
+                    byPropName = mutableMapOf(
+                        candidate.propName to candidate,
+                        binding.propName to binding,
+                    ),
+                )
+            }
+        is MountedTemplateEvents -> candidate.byPropName[binding.propName] = binding
+        else -> element.asDynamic().__kinetica = binding
     }
 }
 
 private fun removeTemplateEventBinding(binding: MountedTemplateEvent) {
     val candidate: Any? = binding.element.asDynamic().__kinetica
-    val container = candidate as? MountedTemplateEvents ?: return
-    if (container.byPropName[binding.propName] === binding) {
-        container.byPropName.remove(binding.propName)
-    }
-    if (container.byPropName.isEmpty()) {
-        container.element.asDynamic().__kinetica = null
+    when (candidate) {
+        is MountedTemplateEvent ->
+            if (candidate === binding) {
+                binding.element.asDynamic().__kinetica = null
+            }
+        is MountedTemplateEvents -> {
+            if (candidate.byPropName[binding.propName] === binding) {
+                candidate.byPropName.remove(binding.propName)
+            }
+            when (candidate.byPropName.size) {
+                0 -> candidate.element.asDynamic().__kinetica = null
+                1 -> candidate.element.asDynamic().__kinetica = candidate.byPropName.values.first()
+            }
+        }
     }
 }
 
