@@ -18,16 +18,18 @@ import io.heapy.kinetica.CsrfToken
 import io.heapy.kinetica.FragmentNode
 import io.heapy.kinetica.KineticaJson
 import io.heapy.kinetica.KineticaRuntime
+import io.heapy.kinetica.KineticaSecurityHeaders
 import io.heapy.kinetica.KineticaServerActionDispatcher
 import io.heapy.kinetica.KineticaServerTransport
 import io.heapy.kinetica.ServerActionRegistration
 import io.heapy.kinetica.ServerActionRequest
-import io.heapy.kinetica.ServerActionResponse
 import io.heapy.kinetica.ServerActionRejection
 import io.heapy.kinetica.ServerRenderDeferredSubtree
 import io.heapy.kinetica.TextNode
+import io.heapy.kinetica.dispatchHttp
 import io.heapy.kinetica.host
 import io.heapy.kinetica.hydrationPlan
+import io.heapy.kinetica.readBoundedRequestBody
 import io.heapy.kinetica.serverActionStub
 import io.heapy.kinetica.text
 import io.heapy.kinetica.toSafeHtml
@@ -35,7 +37,6 @@ import io.heapy.kinetica.toServerRenderStream
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.net.InetSocketAddress
@@ -195,21 +196,12 @@ internal class ServerComponentsDemoServer(
                     )
                 }
                 exchange.requestMethod == "POST" && exchange.requestURI.path == "/actions/$ADD_TO_CART_ACTION_ID" -> {
-                    val body = readBoundedBody(exchange, MAX_ACTION_BODY_BYTES)
-                    val (status, response) = if (body == null) {
-                        413 to transport.encodeActionResponse(
-                            ServerActionResponse.Failure(
-                                message = "Request body too large.",
-                                retryable = false,
-                            ),
-                        )
-                    } else {
-                        dispatchAction(body)
-                    }
+                    val body = readBoundedRequestBody(exchange.requestBody)
+                    val response = runBlocking { dispatcher.dispatchHttp(transport, body) }
                     exchange.respondText(
-                        status = status,
+                        status = response.status,
                         contentType = "application/json",
-                        body = response,
+                        body = response.body,
                     )
                 }
                 else -> exchange.respondText(
@@ -335,20 +327,6 @@ internal class ServerComponentsDemoServer(
                 }
         }
 
-    private fun dispatchAction(body: String): Pair<Int, String> =
-        try {
-            runBlocking {
-                val request = transport.decodeActionRequest(body)
-                200 to transport.encodeActionResponse(dispatcher.dispatch(request))
-            }
-        } catch (error: SerializationException) {
-            // Malformed/invalid request body is a client error, not a server fault — surface a
-            // generic 400 rather than letting it bubble to the catch-all 500.
-            400 to transport.encodeActionResponse(
-                ServerActionResponse.Failure(message = "Malformed server action request.", retryable = false),
-            )
-        }
-
     private fun clientBundle(): String {
         val bundle = clientBundleRoot().resolve("server-components-client.mjs")
         require(bundle.exists()) {
@@ -370,33 +348,7 @@ internal class ServerComponentsDemoServer(
     private fun clientBundleRoot(): Path =
         projectRoot.resolve("build/tasks/_server-components-client_linkJs").normalize()
 
-    /**
-     * Reads at most [limit] bytes from the request body and returns them decoded as UTF-8, or `null`
-     * if the body is longer than [limit]. Bounding the read prevents a single oversized POST from
-     * exhausting heap via `readAllBytes()`; action payloads here are tiny, so a few KB is generous.
-     */
-    private fun readBoundedBody(exchange: HttpExchange, limit: Int): String? {
-        require(limit > 0) { "limit must be positive." }
-        val input = exchange.requestBody
-        val buffer = ByteArray(limit)
-        var read = 0
-        while (read < buffer.size) {
-            val n = input.read(buffer, read, buffer.size - read)
-            if (n < 0) {
-                // EOF within the limit — the body fits.
-                return buffer.decodeToString(0, read)
-            }
-            read += n
-        }
-        // The buffer is full (exactly `limit` bytes read). A body is within the limit only if there
-        // are no further bytes; one more read tells us. Anything beyond `limit` is rejected.
-        return if (input.read() < 0) buffer.decodeToString(0, read) else null
-    }
-
     internal companion object {
-        // Action payloads are tiny JSON (AddToCartInput is ~60 bytes). 4 KB is far above any
-        // legitimate request while keeping a hostile POST trivially cheap to reject.
-        const val MAX_ACTION_BODY_BYTES: Int = 4 * 1024
         const val SERVER_THREAD_POOL_SIZE = 8
     }
 }
@@ -448,18 +400,9 @@ private fun HttpExchange.respondText(
 }
 
 private fun HttpExchange.applySecurityHeaders() {
-    // Prevent content-type sniffing on JSON/plain-text responses (reflected 404s, action errors).
-    responseHeaders.set("X-Content-Type-Options", "nosniff")
-    // The demo has no legitimate need to be framed — block clickjacking outright.
-    responseHeaders.set("X-Frame-Options", "DENY")
-    responseHeaders.set("Referrer-Policy", "no-referrer")
-    // Strict CSP: scripts and styles are same-origin; styles fall back to inline (the page ships
-    // an inline <style> block) but no inline script or eval is permitted. frame-ancestors is set
-    // explicitly because it does not inherit from default-src.
-    responseHeaders.set(
-        "Content-Security-Policy",
-        "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'",
-    )
+    // One hardened baseline shared with the runtime (and the docs server) so the header set and CSP
+    // can't drift per server; see KineticaSecurityHeaders for the directives and the style-src note.
+    KineticaSecurityHeaders.forEach { (name, value) -> responseHeaders.set(name, value) }
 }
 
 private fun String.escapeScriptJson(): String =

@@ -121,10 +121,14 @@ shipped in the client bundle is public — it is not authentication. Real deploy
   [double-submit cookie](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html)
   pattern if you store the CSRF token in a cookie.
 
-The reference HTTP servers (`samples/server-components`, `docs/docs-site`) demonstrate the
-hardening baseline: bounded request bodies, a fixed-size request thread pool, synchronized shared
-state, generic error bodies with stack traces logged server-side only, and `Content-Security-Policy`
-/ `X-Content-Type-Options` / `X-Frame-Options` headers on every response.
+The HTTP-facing pieces live in `kinetica-runtime`, so you inherit them instead of hand-rolling (and
+drifting on) your own: `dispatchHttp(transport, body)` maps a request body to the right response and
+status — `413` for an oversized body, `400` for a malformed one, `200` once dispatched — without
+leaking internals through a `500`; `readBoundedRequestBody` caps the read on the JVM; and
+`KineticaSecurityHeaders` is the shared header + CSP baseline (its `style-src` keeps `'unsafe-inline'`
+because the browser renderer styles islands with inline `style` attributes). The reference HTTP
+servers (`samples/server-components`, `docs/docs-site`) wire these plus a fixed-size request thread
+pool, synchronized shared state, and generic error bodies with stack traces logged server-side only.
 
 ## The manifest
 

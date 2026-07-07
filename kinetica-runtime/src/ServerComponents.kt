@@ -6,6 +6,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.descriptors.PrimitiveKind
@@ -403,6 +404,88 @@ public class KineticaServerActionDispatcher(
         return stub.dispatch(json, request.payload)
     }
 }
+
+/**
+ * The HTTP status and already-encoded JSON body for a server-action request, produced by
+ * [dispatchHttp].
+ *
+ * [status] is `200` when the request was dispatched — [body] then carries the handler's
+ * [ServerActionResponse], which may itself be a [ServerActionResponse.Failure] (an invalid token, a
+ * validation rejection). It is `400` for a malformed request envelope and `413` when the caller's
+ * bounded read rejected an oversized body. Unexpected server faults stay the caller's concern: log
+ * them server-side and return a generic `500`.
+ */
+public class ServerActionHttpResponse(
+    public val status: Int,
+    public val body: String,
+)
+
+/**
+ * Conservative default byte cap for a server-action request body. Action payloads are small JSON
+ * objects, so this bounds a single POST well below any legitimate request while stopping an oversized
+ * body from exhausting heap. Pair it with `readBoundedRequestBody` (JVM) or your HTTP stack's own
+ * bounded read, passing `null` to [dispatchHttp] when the limit is exceeded.
+ */
+public const val DEFAULT_MAX_SERVER_ACTION_BODY_BYTES: Int = 64 * 1024
+
+/**
+ * Maps a raw request [body] to a [ServerActionHttpResponse] so every server shares one
+ * decode → dispatch → encode path instead of re-deriving the status codes (and re-introducing the
+ * leaks that come with hand-rolling them):
+ *
+ * - `body == null` — the caller's bounded read rejected an oversized body — → **413**;
+ * - the body is not a decodable [ServerActionRequest] envelope → **400**, a client error that never
+ *   reaches the generic 500 catch-all, with a generic message so serializer internals never leak;
+ * - otherwise the request is dispatched → **200**, and [ServerActionHttpResponse.body] is the encoded
+ *   [ServerActionResponse] (a `Success`, or a `Failure` the dispatcher/handler produced).
+ *
+ * Read the body with a size-bounded reader (`readBoundedRequestBody` on the JVM) and pass `null` when
+ * it overflows; wrap the call in the caller's own try/catch for the unexpected-fault 500.
+ */
+public suspend fun KineticaServerActionDispatcher.dispatchHttp(
+    transport: KineticaServerTransport,
+    body: String?,
+): ServerActionHttpResponse {
+    fun failure(status: Int, message: String): ServerActionHttpResponse =
+        ServerActionHttpResponse(
+            status = status,
+            body = transport.encodeActionResponse(
+                ServerActionResponse.Failure(message = message, retryable = false),
+            ),
+        )
+
+    if (body == null) {
+        return failure(status = 413, message = "Request body too large.")
+    }
+    val request = try {
+        transport.decodeActionRequest(body)
+    } catch (error: SerializationException) {
+        return failure(status = 400, message = "Malformed server action request.")
+    }
+    return ServerActionHttpResponse(
+        status = 200,
+        body = transport.encodeActionResponse(dispatch(request)),
+    )
+}
+
+/**
+ * Response headers every Kinetica HTTP server should set, so the reference servers and adopters share
+ * one hardened baseline instead of hand-rolling — and drifting on — their own: `nosniff`, `DENY`
+ * framing, a `no-referrer` policy, and a strict same-origin [Content-Security-Policy].
+ *
+ * `style-src` deliberately keeps `'unsafe-inline'`: the Kinetica browser renderer applies layout via
+ * inline `style` attributes (`element.setAttribute("style", …)` for `row`/`column` flex), which a
+ * `style-src` without `'unsafe-inline'` blocks — silently breaking every hydrated island. Do not drop
+ * it without first moving the renderer off inline-style attributes.
+ */
+public val KineticaSecurityHeaders: Map<String, String> = mapOf(
+    "X-Content-Type-Options" to "nosniff",
+    "X-Frame-Options" to "DENY",
+    "Referrer-Policy" to "no-referrer",
+    "Content-Security-Policy" to
+        "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+        "img-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+)
 
 public class KineticaServerTransport(
     private val json: Json = KineticaJson,

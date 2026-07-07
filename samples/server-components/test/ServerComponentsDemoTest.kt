@@ -10,6 +10,7 @@ import app.servercomponents.shared.DEMO_CSRF_TOKEN
 import io.heapy.kinetica.CapabilityToken
 import io.heapy.kinetica.ClientRef
 import io.heapy.kinetica.CsrfToken
+import io.heapy.kinetica.DEFAULT_MAX_SERVER_ACTION_BODY_BYTES
 import io.heapy.kinetica.KineticaJson
 import io.heapy.kinetica.KineticaServerTransport
 import io.heapy.kinetica.ServerActionRequest
@@ -225,7 +226,7 @@ class ServerComponentsDemoTest {
         val oversized = http.send(
             HttpRequest.newBuilder(URI.create("$baseUrl/actions/$ADD_TO_CART_ACTION_ID"))
                 .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString("a".repeat(ServerComponentsDemoServer.MAX_ACTION_BODY_BYTES + 256)))
+                .POST(HttpRequest.BodyPublishers.ofString("a".repeat(DEFAULT_MAX_SERVER_ACTION_BODY_BYTES + 256)))
                 .build(),
             HttpResponse.BodyHandlers.ofString(),
         )

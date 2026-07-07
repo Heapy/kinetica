@@ -1184,6 +1184,71 @@ class RuntimeSmokeServerTest {
     }
 
     @Test
+    fun dispatchHttpMapsRequestBodyToHttpStatusCodes() = runTest {
+        val transport = KineticaServerTransport()
+        val dispatcher = KineticaServerActionDispatcher(
+            stubs = listOf(
+                serverActionStub(
+                    registration = ServerActionRegistration(
+                        actionId = "cart.add",
+                        functionFqName = "app.server.addToCart",
+                    ),
+                    inputSerializer = String.serializer(),
+                    outputSerializer = String.serializer(),
+                    handler = { input -> "added $input" },
+                ),
+            ),
+            verifyCapabilityToken = { true },
+            verifyCsrfToken = { true },
+        )
+
+        // Oversized body (the caller's bounded read returned null) -> 413.
+        val tooLarge = dispatcher.dispatchHttp(transport, body = null)
+        assertEquals(413, tooLarge.status)
+        assertEquals(
+            ServerActionResponse.Failure("Request body too large."),
+            transport.decodeActionResponse(tooLarge.body),
+        )
+
+        // Undecodable envelope -> 400 (a client error, never the 500 catch-all) with a generic message.
+        val malformed = dispatcher.dispatchHttp(transport, body = "not a valid envelope {")
+        assertEquals(400, malformed.status)
+        assertEquals(
+            ServerActionResponse.Failure("Malformed server action request."),
+            transport.decodeActionResponse(malformed.body),
+        )
+
+        // A decodable, authorized request is dispatched -> 200 with the handler's success payload.
+        val encoded = transport.encodeActionRequest(
+            ServerActionRequest(
+                actionId = "cart.add",
+                payload = JsonPrimitive("sku-1"),
+                token = CapabilityToken("valid"),
+                csrfToken = CsrfToken("valid"),
+            ),
+        )
+        val ok = dispatcher.dispatchHttp(transport, body = encoded)
+        assertEquals(200, ok.status)
+        assertIs<ServerActionResponse.Success>(transport.decodeActionResponse(ok.body))
+
+        // A dispatched rejection (unknown action) is still HTTP 200 — the failure travels in the body.
+        val unknown = transport.encodeActionRequest(
+            ServerActionRequest(
+                actionId = "cart.nope",
+                payload = JsonPrimitive("x"),
+                token = CapabilityToken("valid"),
+                csrfToken = CsrfToken("valid"),
+            ),
+        )
+        val unknownResponse = dispatcher.dispatchHttp(transport, body = unknown)
+        assertEquals(200, unknownResponse.status)
+        assertEquals(
+            ServerActionResponse.Failure("Unknown server action."),
+            transport.decodeActionResponse(unknownResponse.body),
+        )
+    }
+
+    @Test
     fun semanticsTreeFocusManagerAndHeadlessRendererUseNodeAsData() {
         val node = FragmentNode(
             children = listOf(
