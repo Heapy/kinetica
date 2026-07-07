@@ -48,9 +48,10 @@ create10k sits at 0.90× React. Phase details and measurements: git history of
 
 **Soundness suite.** 135 test cases distilled from the test suites of Inferno, React, Svelte 5,
 SolidJS, Preact and Vue 3 (~850 raw cases surveyed, deduplicated and mapped to Kinetica's
-plugin-only / frame-ordinals / template-cloning model). **126 cases active and passing on
-JVM+JS, 9 `@Ignore`d** — the ignored cases are the executable specs of KNT-0033 (7 cases),
-KNT-0034 (1) and KNT-0035 (1). Every test's KDoc carries its `KSND-nnn` id, source-case ids
+plugin-only / frame-ordinals / template-cloning model). **134 cases active and passing on
+JVM+JS, 1 `@Ignore`d** — the last ignored case is the executable spec of KNT-0035 (`KSND-032`,
+multi-root keyed rows); KNT-0033 (7 cases) and KNT-0034 (1) landed 2026-07-07. Every test's
+KDoc carries its `KSND-nnn` id, source-case ids
 (INF/RCT/SVL/SOL/PRE/VUE) and scenario; the synthesis plan that produced them (batch specs,
 per-case scenario tables, traceability back to concrete framework test files and GitHub
 issues, surveyed from the checkouts in `projects/`) lives in git history
@@ -58,7 +59,7 @@ issues, surveyed from the checkouts in `projects/`) lives in git history
 
 | Module | Files | KSND cases | @Test fns | Run |
 |---|---|---|---|---|
-| kinetica-browser (test@js) | 9 | 85 (9 ignored) | 104 | `./kotlin build -m kinetica-browser && node build/tasks/_kinetica-browser_linkJsTest/kinetica-browser_test.mjs` |
+| kinetica-browser (test@js) | 9 | 85 (1 ignored) | 111 | `./kotlin build -m kinetica-browser && node build/tasks/_kinetica-browser_linkJsTest/kinetica-browser_test.mjs` |
 | kinetica-runtime (test) | 2 | 20 | 20 | `./kotlin test -m kinetica-runtime --platform jvm` + JS bundle |
 | kinetica-test (test) | 3 | 30 | 30 | `./kotlin test -m kinetica-test --platform jvm` + JS bundle |
 
@@ -134,18 +135,13 @@ data-kinetica-key emission, detach-before-bulk-skip).
 - Candidate if a gap remains: whole-subtree hoisting of fully-static host trees WITH children (the compiler stream stopped at leaf hosts + single-dynamic-text templates) — one shared immutable `Node` subtree across all rows/renders shrinks both allocation and retained shadow tree.
 
 ### KNT-0033 (soundness bug) — Mixed static+keyed child lists degrade to positional diffing
-Confirmed framework bug; one root cause behind 7 `@Ignore`d cases: `KSND-025/026/027/029/030`
-(`BrowserKeyedNeighborsTest`) and `KSND-109/114` (`BrowserChildShapeTest`).
-- Mechanism: `shouldReconcileKeyed` (kinetica-browser/src@js/BrowserKineticaApp.kt:714-727) takes the keyed path only when **every** child of the parent carries a unique key. One unkeyed static sibling — or a conditional branch that renders nothing (no placeholder node) — forces strictly index-aligned `patchPositionalChildren`. Any length change in the keyed/conditional region then shifts subsequent siblings into tag mismatches, and `replace()` recreates them. `renderEachRegion` (kinetica-runtime/src/ComponentScope.kt:676-695) flattens rows into the parent with no region boundary, so the browser side has nothing to anchor a region diff on.
-- Impact: HTML output stays correct; node identity, focus and DOM-held state are lost, and per-frame work is wasted. This is the classic "list + trailing footer button" app shape, so it bites real UIs, not just synthetic tests.
-- Fix direction: per-`each`-region boundary markers plus placeholder nodes for empty conditional branches (frame ordinals can supply stable slot identity for both). Design together with KNT-0025's unified reconciler — regions should land once, in the shared node/op model.
-- Acceptance: un-`@Ignore` all 7 cases → kinetica-browser JS suite green; 10k partial + create bench ops within noise (markers/placeholders add nodes to hot lists); real focus preservation stays a separate deferred item (KNT-0037 §1).
+**Status: Landed 2026-07-07 (`b73f21a`).** Browser manifestation fixed. `patchPositionalChildren` replaced by a recursive segmented reconciler (`patchSegmentedChildren` in BrowserKineticaApp.kt): trims common prefix/suffix (keyed nodes align only by matching key, unkeyed only by compatible shape), keyed-diffs fully-keyed sub-ranges via the existing LIS machinery, splits ambiguous middles at a unique purely-static pivot and recurses, and falls back to keyed-subset reconciliation or a correctness-preserving `replaceRange` when no safe alignment exists. Conservative by construction (worst case is a remount, never wrong output). The whole-parent `each` fast path is untouched (the `CHILDREN_KEYED`/`shouldReconcileKeyed` dispatch still routes certified lists to `patchKeyedChildren`), so the 10k bench path is unchanged. Un-ignored `KSND-025/026/027/029/030` (`BrowserKeyedNeighborsTest`) + `KSND-109/114` (`BrowserChildShapeTest`); browser JS suite green.
+- Original mechanism (for the record): `shouldReconcileKeyed` took the keyed path only when **every** child carried a unique key; one unkeyed static sibling or empty conditional branch forced index-aligned positional diffing, shifting subsequent siblings into tag mismatches + `replace()` (HTML stayed correct but node identity/focus/DOM state were lost — the classic "list + trailing footer button" shape). `renderEachRegion` flattens rows with no region boundary.
+- **Residual (still open):** the fix re-derives region structure in the browser rather than having the runtime declare it. The server-side positional `diffNodes` (Node.kt) has the same class of gap, and runtime-declared region boundaries remain the endgame for the unified reconciler (KNT-0025) — revisit both there. Real focus preservation across these patches is still the separate deferred item KNT-0037 §1. The mixed path is not bench-gated (only the untouched whole-parent path is a benchmark shape); if real apps lean on big mixed lists, profile `patchSegmentedChildren`.
 
 ### KNT-0034 (soundness bug) — Identity short-circuit skips controlled-input resync on memoized rows
-Confirmed framework bug; executable spec `KSND-065` (`BrowserControlledInputTest`, `@Ignore`d).
-- Mechanism: `if (mounted.currentNode === next) return mounted` (BrowserKineticaApp.kt:351-353) bypasses `patchHost`, whose drift resync (BrowserKineticaApp.kt:422-438) is the only place `.checked`/`.value` are corrected — and memoized `each` rows return identical node instances on a cache hit. A user-toggled checkbox in a memoized surviving row silently keeps its drifted DOM state, violating the renderer's own "every committed render syncs it back" comment.
-- Fix direction: exclude controlled-input hosts from the identity skip, or run a dedicated per-commit resync pass over mounted controlled inputs. The identity skip is the memoization hot path — keep whatever check is added off the common (no controlled input) row shape.
-- Acceptance: un-`@Ignore` KSND-065 → green; the rest of the controlled-input battery stays green; 10k partial ops within noise.
+**Status: Landed 2026-07-07 (`5a2610e`).** Guarded the `patch()` identity fast-path with `!isControlledInputHost()` (a cheap type+tag check on memoization hits only), so memoized `textInput`/`checkbox` rows fall through to `patchHost`'s drift resync. Un-ignored `KSND-065`; browser JS suite 104→111/0.
+- Mechanism (for the record): `if (mounted.currentNode === next) return mounted` bypassed `patchHost`'s `.checked`/`.value` resync, and memoized `each` rows return identical node instances on a cache hit, so a user-toggled checkbox in a surviving memoized row kept its drifted DOM state.
 
 ### KNT-0035 (soundness feature gap) — Keyed multi-root rows (`FragmentNode` reconcile key)
 **Status:** Open — spec decision needed first.
@@ -174,14 +170,15 @@ Deferred KSND areas: what + why it is blocked + the unlock that would open it. U
 13. **10k-iteration shuffle stress + perf guards** — the Node single-process runner has no timeout isolation (the suite carries a bounded 100-round fuzz, KSND-012). Unlock: a dedicated stress lane (separate script, not kotlin-test).
 
 ### KNT-0038 (runtime cleanup, from the retired CODE_REVIEW.md) — Cell.kt API hygiene triad
-All three re-verified still present 2026-07-07. Behavior-neutral refactors; land only with the full runtime suite green (JVM + JS bundle).
-- `MutableCellImpl.update` (Cell.kt:274-304) and `setAtomic` (Cell.kt:313-334) are twin commit bodies differing only in how `next` is produced — deduplicate via a shared private commit core. NOT via `set = update { next }`: that allocates a capturing lambda on the hottest write path.
-- `MutableCell.getValue` (Cell.kt:20) re-declares `Cell.getValue` (Cell.kt:14) with an identical body — drop it IF it compiles without on all targets; the `Cell`(impl)+`ReadWriteProperty`(abstract) diamond may make the explicit override mandatory, in which case annotate why and close.
-- Two hand-rolled listener registries: `MutableCellImpl` keeps a lock-free `atomic<List<() -> Unit>>` and disposes via `filterNot { it === listener }` — so registering the SAME lambda instance twice and disposing ONE handle silently drops BOTH registrations (the R13 bug class, fixed on `DerivedCell` via per-observe `Registration` holders but still latent here). Unify both cells on the Registration-holder pattern (or extract one registry type) and add the register-same-lambda-twice test for `MutableCellImpl`.
+**Status: Landed 2026-07-07 (`b91e31b`).** runtime JVM 202/0, JS bundle green.
+- **Latent R13-class bug fixed:** `MutableCellImpl` stored observers as a raw lambda list disposed via `filterNot { it === listener }`, so registering the SAME lambda instance twice and disposing ONE handle dropped BOTH. Both cells now share one top-level `ListenerRegistration` holder (dispose by holder identity); registry stays lock-free. Red test `disposingOneDuplicateListenerRegistrationLeavesTheOtherActive`.
+- **`update()`/`setAtomic()` deduped** into a shared `commitAtomic`/`commitLocked`/`notifyCommittedWrite` core (no `update{next}` lambda alloc; version-before-value-under-lock + notify-outside-lock ordering preserved exactly).
+- **`MutableCell.getValue` kept:** deleting it fails the `Cell`+`ReadWriteProperty` `getValue` diamond ("must override … inherits multiple interface methods"); documented inline.
+- Side-finding: kinetica-runtime's macosArm64 **test** compile is pre-existingly broken (Kotlin/Native `internal`-visibility in `FrameKernelTest`/`ReactivityParityTest` — the test source set is not a friend module on native). Not in the JVM/JS bar; refines KNT-0037 §12 ("targets build" is true only for main, not test).
 
 ## Order of work
 
-1. The backlog is unscheduled. Per-ticket starting points: KNT-0024 → re-profile, KNT-0031 → re-measure, KNT-0028/KNT-0035 → spec decision, KNT-0036 → design decision, KNT-0033/KNT-0034 → un-`@Ignore` the KSND cases (red) and go test-first.
+1. The backlog is unscheduled. Per-ticket starting points: KNT-0024 → re-profile, KNT-0031 → re-measure, KNT-0028/KNT-0035 → spec decision, KNT-0036 → design decision. (KNT-0033/0034/0038 landed 2026-07-07 via the codex-TDD pipeline.)
 2. The compiler plugin is MANDATORY for every module: any pass touching it starts with `./kotlin publish mavenLocal -m kinetica-compiler && ./kotlin test -m kinetica-compiler --platform jvm` before building dependents — publish FIRST: the plugin resolves from the toolchain-local repo and even the compiler's own test fragment (via kinetica-runtime) needs the published artifact (mirrors ci.yml:26-30).
 3. Each pass: build + module tests before moving on.
 
