@@ -7,31 +7,33 @@ baseline using a local reimplementation of the **js-framework-benchmark** (kraus
 suite: identical table apps, one machine, one Chromium, one Playwright/Chrome-trace driver.
 Duration = trusted click → end of last paint.
 
-## Where Kinetica stands (2026-07-07, M4 Max, Chromium 149)
+## Where Kinetica stands (2026-07-07, M4 Max, Chrome 150)
 
 <!-- code: bench/results/results.json, bench/results/part-kinetica.json -->
 
-Median milliseconds; geometric-mean slowdown vs the per-operation fastest framework. The
-Kinetica column was re-measured on the current branch — the soundness fixes that followed the
-frame-ordinals rewrite landed after the last full-suite snapshot, and this pass captures their
-cost; the other five columns are stored same-machine parts from that suite.
+Median milliseconds; geometric-mean slowdown vs the per-operation fastest framework. React,
+Preact, Vue, Svelte and Vanilla were freshly re-measured this pass against Google Chrome
+150.0.7871.47 (previously measured against the vendored Playwright "Chrome for Testing" build,
+Chromium 149.0.7827.55); the Kinetica column is retained from the prior snapshot — an
+in-progress branch carrying unreviewed runtime/compiler memory optimizations is currently ahead
+of it and will get its own re-measurement once that work lands.
 
 | Operation | Kinetica | React | Preact | Vue | Svelte | Vanilla |
 |---|---:|---:|---:|---:|---:|---:|
-| create 1,000 rows | 33.5 | 33.5 | 32.6 | 36.1 | 26.3 | 25.4 |
-| replace all 1,000 rows | 33.1 | 37.4 | 33.2 | 34.2 | 31.4 | 32.6 |
-| partial update (every 10th row) | 7.5 | 7.0 | 7.6 | 8.1 | 7.2 | 7.6 |
-| select row | 7.5 | 7.6 | 7.4 | 7.2 | 7.4 | 7.6 |
-| swap two rows | 8.0 | 22.4 | 7.3 | 8.3 | 7.8 | 7.4 |
-| remove one row | 8.3 | 7.4 | 7.4 | 7.2 | 7.2 | 7.3 |
-| create 10,000 rows | 297 | 316 | 245 | 234 | 204 | 206 |
-| append 1,000 rows to 1,000 | 36.3 | 32.8 | 39.3 | 30.9 | 32.3 | 28.2 |
-| clear 1,000 rows | 7.8 | 7.2 | 6.8 | 6.9 | 6.9 | 7.0 |
-| select row (10k table) | 9.1 | 7.9 | 7.9 | 15.2 | 7.7 | 7.9 |
-| swap two rows (10k table) | 41.5 | 54.1 | 35.6 | 42.7 | 29.9 | 28.3 |
-| remove one row (10k table) | 52.8 | 40.3 | 40.8 | 53.8 | 38.8 | 44.4 |
-| partial update (every 10th of 10k) | 42.8 | 34.4 | 36.6 | 45.1 | 29.4 | 32.1 |
-| **geometric mean** | **1.23×** | 1.28× | 1.12× | 1.24× | 1.03× | 1.04× |
+| create 1,000 rows | 33.5 | 33.2 | 34.1 | 29.3 | 28.5 | 29.5 |
+| replace all 1,000 rows | 33.1 | 34.7 | 36.9 | 31.1 | 32.2 | 32.1 |
+| partial update (every 10th row) | 7.5 | 7.3 | 8.2 | 8.3 | 8.1 | 7.8 |
+| select row | 7.5 | 6.6 | 8.4 | 7.8 | 7.3 | 7.0 |
+| swap two rows | 8.0 | 27.1 | 7.3 | 8.9 | 8.0 | 7.4 |
+| remove one row | 8.3 | 7.2 | 7.9 | 7.9 | 7.6 | 7.6 |
+| create 10,000 rows | 297 | 328 | 260 | 249 | 220 | 210 |
+| append 1,000 rows to 1,000 | 36.3 | 30.5 | 36.1 | 29.1 | 30.6 | 31.4 |
+| clear 1,000 rows | 7.8 | 7.0 | 7.5 | 7.2 | 7.4 | 6.8 |
+| select row (10k table) | 9.1 | 7.7 | 9.2 | 15.2 | 8.5 | 8.8 |
+| swap two rows (10k table) | 41.5 | 51.0 | 33.1 | 44.2 | 30.8 | 28.1 |
+| remove one row (10k table) | 52.8 | 40.7 | 42.7 | 52.9 | 43.4 | 43.0 |
+| partial update (every 10th of 10k) | 42.8 | 34.9 | 38.1 | 46.0 | 31.8 | 32.6 |
+| **geometric mean** | **1.23×** | 1.24× | 1.16× | 1.22× | 1.06× | 1.04× |
 
 Kinetica's 13-op headline against React directly is **0.96×** — still ahead of React on the DOM
 operations. It wins create-10k (297 ms vs 316 ms) and both swap cases (8.0 ms vs 22.4 ms on 1k;
