@@ -82,6 +82,31 @@ class RuntimeSmokeServerTest {
     }
 
     @Test
+    fun serverRenderChunksMaterializeTemplateNodesAtTreeAndPatchBoundaries() = runTest {
+        val initialTemplate = serverBoundaryTemplateNode(text = "Initial")
+        val patchTemplate = serverBoundaryTemplateNode(text = "Deferred", key = "deferred-row")
+
+        val initialChunk = initialTemplate.toInitialServerChunk()
+        assertEquals(initialTemplate.materialize(), initialChunk.node)
+        assertFalse(initialChunk.node.containsTemplateNode())
+
+        val stream = initialTemplate.toServerRenderStream()
+        assertEquals(initialTemplate.materialize(), assertIs<ServerRenderChunk.Tree>(stream.first()).node)
+
+        val deferredStream = initialTemplate.toServerRenderStream(
+            subtrees = listOf(
+                ServerRenderDeferredSubtree(path = listOf(0), boundaryId = "deferred") {
+                    patchTemplate
+                },
+            ),
+        )
+        assertEquals(initialTemplate.materialize(), assertIs<ServerRenderChunk.Tree>(deferredStream[0]).node)
+        assertEquals(patchTemplate.materialize(), assertIs<ServerRenderChunk.Patch>(deferredStream[1]).node)
+        assertFalse(assertIs<ServerRenderChunk.Tree>(deferredStream[0]).node.containsTemplateNode())
+        assertFalse(assertIs<ServerRenderChunk.Patch>(deferredStream[1]).node?.containsTemplateNode() ?: false)
+    }
+
+    @Test
     fun serverRenderDefaultsHydrationDiffsAndDeferredValidationAreExplicit() = runTest {
         val clientRef = ClientRef(
             componentId = "app.AddToCartButton",
@@ -220,6 +245,35 @@ class RuntimeSmokeServerTest {
             invalidated = listOf("cart"),
         )
         assertEquals(response, transport.decodeActionResponse(transport.encodeActionResponse(response)))
+    }
+
+    @Test
+    fun serverTransportEncodeChunkMaterializesTemplateNodesAtWireBoundary() {
+        val transport = KineticaServerTransport()
+        val node = serverBoundaryTemplateNode(text = "Chunk")
+        val chunk = ServerRenderChunk.Tree(sequence = 7, node = node)
+
+        val encoded = transport.encodeChunk(chunk)
+
+        assertEquals(1, encoded.countOccurrences("static-skeleton-marker"))
+        assertFalse("\"type\":\"template\"" in encoded, encoded)
+        assertEquals(
+            ServerRenderChunk.Tree(sequence = 7, node = node.materialize()),
+            transport.decodeChunk(encoded),
+        )
+    }
+
+    @Test
+    fun serverTransportEncodeSignedChunkMaterializesTemplateNodesBeforeHashing() {
+        val transport = KineticaServerTransport()
+        val node = serverBoundaryTemplateNode(text = "Signed")
+        val normalized = ServerRenderChunk.Tree(sequence = 8, node = node.materialize())
+
+        val encoded = transport.encodeSignedChunk(ServerRenderChunk.Tree(sequence = 8, node = node))
+
+        assertEquals(1, encoded.countOccurrences("static-skeleton-marker"))
+        assertFalse("\"type\":\"template\"" in encoded, encoded)
+        assertEquals(normalized, transport.decodeSignedChunk(encoded))
     }
 
     @Test
@@ -509,7 +563,7 @@ class RuntimeSmokeServerTest {
             hello.materialize(),
         )
         assertEquals("""<span class="cold" data-kinetica-key="greeting">Hello</span>""", hello.toSafeHtml())
-        assertEquals("Hello", hello.semanticsTree().byRole(Role.Text).single().semantics.label)
+        assertEquals(null, hello.semanticsTree().byRole(Role.Text).single().semantics.label)
         assertEquals(
             listOf(
                 NodeDiff(
@@ -526,8 +580,8 @@ class RuntimeSmokeServerTest {
                 NodeDiff(
                     path = emptyList(),
                     kind = NodeDiff.Kind.Replaced,
-                    before = hello,
-                    after = templateNode(definition, values = listOf("warm", "Hello"), key = "greeting"),
+                    before = hello.materialize(),
+                    after = templateNode(definition, values = listOf("warm", "Hello"), key = "greeting").materialize(),
                 ),
             ),
             diffNodes(hello, templateNode(definition, values = listOf("warm", "Hello"), key = "greeting")),
@@ -583,6 +637,41 @@ class RuntimeSmokeServerTest {
         val nested = assertIs<HostNode>(complex.children[2])
         assertEquals("strong", nested.tag)
         assertEquals("Nested", assertIs<TextNode>(nested.children.single()).value)
+    }
+
+    @Test
+    fun diffNodesNormalizesTemplateNodesBeforeComparingContainers() {
+        val before = serverBoundaryTemplateNode(text = "Before")
+        val after = before.materialize().copy(
+            children = listOf(
+                assertIs<HostNode>(before.materialize().children[0]).copy(
+                    children = listOf(TextNode("After", semantics = null)),
+                ),
+                before.materialize().children[1],
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                NodeDiff(
+                    path = listOf(0, 0),
+                    kind = NodeDiff.Kind.Replaced,
+                    before = TextNode("Before", semantics = null),
+                    after = TextNode("After", semantics = null),
+                ),
+            ),
+            diffNodes(before, after),
+        )
+    }
+
+    @Test
+    fun hydrationPlanMaterializesTemplateNodesInInitialTree() {
+        val node = serverBoundaryTemplateNode(text = "Hydrate")
+
+        val hydration = node.hydrationPlan()
+
+        assertEquals(node.materialize(), hydration.initialTree)
+        assertFalse(hydration.initialTree.containsTemplateNode())
     }
 
     @Test
@@ -1084,7 +1173,7 @@ class RuntimeSmokeServerTest {
             ),
         ).semanticsTree()
         assertEquals(listOf("Label", "Derived label"), terminalSemantics.byRole(Role.Text).map { it.text })
-        assertEquals(listOf(listOf(1)), terminalSemantics.byLabel("Derived label").map { it.path })
+        assertEquals(emptyList(), terminalSemantics.byLabel("Derived label").map { it.path })
         assertEquals(listOf(2), terminalSemantics.byTestTag("island")?.path)
 
         val focus = FocusManager(semantics)
@@ -1102,6 +1191,23 @@ class RuntimeSmokeServerTest {
         assertEquals("Replaced", (renderer.handle(handle.id)?.node as TextNode).value)
         renderer.dispose(handle)
         assertEquals(null, renderer.handle(handle.id))
+    }
+
+    @Test
+    fun textNodeDefaultSemanticsDerivesLabel() {
+        val semantics = TextNode("x").semanticsTree()
+
+        assertEquals("x", semantics.byRole(Role.Text).single().semantics.label)
+        assertEquals(listOf(emptyList<Int>()), semantics.byLabel("x").map { it.path })
+    }
+
+    @Test
+    fun explicitTextSemanticsDoesNotDeriveLabelInSemanticsTree() {
+        val semantics = TextNode("Save", semantics = Semantics(role = Role.Text)).semanticsTree()
+
+        assertEquals(listOf("Save"), semantics.byRole(Role.Text).map { it.text })
+        assertEquals(listOf(null), semantics.byRole(Role.Text).map { it.semantics.label })
+        assertEquals(emptyList(), semantics.byLabel("Save").map { it.path })
     }
 
     @Test
@@ -1227,6 +1333,45 @@ class RuntimeSmokeServerTest {
         assertEquals(true, client.semantics?.leaving)
     }
 }
+
+private fun serverBoundaryTemplateNode(
+    text: String,
+    key: String = "wire-row",
+): TemplateNode =
+    templateNode(
+        definition = TemplateDefinition(
+            id = "server-boundary-template",
+            skeleton = HostNode(
+                tag = "article",
+                props = propsOf("class", "pending", "data-sentinel", "skeleton"),
+                children = listOf(
+                    HostNode(
+                        tag = "span",
+                        children = listOf(TextNode("", semantics = null)),
+                    ),
+                    TextNode("static-skeleton-marker", semantics = null),
+                ),
+            ),
+            holes = listOf(
+                TemplateHole(path = "", kind = TemplateHoleKinds.Prop, propName = "class"),
+                TemplateHole(path = "0.0", kind = TemplateHoleKinds.Text),
+            ),
+        ),
+        values = listOf("ready", text),
+        key = key,
+    )
+
+private fun Node.containsTemplateNode(): Boolean =
+    when (this) {
+        is FragmentNode -> children.any { child -> child.containsTemplateNode() }
+        is HostNode -> children.any { child -> child.containsTemplateNode() }
+        is TemplateNode -> true
+        is TextNode -> false
+        is ClientRef -> false
+    }
+
+private fun String.countOccurrences(needle: String): Int =
+    if (needle.isEmpty()) 0 else split(needle).size - 1
 
 @Serializable
 private data class SmokeCartQuantityDraft(

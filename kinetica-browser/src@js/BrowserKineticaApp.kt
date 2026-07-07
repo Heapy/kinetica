@@ -14,6 +14,8 @@ import io.heapy.kinetica.TemplateHoleKinds
 import io.heapy.kinetica.TemplateNode
 import io.heapy.kinetica.TextNode
 import io.heapy.kinetica.UiComponent
+import io.heapy.kinetica.materializeDeep
+import io.heapy.kinetica.reconcileKey
 import io.heapy.kinetica.toSafeHtml
 import kotlinx.serialization.json.JsonObject
 import org.w3c.dom.Document
@@ -39,8 +41,7 @@ public class BrowserKineticaApp(
     private var currentTree: Node? = null
     private var mountedRoot: Mounted? = null
     private var clientRefCount = 0
-    private val keyedPatchScratch = ArrayList<KeyedPatchScratchFrame>(KEYED_PATCH_SCRATCH_DEPTH)
-    private var keyedPatchDepth = 0
+    private val keyedPatchScratchPool = ArrayList<KeyedPatchScratchFrame>(KEYED_PATCH_SCRATCH_DEPTH)
     private val templatePrototypes = HashMap<String, TemplatePrototype>()
 
     private val delegatedListener: (Event) -> Unit = { event -> handleDelegatedEvent(event) }
@@ -70,11 +71,14 @@ public class BrowserKineticaApp(
     public fun innerHtml(): String =
         rootElement.innerHTML
 
+    internal val clientRefCountForTests: Int
+        get() = clientRefCount
+
     public fun snapshot(): BrowserUiSnapshot =
         BrowserUiSnapshot(
             innerHtml = innerHtml(),
             treeHtml = tree().toSafeHtml(),
-            treeJson = BrowserSnapshotJson.encodeToString(Node.serializer(), tree()),
+            treeJson = BrowserSnapshotJson.encodeToString(Node.serializer(), tree().materializeDeep()),
         )
 
     public fun assertInnerHtmlSnapshot(expected: String) {
@@ -143,9 +147,13 @@ public class BrowserKineticaApp(
             if (mounted != null && dispatchTo(mounted.hostNode, element, event)) {
                 return
             }
-            val templateEvent = candidate as? MountedTemplateEvent
-            if (templateEvent != null && dispatchTo(templateEvent, element, event)) {
-                return
+            val templateEvents = candidate as? MountedTemplateEvents
+            if (templateEvents != null) {
+                val propName = DelegatedEventPropNames[event.type]
+                val templateEvent = if (propName == null) null else templateEvents.byPropName[propName]
+                if (templateEvent != null && dispatchTo(templateEvent, element, event)) {
+                    return
+                }
             }
             if (element == rootElement) {
                 return
@@ -154,88 +162,63 @@ public class BrowserKineticaApp(
         }
     }
 
-    private fun dispatchTo(node: HostNode, element: Element, event: Event): Boolean =
-        when (event.type) {
+    private fun dispatchTo(node: HostNode, element: Element, event: Event): Boolean {
+        val propName = DelegatedEventPropNames[event.type] ?: return false
+        val eventId = node.props[propName] ?: return false
+        return when (event.type) {
             "click" -> {
-                val eventId = node.props["event:onClick"]
-                if (eventId == null) {
-                    false
-                } else {
-                    val enabled = node.props["enabled"]?.toBooleanStrictOrNull() ?: true
-                    if (enabled) {
-                        dispatchAndRender(eventId, Unit)
-                    }
-                    true
+                val enabled = node.props["enabled"]?.toBooleanStrictOrNull() ?: true
+                if (enabled) {
+                    dispatchAndRender(eventId, Unit)
                 }
+                true
             }
             "input" -> {
-                val eventId = node.props["event:onInput"]
-                if (eventId == null) {
-                    false
-                } else {
-                    dispatchAndRender(eventId, (element as HTMLInputElement).value)
-                    true
-                }
+                dispatchAndRender(eventId, (element as HTMLInputElement).value)
+                true
             }
             "change" -> {
-                val eventId = node.props["event:onToggle"]
-                if (eventId == null) {
-                    false
-                } else {
-                    dispatchAndRender(eventId, Unit)
-                    true
-                }
+                dispatchAndRender(eventId, Unit)
+                true
             }
             "keydown" -> {
-                val eventId = node.props["event:onSubmit"]
-                if (eventId == null) {
-                    false
-                } else {
-                    event.preventDefault()
-                    dispatchAndRender(eventId, Unit)
-                    true
-                }
+                event.preventDefault()
+                dispatchAndRender(eventId, Unit)
+                true
             }
             else -> false
         }
+    }
 
-    private fun dispatchTo(binding: MountedTemplateEvent, element: Element, event: Event): Boolean =
-        when (event.type) {
+    private fun dispatchTo(binding: MountedTemplateEvent, element: Element, event: Event): Boolean {
+        val propName = DelegatedEventPropNames[event.type] ?: return false
+        val eventId = binding.eventId ?: return false
+        if (binding.propName != propName) {
+            return false
+        }
+        return when (event.type) {
             "click" -> {
-                if (binding.propName != "event:onClick" || binding.eventId == null) {
-                    false
-                } else {
-                    dispatchAndRender(binding.eventId!!, Unit)
-                    true
+                if (element.getAttribute("disabled") == null) {
+                    dispatchAndRender(eventId, Unit)
                 }
+                true
             }
             "input" -> {
-                if (binding.propName != "event:onInput" || binding.eventId == null) {
-                    false
-                } else {
-                    dispatchAndRender(binding.eventId!!, (element as HTMLInputElement).value)
-                    true
-                }
+                dispatchAndRender(eventId, (element as HTMLInputElement).value)
+                true
             }
             "change" -> {
-                if (binding.propName != "event:onToggle" || binding.eventId == null) {
-                    false
-                } else {
-                    dispatchAndRender(binding.eventId!!, Unit)
-                    true
-                }
+                dispatchAndRender(eventId, Unit)
+                true
             }
             "keydown" -> {
-                if (binding.propName != "event:onSubmit" || binding.eventId == null) {
-                    false
-                } else {
-                    event.preventDefault()
-                    dispatchAndRender(binding.eventId!!, Unit)
-                    true
-                }
+                event.preventDefault()
+                dispatchAndRender(eventId, Unit)
+                true
             }
             else -> false
         }
+    }
 
     private fun dispatchAndRender(eventId: String, payload: Any?) {
         runtime.dispatch(eventId, payload)
@@ -313,9 +296,14 @@ public class BrowserKineticaApp(
     private fun mountTemplate(node: TemplateNode, parent: Element, anchor: DomNode?, path: String): MountedTemplate {
         val prototype = templatePrototype(node.definition)
         val root = prototype.root.cloneNode(true) as Element
+        val key = node.reconcileKey
+        if (key != null) {
+            root.setAttribute(DATA_KINETICA_KEY, key)
+        } else {
+            root.removeAttribute(DATA_KINETICA_KEY)
+        }
         if (runtime.debug) {
             root.setAttribute(DATA_KINETICA_PATH, path)
-            node.key?.let { key -> root.setAttribute(DATA_KINETICA_KEY, key) }
         }
         val mounted = MountedTemplate(
             templateNode = node,
@@ -398,25 +386,17 @@ public class BrowserKineticaApp(
     }
 
     private fun unmount(mounted: Mounted, parent: Element) {
+        detach(mounted)
+        removeMountedDom(mounted, parent)
+    }
+
+    private fun removeMountedDom(mounted: Mounted, parent: Element) {
         when (mounted) {
-            is MountedHost -> {
-                mounted.element.asDynamic().__kinetica = null
-                parent.removeChild(mounted.element)
-            }
-            is MountedTemplate -> {
-                mounted.eventBindings.forEach { binding ->
-                    if (binding != null) {
-                        binding.element.asDynamic().__kinetica = null
-                    }
-                }
-                parent.removeChild(mounted.root)
-            }
+            is MountedHost -> parent.removeChild(mounted.element)
+            is MountedTemplate -> parent.removeChild(mounted.root)
             is MountedText -> parent.removeChild(mounted.dom)
-            is MountedFragment -> mounted.children.forEach { child -> unmount(child, parent) }
-            is MountedClientRef -> {
-                clientRefCount--
-                parent.removeChild(mounted.element)
-            }
+            is MountedFragment -> mounted.children.forEach { child -> removeMountedDom(child, parent) }
+            is MountedClientRef -> parent.removeChild(mounted.element)
         }
     }
 
@@ -574,14 +554,12 @@ public class BrowserKineticaApp(
     private fun patchTemplate(mounted: MountedTemplate, next: TemplateNode, path: String) {
         val previous = mounted.templateNode
         mounted.templateNode = next
-        if (previous.key != next.key) {
-            if (runtime.debug) {
-                val key = next.key
-                if (key != null) {
-                    mounted.root.setAttribute(DATA_KINETICA_KEY, key)
-                } else {
-                    mounted.root.removeAttribute(DATA_KINETICA_KEY)
-                }
+        if (previous.reconcileKey != next.reconcileKey) {
+            val key = next.reconcileKey
+            if (key != null) {
+                mounted.root.setAttribute(DATA_KINETICA_KEY, key)
+            } else {
+                mounted.root.removeAttribute(DATA_KINETICA_KEY)
             }
         }
         if (runtime.debug) {
@@ -594,8 +572,17 @@ public class BrowserKineticaApp(
         templatePrototypes.getOrPut(definition.id) {
             val parent = browserDocument.createElement("div")
             val mounted = mountHost(definition.skeleton, parent, anchor = null, path = "")
+            stripTemplatePrototypeDebugAttributes(mounted.element)
             TemplatePrototype(mounted.element)
         }
+
+    private fun stripTemplatePrototypeDebugAttributes(element: Element) {
+        element.removeAttribute(DATA_KINETICA_PATH)
+        element.removeAttribute(DATA_KINETICA_TAG)
+        for (index in 0 until element.children.length) {
+            stripTemplatePrototypeDebugAttributes(element.children.item(index) ?: continue)
+        }
+    }
 
     private fun patchTemplateValues(
         mounted: MountedTemplate,
@@ -615,12 +602,21 @@ public class BrowserKineticaApp(
                 TemplateHoleKinds.Prop -> {
                     val element = dom as Element
                     val propName = hole.propName ?: return@forEachIndexed
-                    if (nextValue == null) {
-                        if (isRemovablePublicBrowserAttribute(propName)) {
-                            element.removeAttribute(propName)
+                    when {
+                        propName == "enabled" -> {
+                            if (nextValue?.toBooleanStrictOrNull() ?: true) {
+                                element.removeAttribute("disabled")
+                            } else {
+                                element.setAttribute("disabled", "")
+                            }
                         }
-                    } else if (isPublicBrowserAttribute(propName, nextValue)) {
-                        element.setAttribute(propName, nextValue)
+                        nextValue == null -> {
+                            if (isRemovablePublicBrowserAttribute(propName)) {
+                                element.removeAttribute(propName)
+                            }
+                        }
+                        isPublicBrowserAttribute(propName, nextValue) ->
+                            element.setAttribute(propName, nextValue)
                     }
                 }
                 TemplateHoleKinds.EventProp -> {
@@ -632,7 +628,7 @@ public class BrowserKineticaApp(
                         eventId = nextValue,
                     ).also { created ->
                         mounted.eventBindings[index] = created
-                        element.asDynamic().__kinetica = created
+                        templateEventContainer(element).byPropName[propName] = created
                     }
                     binding.eventId = nextValue
                 }
@@ -685,6 +681,7 @@ public class BrowserKineticaApp(
     private fun patchSingleTextChild(mounted: MountedHost, next: HostNode): Boolean {
         val mountedText = mounted.children.singleOrNull() as? MountedText ?: return false
         val nextText = next.children.singleOrNull() as? TextNode ?: return false
+        if (mountedText.wrapped || textNeedsElement(nextText)) return false
         if (mountedText.textNode.value != nextText.value) {
             mountedText.dom.nodeValue = nextText.value
         }
@@ -723,7 +720,7 @@ public class BrowserKineticaApp(
         }
         val newKeys = HashSet<String>(next.size)
         for (node in next) {
-            val key = node.reconcileKey() ?: return false
+            val key = node.reconcileKey ?: return false
             if (!newKeys.add(key)) return false
         }
         return true
@@ -741,7 +738,7 @@ public class BrowserKineticaApp(
         try {
             patchKeyedChildren(parent, mounted, next, appendAnchor, parentPath, ownsParent, scratch)
         } finally {
-            releaseKeyedPatchScratch()
+            releaseKeyedPatchScratch(scratch)
         }
     }
 
@@ -761,14 +758,14 @@ public class BrowserKineticaApp(
         val result = scratch.prepareResult(next.size)
 
         while (oldStart <= oldEnd && newStart <= newEnd &&
-            mounted[oldStart].reconcileKey() == next[newStart].reconcileKey()
+            mounted[oldStart].reconcileKey() == next[newStart].reconcileKey
         ) {
             result[newStart] = patch(mounted[oldStart], next[newStart], parent, childPathOf(parentPath, newStart))
             oldStart++
             newStart++
         }
         while (oldEnd >= oldStart && newEnd >= newStart &&
-            mounted[oldEnd].reconcileKey() == next[newEnd].reconcileKey()
+            mounted[oldEnd].reconcileKey() == next[newEnd].reconcileKey
         ) {
             result[newEnd] = patch(mounted[oldEnd], next[newEnd], parent, childPathOf(parentPath, newEnd))
             oldEnd--
@@ -778,7 +775,7 @@ public class BrowserKineticaApp(
         if (ownsParent && appendAnchor == null &&
             oldStart == 0 && oldEnd == mounted.lastIndex &&
             newStart == 0 && newEnd == next.lastIndex &&
-            hasNoKeyOverlap(mounted, oldStart, oldEnd, next, newStart, newEnd)
+            hasNoKeyOverlap(mounted, oldStart, oldEnd, next, newStart, newEnd, scratch)
         ) {
             clearOwnedChildren(parent, mounted)
             next.forEachIndexed { index, node ->
@@ -806,7 +803,7 @@ public class BrowserKineticaApp(
             val keyToNewIndex = scratch.keyToNewIndex
             keyToNewIndex.clear()
             for (index in newStart..newEnd) {
-                keyToNewIndex[next[index].reconcileKey()!!] = index
+                keyToNewIndex[next[index].reconcileKey!!] = index
             }
             val sourceOldIndex = scratch.prepareSourceOldIndex(middleCount)
             for (oldIndex in oldStart..oldEnd) {
@@ -846,19 +843,13 @@ public class BrowserKineticaApp(
     }
 
     private fun acquireKeyedPatchScratch(): KeyedPatchScratchFrame {
-        val depth = keyedPatchDepth
-        keyedPatchDepth += 1
-        if (depth >= KEYED_PATCH_SCRATCH_DEPTH) {
-            return KeyedPatchScratchFrame()
-        }
-        while (keyedPatchScratch.size <= depth) {
-            keyedPatchScratch += KeyedPatchScratchFrame()
-        }
-        return keyedPatchScratch[depth]
+        return keyedPatchScratchPool.removeLastOrNull() ?: KeyedPatchScratchFrame()
     }
 
-    private fun releaseKeyedPatchScratch() {
-        keyedPatchDepth -= 1
+    private fun releaseKeyedPatchScratch(scratch: KeyedPatchScratchFrame) {
+        if (keyedPatchScratchPool.size < KEYED_PATCH_SCRATCH_DEPTH) {
+            keyedPatchScratchPool.add(scratch)
+        }
     }
 
     private fun hasNoKeyOverlap(
@@ -868,16 +859,18 @@ public class BrowserKineticaApp(
         next: List<Node>,
         newStart: Int,
         newEnd: Int,
+        scratch: KeyedPatchScratchFrame,
     ): Boolean {
         if (oldStart > oldEnd || newStart > newEnd) {
             return false
         }
-        val oldKeys = HashSet<String>(oldEnd - oldStart + 1)
-        for (index in oldStart..oldEnd) {
-            oldKeys += mounted[index].reconcileKey() ?: return false
-        }
+        val keyToNewIndex = scratch.keyToNewIndex
+        keyToNewIndex.clear()
         for (index in newStart..newEnd) {
-            if ((next[index].reconcileKey() ?: return false) in oldKeys) {
+            keyToNewIndex[next[index].reconcileKey ?: return false] = index
+        }
+        for (index in oldStart..oldEnd) {
+            if (keyToNewIndex.containsKey(mounted[index].reconcileKey() ?: return false)) {
                 return false
             }
         }
@@ -885,26 +878,30 @@ public class BrowserKineticaApp(
     }
 
     private fun clearOwnedChildren(parent: Element, mounted: MutableList<Mounted>) {
-        mounted.forEach(::disposeMountedSubtree)
+        if (clientRefCount > 0) {
+            mounted.forEach(::detach)
+        }
         mounted.clear()
+        // The DOM subtree is discarded wholesale, so __kinetica/template-event expandos
+        // are GC-collectable with it; clientRefCount is the only app-lifetime bookkeeping.
         parent.textContent = ""
     }
 
-    private fun disposeMountedSubtree(mounted: Mounted) {
+    private fun detach(mounted: Mounted) {
         when (mounted) {
             is MountedHost -> {
-                mounted.children.forEach(::disposeMountedSubtree)
+                mounted.children.forEach(::detach)
                 mounted.element.asDynamic().__kinetica = null
             }
             is MountedTemplate -> {
                 mounted.eventBindings.forEach { binding ->
                     if (binding != null) {
-                        binding.element.asDynamic().__kinetica = null
+                        removeTemplateEventBinding(binding)
                     }
                 }
             }
             is MountedText -> {}
-            is MountedFragment -> mounted.children.forEach(::disposeMountedSubtree)
+            is MountedFragment -> mounted.children.forEach(::detach)
             is MountedClientRef -> clientRefCount--
         }
     }
@@ -993,6 +990,11 @@ private class MountedTemplate(
 ) : Mounted() {
     override val currentNode: Node get() = templateNode
 }
+
+private class MountedTemplateEvents(
+    val element: Element,
+    val byPropName: MutableMap<String, MountedTemplateEvent>,
+)
 
 private class MountedTemplateEvent(
     val element: Element,
@@ -1090,23 +1092,35 @@ private fun moveDom(mounted: Mounted, parent: Element, anchor: DomNode?) {
     }
 }
 
+private fun templateEventContainer(element: Element): MountedTemplateEvents {
+    val candidate: Any? = element.asDynamic().__kinetica
+    val existing = candidate as? MountedTemplateEvents
+    if (existing != null) {
+        return existing
+    }
+    return MountedTemplateEvents(element, mutableMapOf()).also { created ->
+        element.asDynamic().__kinetica = created
+    }
+}
+
+private fun removeTemplateEventBinding(binding: MountedTemplateEvent) {
+    val candidate: Any? = binding.element.asDynamic().__kinetica
+    val container = candidate as? MountedTemplateEvents ?: return
+    if (container.byPropName[binding.propName] === binding) {
+        container.byPropName.remove(binding.propName)
+    }
+    if (container.byPropName.isEmpty()) {
+        container.element.asDynamic().__kinetica = null
+    }
+}
+
 private fun Mounted.reconcileKey(): String? =
     when (this) {
-        is MountedHost -> hostNode.key
-        is MountedTemplate -> templateNode.key
+        is MountedHost -> hostNode.reconcileKey
+        is MountedTemplate -> templateNode.reconcileKey
         is MountedText,
         is MountedClientRef,
         is MountedFragment,
-        -> null
-    }
-
-private fun Node.reconcileKey(): String? =
-    when (this) {
-        is HostNode -> key
-        is TemplateNode -> key
-        is FragmentNode,
-        is TextNode,
-        is ClientRef,
         -> null
     }
 
@@ -1116,7 +1130,13 @@ private fun textNeedsElement(node: TextNode): Boolean =
 private fun refreshChildPath(parent: String, index: Int): String =
     if (parent.isEmpty()) index.toString() else "$parent.$index"
 
-private val DelegatedEventTypes = listOf("click", "input", "change", "keydown")
+private val DelegatedEventPropNames = mapOf(
+    "click" to "event:onClick",
+    "input" to "event:onInput",
+    "change" to "event:onToggle",
+    "keydown" to "event:onSubmit",
+)
+private val DelegatedEventTypes: Set<String> = DelegatedEventPropNames.keys
 private const val KEYED_PATCH_SCRATCH_DEPTH = 4
 
 public data class BrowserUiSnapshot(

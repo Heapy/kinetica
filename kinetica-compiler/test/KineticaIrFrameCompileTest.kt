@@ -52,15 +52,10 @@ class KineticaIrFrameCompileTest {
                 """,
             ),
         ).use { compiled ->
-            val render = compiled.loadClass("app.MainKt").getDeclaredMethod(
-                "render",
-                KineticaRuntime::class.java,
-                ComponentScope::class.java,
-            )
             val runtime = KineticaRuntime()
             val scope = ComponentScope(runtime)
-            val first = (render.invoke(null, runtime, scope) as Node).toDebugString()
-            val second = (render.invoke(null, runtime, scope) as Node).toDebugString()
+            val first = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
+            val second = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
             assertTrue("id:0" in first && "id:1" in first, "two call sites must get distinct slots: $first")
             assertEquals(first, second, "slots must be reused, not re-initialized, across renders")
         }
@@ -96,17 +91,35 @@ class KineticaIrFrameCompileTest {
                 """,
             ),
         ).use { compiled ->
-            val render = compiled.loadClass("app.MainKt").getDeclaredMethod(
-                "render",
-                KineticaRuntime::class.java,
-                ComponentScope::class.java,
-                Boolean::class.java,
-            )
             val runtime = KineticaRuntime()
             val scope = ComponentScope(runtime)
-            assertTrue("value:A" in (render.invoke(null, runtime, scope, true) as Node).toDebugString())
-            assertTrue("value:B" in (render.invoke(null, runtime, scope, false) as Node).toDebugString())
-            assertTrue("value:A" in (render.invoke(null, runtime, scope, true) as Node).toDebugString())
+            assertTrue(
+                "value:A" in compiled.invokeRender(
+                    "app.MainKt",
+                    "render",
+                    Boolean::class.java to true,
+                    runtime = runtime,
+                    scope = scope,
+                ).toDebugString(),
+            )
+            assertTrue(
+                "value:B" in compiled.invokeRender(
+                    "app.MainKt",
+                    "render",
+                    Boolean::class.java to false,
+                    runtime = runtime,
+                    scope = scope,
+                ).toDebugString(),
+            )
+            assertTrue(
+                "value:A" in compiled.invokeRender(
+                    "app.MainKt",
+                    "render",
+                    Boolean::class.java to true,
+                    runtime = runtime,
+                    scope = scope,
+                ).toDebugString(),
+            )
         }
     }
 
@@ -140,21 +153,39 @@ class KineticaIrFrameCompileTest {
                 """,
             ),
         ).use { compiled ->
-            val render = compiled.loadClass("app.MainKt").getDeclaredMethod(
-                "render",
-                KineticaRuntime::class.java,
-                ComponentScope::class.java,
-                List::class.java,
-            )
             val runtime = KineticaRuntime()
             val scope = ComponentScope(runtime)
-            val first = (render.invoke(null, runtime, scope, listOf("a", "b")) as Node).toDebugString()
+            val first = compiled.invokeRender(
+                "app.MainKt",
+                "render",
+                List::class.java to listOf("a", "b"),
+                runtime = runtime,
+                scope = scope,
+            ).toDebugString()
             assertTrue("a=0" in first && "b=1" in first, "rows must get distinct frames: $first")
-            val reordered = (render.invoke(null, runtime, scope, listOf("b", "a")) as Node).toDebugString()
+            val reordered = compiled.invokeRender(
+                "app.MainKt",
+                "render",
+                List::class.java to listOf("b", "a"),
+                runtime = runtime,
+                scope = scope,
+            ).toDebugString()
             assertTrue("a=0" in reordered && "b=1" in reordered, "row state must follow keys: $reordered")
             // Row removal disposes its frame; a returning key re-initializes.
-            render.invoke(null, runtime, scope, listOf("b"))
-            val returned = (render.invoke(null, runtime, scope, listOf("b", "a")) as Node).toDebugString()
+            compiled.invokeRender(
+                "app.MainKt",
+                "render",
+                List::class.java to listOf("b"),
+                runtime = runtime,
+                scope = scope,
+            )
+            val returned = compiled.invokeRender(
+                "app.MainKt",
+                "render",
+                List::class.java to listOf("b", "a"),
+                runtime = runtime,
+                scope = scope,
+            ).toDebugString()
             assertTrue("a=2" in returned, "removed row's state must not resurrect: $returned")
         }
     }
@@ -227,15 +258,10 @@ class KineticaIrFrameCompileTest {
                 """,
             ),
         ).use { compiled ->
-            val render = compiled.loadClass("app.MainKt").getDeclaredMethod(
-                "render",
-                KineticaRuntime::class.java,
-                ComponentScope::class.java,
-            )
             val runtime = KineticaRuntime()
             val scope = ComponentScope(runtime)
             val failure = assertFailsWith<java.lang.reflect.InvocationTargetException> {
-                render.invoke(null, runtime, scope)
+                compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope)
             }
             assertTrue(
                 failure.cause is MissingKineticaPluginException,
@@ -277,14 +303,9 @@ class KineticaIrFrameCompileTest {
                 """,
             ),
         ).use { compiled ->
-            val render = compiled.loadClass("app.MainKt").getDeclaredMethod(
-                "render",
-                KineticaRuntime::class.java,
-                ComponentScope::class.java,
-            )
             val runtime = KineticaRuntime()
             val scope = ComponentScope(runtime)
-            val tree = (render.invoke(null, runtime, scope) as Node).toDebugString()
+            val tree = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
             assertTrue(
                 "inner-state" in tree,
                 "content lambdas of component calls inside component bodies must region-wrap: $tree",

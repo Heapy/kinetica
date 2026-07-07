@@ -41,7 +41,7 @@ public fun Node.semanticsTree(): SemanticsTree {
             visit(node.materialize(), path)
             return
         }
-        val semantics = node.derivedSemantics()
+        val semantics = node.effectiveSemantics()
         if (semantics != null) {
             nodes += SemanticsNode(
                 path = path,
@@ -63,9 +63,9 @@ public fun Node.semanticsTree(): SemanticsTree {
     return SemanticsTree(nodes)
 }
 
-private fun Node.derivedSemantics(): Semantics? {
+public fun Node.effectiveSemantics(): Semantics? {
     val current = this.semantics ?: return null
-    return if (this is TextNode && current.role == Role.Text && current.label == null) {
+    return if (this is TextNode && current === DefaultTextSemantics) {
         current.copy(label = value)
     } else {
         current

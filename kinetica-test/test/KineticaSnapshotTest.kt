@@ -96,6 +96,28 @@ class KineticaSnapshotTest {
     }
 
     @Test
+    fun hasLabelFindsPlainTextDefaultSemantics() {
+        val root = KineticaTest.render {
+            text("Save")
+        }
+
+        assertEquals("Save", (root.node(hasLabel("Save")).node as TextNode).value)
+        root.dispose()
+    }
+
+    @Test
+    fun hasLabelDoesNotDeriveExplicitTextSemantics() {
+        val root = KineticaTest.render {
+            text("Save", semantics = Semantics(role = Role.Text))
+        }
+
+        assertFailsWith<IllegalStateException> {
+            root.node(hasLabel("Save"))
+        }
+        root.dispose()
+    }
+
+    @Test
     fun snapshotMismatchesIncludeExpectedAndActualText() {
         val root = KineticaTest.render {
             text("Actual")

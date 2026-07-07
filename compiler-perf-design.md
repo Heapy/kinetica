@@ -69,7 +69,8 @@ Status: K0–K3 implemented · 2026-07-06 · owner: kinetica-compiler
   hash work — for select10k (~10 ms vs vanilla's ~4.6 ms floor) the hit-path cost is roughly
   half of Kinetica's whole gap on that op. Attack that (pre-hashed row keys, batched event
   touch, or clock-stamped row caches) before anything else in this plan.
-Companion to `perf-rewrite-design.md` (renderer, P0–P3 done, current 13-op geomean 1.35×):
+Companion to `perf-rewrite-design.md` (since retired into `plan.md`; when this was written
+the renderer stood at P0–P3 done, 13-op geomean 1.35× — now P0–P4, 0.97×):
 every number in that story was measured **without** the plugin. This plan makes the compiler
 contribute, safely.
 
@@ -274,7 +275,7 @@ infrastructure exists to express it. Not scheduled here.
 
 Perf-gate discipline: numbers only from the M4 Max reference machine on AC (README canary
 rule); CI perf runs are smoke-only. Each phase records its before/after in this doc the way
-`perf-rewrite-design.md` §8 does.
+the retired `perf-rewrite-design.md` §8 did (git history).
 
 ## 5. Risks
 

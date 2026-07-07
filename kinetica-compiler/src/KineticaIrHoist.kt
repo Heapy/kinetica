@@ -6,14 +6,11 @@ package io.heapy.kinetica.compiler
 
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
 import org.jetbrains.kotlin.backend.common.lower.DeclarationIrBuilder
-import org.jetbrains.kotlin.descriptors.DescriptorVisibilities
-import org.jetbrains.kotlin.ir.builders.declarations.buildField
 import org.jetbrains.kotlin.ir.builders.irCall
 import org.jetbrains.kotlin.ir.builders.irCallConstructor
 import org.jetbrains.kotlin.ir.builders.irGetField
 import org.jetbrains.kotlin.ir.builders.irNull
 import org.jetbrains.kotlin.ir.builders.irString
-import org.jetbrains.kotlin.ir.declarations.IrDeclarationOrigin
 import org.jetbrains.kotlin.ir.declarations.IrField
 import org.jetbrains.kotlin.ir.declarations.IrFile
 import org.jetbrains.kotlin.ir.declarations.IrParameterKind
@@ -105,6 +102,7 @@ internal class KineticaHoistTransformer(
     private val file: IrFile,
     private val pluginContext: IrPluginContext,
     private val symbols: KineticaHoistSymbols,
+    private val constPropsIndex: ConstPropsFieldIndex,
 ) : IrElementTransformerVoid() {
     private val internedProps = mutableMapOf<String, IrField>()
     private val hoistedHosts = mutableMapOf<String, IrField>()
@@ -123,7 +121,7 @@ internal class KineticaHoistTransformer(
         expression.transformChildrenVoid(this)
         val calleeFqName = expression.symbol.owner.kotlinFqName
         if (calleeFqName == symbols.propsOfFqName) {
-            val pairs = expression.constPropsPairs() ?: return expression
+            val pairs = constPropsOf(expression, symbols.propsOfFqName) ?: return expression
             if (pairs.isEmpty()) return expression
             propsInterned++
             return builder.irGetField(null, internProps(pairs))
@@ -136,26 +134,19 @@ internal class KineticaHoistTransformer(
         return expression
     }
 
-    /** All value arguments are string constants (absent trailing defaults included). */
-    private fun IrCall.constPropsPairs(): List<Pair<String, String>>? {
-        val values = mutableListOf<String>()
-        for (parameter in symbol.owner.parameters) {
-            if (parameter.kind != IrParameterKind.Regular) continue
-            val argument = arguments[parameter.indexInParameters] ?: continue
-            val const = argument as? IrConst ?: return null
-            if (const.kind != IrConstKind.String) return null
-            values += const.value as String
-        }
-        if (values.size % 2 != 0) return null
-        return values.chunked(2).map { (name, value) -> name to value }
-    }
-
     private fun internProps(pairs: List<Pair<String, String>>): IrField {
         val key = pairs.joinToString("\u0000") { "${it.first}\u0000${it.second}" }
         return internedProps.getOrPut(key) {
-            addFileField("kineticaProps", symbols.stringMapType) { fieldBuilder ->
+            val field = addStaticFileField(
+                file = file,
+                pluginContext = pluginContext,
+                name = nextStaticFieldName("kineticaProps"),
+                type = symbols.stringMapType,
+            ) { fieldBuilder ->
                 buildPropsOfCall(fieldBuilder, pairs)
             }
+            constPropsIndex.register(field, pairs)
+            field
         }
     }
 
@@ -197,7 +188,8 @@ internal class KineticaHoistTransformer(
         val propsField = when (val propsArgument = argumentOf("props")) {
             null -> null
             is IrGetField ->
-                internedProps.values.firstOrNull { it.symbol == propsArgument.symbol } ?: return null
+                propsArgument.symbol.owner.takeIf { constPropsIndex.constPropsFor(propsArgument) != null }
+                    ?: return null
             else -> return null
         }
 
@@ -215,7 +207,12 @@ internal class KineticaHoistTransformer(
 
         val hoistKey = "${tag.value}\u0000${propsField?.name?.asString().orEmpty()}"
         val field = hoistedHosts.getOrPut(hoistKey) {
-            addFileField("kineticaHost", symbols.hostNodeType) { fieldBuilder ->
+            addStaticFileField(
+                file = file,
+                pluginContext = pluginContext,
+                name = nextStaticFieldName("kineticaHost"),
+                type = symbols.hostNodeType,
+            ) { fieldBuilder ->
                 buildHostNode(fieldBuilder, tag.value as String, propsField)
             }
         }
@@ -252,34 +249,8 @@ internal class KineticaHoistTransformer(
         }
     }
 
-    private fun addFileField(
-        prefix: String,
-        type: IrType,
-        initializer: (DeclarationIrBuilder) -> IrExpression,
-    ): IrField {
-        val field = pluginContext.irFactory.buildField {
-            // Package-unique, not just file-unique: JS klib signatures are package-scoped.
-            name = Name.identifier("$prefix\$${file.fileUniqueTag()}\$${internedProps.size + hoistedHosts.size}")
-            this.type = type
-            isFinal = true
-            isStatic = true
-            visibility = DescriptorVisibilities.PRIVATE
-            origin = IrDeclarationOrigin.DEFINED
-        }.apply {
-            parent = file
-        }
-        val fieldBuilder = DeclarationIrBuilder(pluginContext, field.symbol)
-        field.initializer = pluginContext.irFactory.createExpressionBody(
-            file.startOffset,
-            file.endOffset,
-            initializer(fieldBuilder),
-        )
-        file.declarations += field
-        return field
-    }
-
-    private fun IrExpression.isNullConst(): Boolean =
-        this is IrConst && kind == IrConstKind.Null
+    private fun nextStaticFieldName(prefix: String): Name =
+        staticFieldName(prefix, file, internedProps.size + hoistedHosts.size)
 
     private fun IrExpression.isEmptyLambda(): Boolean =
         this is IrFunctionExpression && (function.body?.let { body ->

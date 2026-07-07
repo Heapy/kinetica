@@ -13,6 +13,8 @@ public data class Semantics(
     val leaving: Boolean = false,
 )
 
+public val DefaultTextSemantics: Semantics = Semantics(role = Role.Text)
+
 @Serializable
 public enum class Role {
     Button,
@@ -32,4 +34,3 @@ public enum class LayoutDirection {
     Ltr,
     Rtl,
 }
-

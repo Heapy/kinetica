@@ -6,35 +6,39 @@ package io.heapy.kinetica.compiler
 
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
 import org.jetbrains.kotlin.backend.common.lower.DeclarationIrBuilder
-import org.jetbrains.kotlin.descriptors.DescriptorVisibilities
-import org.jetbrains.kotlin.ir.builders.declarations.buildField
+import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.builders.irCall
 import org.jetbrains.kotlin.ir.builders.irGetField
 import org.jetbrains.kotlin.ir.builders.irNull
 import org.jetbrains.kotlin.ir.builders.irString
 import org.jetbrains.kotlin.ir.builders.irVararg
-import org.jetbrains.kotlin.ir.declarations.IrDeclarationOrigin
 import org.jetbrains.kotlin.ir.declarations.IrField
 import org.jetbrains.kotlin.ir.declarations.IrFile
 import org.jetbrains.kotlin.ir.declarations.IrParameterKind
 import org.jetbrains.kotlin.ir.declarations.IrSimpleFunction
+import org.jetbrains.kotlin.ir.declarations.IrVariable
 import org.jetbrains.kotlin.ir.expressions.IrCall
 import org.jetbrains.kotlin.ir.expressions.IrConst
 import org.jetbrains.kotlin.ir.expressions.IrConstKind
 import org.jetbrains.kotlin.ir.expressions.IrExpression
 import org.jetbrains.kotlin.ir.expressions.IrFunctionExpression
+import org.jetbrains.kotlin.ir.expressions.IrGetField
+import org.jetbrains.kotlin.ir.expressions.IrGetValue
 import org.jetbrains.kotlin.ir.symbols.IrSimpleFunctionSymbol
+import org.jetbrains.kotlin.ir.symbols.IrValueSymbol
 import org.jetbrains.kotlin.ir.types.IrType
 import org.jetbrains.kotlin.ir.types.makeNullable
 import org.jetbrains.kotlin.ir.util.defaultType
 import org.jetbrains.kotlin.ir.util.kotlinFqName
 import org.jetbrains.kotlin.ir.visitors.IrElementTransformerVoid
+import org.jetbrains.kotlin.ir.visitors.IrVisitorVoid
+import org.jetbrains.kotlin.ir.visitors.acceptChildrenVoid
+import org.jetbrains.kotlin.ir.visitors.acceptVoid
 import org.jetbrains.kotlin.ir.visitors.transformChildrenVoid
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
-import java.io.File
 
 internal class KineticaTemplateSymbols private constructor(
     val emit: IrSimpleFunctionSymbol,
@@ -42,6 +46,7 @@ internal class KineticaTemplateSymbols private constructor(
     val singleTextTemplateDefinition: IrSimpleFunctionSymbol,
     val listOf: IrSimpleFunctionSymbol,
     val propsOfFunctions: Collection<IrSimpleFunctionSymbol>,
+    val propsOfFqName: FqName,
     val templateDefinitionType: IrType,
 ) {
     companion object {
@@ -74,6 +79,7 @@ internal class KineticaTemplateSymbols private constructor(
                 singleTextTemplateDefinition = singleTextTemplateDefinition,
                 listOf = listOf,
                 propsOfFunctions = propsOfFunctions,
+                propsOfFqName = FqName("io.heapy.kinetica.propsOf"),
                 templateDefinitionType = templateDefinition.owner.defaultType,
             )
         }
@@ -84,13 +90,9 @@ internal class KineticaTemplateTransformer(
     private val file: IrFile,
     private val pluginContext: IrPluginContext,
     private val symbols: KineticaTemplateSymbols,
+    private val constPropsIndex: ConstPropsFieldIndex,
 ) : IrElementTransformerVoid() {
     private lateinit var builder: DeclarationIrBuilder
-    private val sourceText: String? by lazy {
-        runCatching {
-            File(file.fileEntry.name).takeIf { it.isFile }?.readText()
-        }.getOrNull()
-    }
     private var nextTemplateOrdinal = 0
     var templatesEmitted: Int = 0
         private set
@@ -127,20 +129,12 @@ internal class KineticaTemplateTransformer(
 
     private fun addTemplateField(template: SingleTextTemplate): IrField {
         val ordinal = nextTemplateOrdinal++
-        val field = pluginContext.irFactory.buildField {
-            name = Name.identifier("kineticaTemplate\$$ordinal")
-            type = symbols.templateDefinitionType
-            isFinal = true
-            isStatic = true
-            visibility = DescriptorVisibilities.PRIVATE
-            origin = IrDeclarationOrigin.DEFINED
-        }.apply {
-            parent = file
-        }
-        val fieldBuilder = DeclarationIrBuilder(pluginContext, field.symbol)
-        field.initializer = pluginContext.irFactory.createExpressionBody(
-            file.startOffset,
-            file.endOffset,
+        return addStaticFileField(
+            file = file,
+            pluginContext = pluginContext,
+            name = staticFieldName("kineticaTemplate", file, ordinal),
+            type = symbols.templateDefinitionType,
+        ) { fieldBuilder ->
             fieldBuilder.irCall(symbols.singleTextTemplateDefinition).apply {
                 val parameters = symbol.owner.parameters.associateBy { it.name.asString() }
                 arguments[parameters.getValue("id").indexInParameters] =
@@ -148,10 +142,8 @@ internal class KineticaTemplateTransformer(
                 arguments[parameters.getValue("tag").indexInParameters] = fieldBuilder.irString(template.tag)
                 arguments[parameters.getValue("props").indexInParameters] =
                     buildPropsOfCall(fieldBuilder, template.props)
-            },
-        )
-        file.declarations += field
-        return field
+            }
+        }
     }
 
     private fun buildPropsOfCall(
@@ -177,8 +169,9 @@ internal class KineticaTemplateTransformer(
         val tag = argumentOf("tag") as? IrConst ?: return null
         if (tag.kind != IrConstKind.String) return null
         val props = when (val propsArgument = argumentOf("props")) {
-            null -> return null
-            is IrCall -> propsArgument.constPropsPairs() ?: return null
+            null -> emptyList()
+            is IrCall -> constPropsOf(propsArgument, symbols.propsOfFqName) ?: return null
+            is IrGetField -> constPropsIndex.constPropsFor(propsArgument) ?: return null
             else -> return null
         }
         if (argumentOf("frameProps") != null) return null
@@ -186,15 +179,16 @@ internal class KineticaTemplateTransformer(
         if (semantics != null && !semantics.isNullConst()) return null
         val key = argumentOf("key")
         if (key != null && !key.isNullConst()) return null
-        val textCall = (argumentOf("content") as? IrFunctionExpression)?.singleStatementCall() ?: return null
+        val content = argumentOf("content") as? IrFunctionExpression ?: return null
+        val textCall = content.singleStatementCall() ?: return null
         if (textCall.symbol.owner.kotlinFqName != TEXT_FQ) return null
         val strikethrough = textCall.argumentOf("strikethrough")
         if (strikethrough != null && !strikethrough.isFalseConst()) return null
         val textSemantics = textCall.argumentOf("semantics") ?: return null
         if (!textSemantics.isNullConst()) return null
-        if (!textCall.hasExplicitNullArgument("semantics")) return null
         val value = textCall.argumentOf("value") ?: return null
         if (value is IrConst && value.kind == IrConstKind.String) return null
+        if (content.referencesLambdaLocalSymbol(value)) return null
         return SingleTextTemplate(
             tag = tag.value as String,
             props = props,
@@ -205,6 +199,41 @@ internal class KineticaTemplateTransformer(
     private fun IrFunctionExpression.singleStatementCall(): IrCall? {
         val body = function.body as? org.jetbrains.kotlin.ir.expressions.IrBlockBody ?: return null
         return body.statements.singleOrNull() as? IrCall
+    }
+
+    private fun IrFunctionExpression.referencesLambdaLocalSymbol(value: IrExpression): Boolean {
+        val forbidden = mutableSetOf<IrValueSymbol>()
+        function.parameters.forEach { parameter ->
+            forbidden += parameter.symbol
+        }
+        function.body?.acceptVoid(object : IrVisitorVoid() {
+            override fun visitElement(element: IrElement) {
+                if (element !== value) {
+                    element.acceptChildrenVoid(this)
+                }
+            }
+
+            override fun visitVariable(declaration: IrVariable) {
+                forbidden += declaration.symbol
+                super.visitVariable(declaration)
+            }
+        })
+        var found = false
+        value.acceptVoid(object : IrVisitorVoid() {
+            override fun visitElement(element: IrElement) {
+                if (!found) {
+                    element.acceptChildrenVoid(this)
+                }
+            }
+
+            override fun visitGetValue(expression: IrGetValue) {
+                if (expression.symbol in forbidden) {
+                    found = true
+                }
+                super.visitGetValue(expression)
+            }
+        })
+        return found
     }
 
     private fun IrCall.argumentOf(name: String): IrExpression? {
@@ -219,31 +248,6 @@ internal class KineticaTemplateTransformer(
             ?: return null
         return arguments[parameter.indexInParameters]
     }
-
-    private fun IrCall.hasExplicitNullArgument(name: String): Boolean {
-        val source = sourceText ?: return false
-        val start = startOffset.coerceAtLeast(0)
-        val end = endOffset.coerceAtMost(source.length)
-        if (start >= end) return false
-        return Regex("""\b${Regex.escape(name)}\s*=\s*null\b""")
-            .containsMatchIn(source.substring(start, end))
-    }
-
-    private fun IrCall.constPropsPairs(): List<Pair<String, String>>? {
-        val values = mutableListOf<String>()
-        for (parameter in symbol.owner.parameters) {
-            if (parameter.kind != IrParameterKind.Regular) continue
-            val argument = arguments[parameter.indexInParameters] ?: continue
-            val const = argument as? IrConst ?: return null
-            if (const.kind != IrConstKind.String) return null
-            values += const.value as String
-        }
-        if (values.isEmpty() || values.size % 2 != 0) return null
-        return values.chunked(2).map { (name, value) -> name to value }
-    }
-
-    private fun IrExpression.isNullConst(): Boolean =
-        this is IrConst && kind == IrConstKind.Null
 
     private fun IrExpression.isFalseConst(): Boolean =
         this is IrConst && kind == IrConstKind.Boolean && value == false

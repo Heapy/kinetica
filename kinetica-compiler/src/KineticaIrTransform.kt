@@ -74,6 +74,9 @@ import org.jetbrains.kotlin.name.SpecialNames
  * (the source-processing extension's authoring model) already return Node and are skipped
  * here. Anything unprovable is left untouched — a wrong skip means stale UI.
  */
+internal const val KINETICA_IR_TRANSFORM_ORDER_PROPERTY: String =
+    "io.heapy.kinetica.compiler.irTransformOrder"
+
 public class KineticaIrGenerationExtension(
     private val messageCollector: MessageCollector,
     private val pluginConfiguration: KineticaCompilerPluginConfiguration,
@@ -85,8 +88,11 @@ public class KineticaIrGenerationExtension(
         val frameSymbols = KineticaFrameSymbols.resolve(pluginContext)
         val stability = KineticaStability()
         moduleFragment.files.forEach { file ->
-            val hoister = hoistSymbols?.let { KineticaHoistTransformer(file, pluginContext, it) }
-            val templater = templateSymbols?.let { KineticaTemplateTransformer(file, pluginContext, it) }
+            // Both allocation transformers for this file must share this index; hoisted-props
+            // recognition is index-only, not inferred from field shape or name.
+            val constPropsIndex = ConstPropsFieldIndex()
+            val hoister = hoistSymbols?.let { KineticaHoistTransformer(file, pluginContext, it, constPropsIndex) }
+            val templater = templateSymbols?.let { KineticaTemplateTransformer(file, pluginContext, it, constPropsIndex) }
             val framer = frameSymbols?.let {
                 KineticaFrameTransformer(file, pluginContext, it, pluginConfiguration.moduleId, ::report)
             }
@@ -97,8 +103,13 @@ public class KineticaIrGenerationExtension(
             collectSimpleFunctions(file, functions)
             functions.forEach { function ->
                 if (function.isUiComponentWithScopeReceiver()) {
-                    templater?.transform(function)
-                    hoister?.transform(function)
+                    if (System.getProperty(KINETICA_IR_TRANSFORM_ORDER_PROPERTY) == "hoist-first") {
+                        hoister?.transform(function)
+                        templater?.transform(function)
+                    } else {
+                        templater?.transform(function)
+                        hoister?.transform(function)
+                    }
                     // The skippable wrap runs first so the frame prologue ends up OUTSIDE
                     // emit(skippableNode(...)): a skip hit still enters the component frame
                     // and consumes the staged child ordinal.

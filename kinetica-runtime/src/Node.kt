@@ -24,12 +24,12 @@ public data class FragmentNode(
  */
 public object NodeFlags {
     /**
-     * Every child is a [HostNode] carrying a non-null key, and the keys are unique. Set only
-     * by the `each` -> `host` cooperation in the render DSL: `each` certifies that every row
-     * emitted exactly one host keyed by that row's (deduplicated, hence unique) row key, and
-     * `host` stamps the flag when those rows are its entire child list. A renderer seeing the
-     * flag on both the previous and next node may run keyed reconciliation directly instead
-     * of scanning all children (two hash sets per patch — the 10k-table partial-op tax).
+     * Every child carries a non-null reconcile key, and the keys are unique. Set only by the
+     * `each` -> `host` cooperation in the render DSL: `each` certifies that every row emitted
+     * exactly one node keyed by that row's (deduplicated, hence unique) row key, and `host`
+     * stamps the flag when those rows are its entire child list. A renderer seeing the flag on
+     * both the previous and next node may run keyed reconciliation directly instead of scanning
+     * all children (two hash sets per patch — the 10k-table partial-op tax).
      */
     public const val CHILDREN_KEYED: Int = 1
 
@@ -39,6 +39,9 @@ public object NodeFlags {
      */
     public const val CHILDREN_SINGLE_TEXT: Int = 1 shl 1
 }
+
+internal fun Int.stripChildShapeFlagsForReplacedChildren(): Int =
+    this and NodeFlags.CHILDREN_SINGLE_TEXT.inv()
 
 @Serializable
 @SerialName("host")
@@ -87,7 +90,7 @@ public data class TemplateNode(
 public data class TextNode(
     val value: String,
     val strikethrough: Boolean = false,
-    override val semantics: Semantics? = Semantics(role = Role.Text),
+    override val semantics: Semantics? = DefaultTextSemantics,
 ) : Node
 
 @Serializable
@@ -97,6 +100,16 @@ public data class ClientRef(
     val props: JsonObject = JsonObject(emptyMap()),
     override val semantics: Semantics? = null,
 ) : Node
+
+public val Node.reconcileKey: String?
+    get() = when (this) {
+        is HostNode -> key
+        is TemplateNode -> key ?: definition.skeleton.key
+        is FragmentNode,
+        is TextNode,
+        is ClientRef,
+        -> null
+    }
 
 public fun templateNode(
     definition: TemplateDefinition,
@@ -127,6 +140,41 @@ public fun singleTextTemplateDefinition(
 
 public fun TemplateNode.materialize(): HostNode =
     materializeTemplateHost(definition.skeleton, this, path = "")
+
+public fun Node.materializeDeep(): Node =
+    when (this) {
+        is TemplateNode -> materialize().materializeDeep()
+        is HostNode -> {
+            val materializedChildren = children.materializeDeep()
+            if (materializedChildren === children) this else copy(children = materializedChildren)
+        }
+        is FragmentNode -> {
+            val materializedChildren = children.materializeDeep()
+            if (materializedChildren === children) this else copy(children = materializedChildren)
+        }
+        is TextNode -> this
+        is ClientRef -> this
+    }
+
+private fun List<Node>.materializeDeep(): List<Node> {
+    var materialized: MutableList<Node>? = null
+    forEachIndexed { index, child ->
+        val materializedChild = child.materializeDeep()
+        val current = materialized
+        when {
+            current != null -> current += materializedChild
+            materializedChild !== child -> {
+                val next = ArrayList<Node>(size)
+                for (previous in 0 until index) {
+                    next += this[previous]
+                }
+                next += materializedChild
+                materialized = next
+            }
+        }
+    }
+    return materialized ?: this
+}
 
 private fun materializeTemplateHost(
     node: HostNode,
@@ -197,6 +245,8 @@ public data class NodeDiff(
 }
 
 public fun diffNodes(before: Node?, after: Node?): List<NodeDiff> {
+    val normalizedBefore = before?.materializeDeep()
+    val normalizedAfter = after?.materializeDeep()
     val diffs = mutableListOf<NodeDiff>()
     fun visit(path: List<Int>, left: Node?, right: Node?) {
         when {
@@ -221,17 +271,18 @@ public fun diffNodes(before: Node?, after: Node?): List<NodeDiff> {
             }
         }
     }
-    visit(emptyList(), before, after)
+    visit(emptyList(), normalizedBefore, normalizedAfter)
     return diffs
 }
 
-private fun Node.childrenForDiff(): List<Node>? = when (this) {
-    is FragmentNode -> children
-    is HostNode -> children
-    is TextNode -> null
-    is ClientRef -> null
-    is TemplateNode -> materialize().children
-}
+private fun Node.childrenForDiff(): List<Node>? =
+    if (this is FragmentNode) {
+        children
+    } else if (this is HostNode) {
+        children
+    } else {
+        null
+    }
 
 private fun Node.hasSameDiffContainerAs(other: Node): Boolean =
     when {
@@ -241,12 +292,6 @@ private fun Node.hasSameDiffContainerAs(other: Node): Boolean =
                 props == other.props &&
                 key == other.key &&
                 semantics == other.semantics
-        this is TemplateNode && other is TemplateNode ->
-            materialize().hasSameDiffContainerAs(other.materialize())
-        this is TemplateNode && other is HostNode ->
-            materialize().hasSameDiffContainerAs(other)
-        this is HostNode && other is TemplateNode ->
-            hasSameDiffContainerAs(other.materialize())
         else -> false
     }
 

@@ -81,7 +81,8 @@ bundles/minifies the linked Kotlin/JS graph into
 `../build/tasks/_browser-bench_bundle/browser-bench.bundle.mjs`). Table app at
 `../samples/browser-bench/web/index.html`, tree app at the same page with `?app=tree`.
 `part-kinetica-preplugin-before.json` snapshots the last pre-plugin numbers. Renderer work:
-`../perf-rewrite-design.md`; compiler work: `../compiler-perf-design.md`.
+`../plan.md` (KNT-0023+; the retired `perf-rewrite-design.md` is in git history);
+compiler work: `../compiler-perf-design.md`.
 
 ## What is measured
 
@@ -282,8 +283,8 @@ the repo root, include the `__mountMs` snippet in its HTML (copy from
 - Kinetica context: 1k partial ops sit at the paint floor via keyed row memoization; the remaining
   browser gap is large-table partial work (ops 10–13), create-op Node construction + GC pressure
   (see the GC section of the report), and the benchmark's Kotlin runtime payload. History, phase
-  gates and root-cause analysis:
-  `../perf-rewrite-design.md`. When touching Kinetica code, run its own tests too
+  gates and root-cause analysis: git history of the retired `perf-rewrite-design.md`;
+  open items: `../plan.md` (KNT-0024+). When touching Kinetica code, run its own tests too
   (`../kotlin test -m kinetica-runtime --platform jvm`,
   `node ../build/tasks/_kinetica-browser_linkJsTest/kinetica-browser_test.mjs` after
   `../kotlin build -m kinetica-browser`).

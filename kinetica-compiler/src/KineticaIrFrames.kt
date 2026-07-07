@@ -668,14 +668,6 @@ private fun IrSimpleFunction.isUiComponent(): Boolean =
 
 private fun FqName.parentOrNull(): FqName? = if (isRoot) null else parent()
 
-/** Stable per-file tag for package-unique generated names (JS klib signatures). */
-internal fun IrFile.fileUniqueTag(): String {
-    val base = fileEntry.name.substringAfterLast('/').substringBeforeLast('.')
-        .replace(Regex("[^A-Za-z0-9]"), "_")
-    val hash = fileEntry.name.hashCode().toUInt().toString(16)
-    return "$base\$$hash"
-}
-
 private fun IrCall.argumentByName(name: String): IrExpression? {
     val parameter = symbol.owner.parameters.firstOrNull {
         it.kind == IrParameterKind.Regular && it.name.asString() == name
@@ -685,6 +677,3 @@ private fun IrCall.argumentByName(name: String): IrExpression? {
 
 private fun IrCall.constBooleanArgument(name: String): Boolean? =
     (argumentByName(name) as? IrConst)?.value as? Boolean
-
-private fun IrExpression.isNullConst(): Boolean =
-    this is IrConst && kind == IrConstKind.Null

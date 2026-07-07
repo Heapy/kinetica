@@ -62,9 +62,12 @@ button(
 None`. `Semantics` also carries `stateDescription` (aria-description), `traversalIndex`, and
 `leaving` (exit-animation marker).
 
-`text()` defaults to `Semantics(role = Role.Text)` and renders as a bare text node. The
-semantics tree derives its label from the text value for queries; pass an explicit
-`Semantics(label = ...)` only when the accessible label differs from the visible text.
+`text()` defaults to Kinetica's shared text semantics and renders as a bare text node. The
+semantics tree derives its label from the text value only for that shared default. Passing an
+explicit `Semantics(role = Role.Text)` opts out of derived labels; pass
+`Semantics(role = Role.Text, label = ...)` when the accessible label differs from the visible
+text. This derivation uses object identity, so serialized and deserialized trees do not retain
+implicit text labels.
 
 ## Contexts
 

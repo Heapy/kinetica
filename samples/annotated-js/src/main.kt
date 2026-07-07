@@ -49,6 +49,13 @@ fun ComponentScope.HoistProbe(label: String) {
     }
 }
 
+@UiComponent(skippable = false)
+fun ComponentScope.PrimaryTemplateProbe(label: String) {
+    host("section", props = propsOf("class", "primary-template", "data-template", "primary")) {
+        text(label, semantics = null)
+    }
+}
+
 private fun findHost(node: io.heapy.kinetica.Node, tag: String): io.heapy.kinetica.HostNode? {
     if (node is io.heapy.kinetica.HostNode) {
         if (node.tag == tag) return node
@@ -83,6 +90,29 @@ private fun verifyHoisting() {
     check(findHost(second, "p")!!.children.isNotEmpty()) { "dynamic child lost" }
 }
 
+@UiComponent(skippable = false)
+fun ComponentScope.TemplateCanary(primary: String, secondary: String) {
+    host("article", props = propsOf("data-role", "template-canary")) {
+        PrimaryTemplateProbe(primary)
+        SecondaryTemplateProbe(secondary)
+    }
+}
+
+private fun verifyTemplatesAcrossFiles() {
+    val runtime = KineticaRuntime(debug = false)
+    val scope = ComponentScope(runtime)
+    val html = runtime.render(scope) {
+        TemplateCanary("Primary JS", "Secondary JS")
+    }.tree.toSafeHtml()
+
+    check("""<section class="primary-template" data-template="primary">Primary JS</section>""" in html) {
+        "primary template render lost or corrupted: $html"
+    }
+    check("""<strong class="secondary-template" data-template="secondary">Secondary JS</strong>""" in html) {
+        "secondary template render lost or corrupted: $html"
+    }
+}
+
 fun main() {
     val runtime = KineticaRuntime(debug = false)
     val scope = ComponentScope(runtime)
@@ -111,5 +141,6 @@ fun main() {
     check(badgeRenders == 2) { "expected re-render on changed input, got $badgeRenders" }
 
     verifyHoisting()
-    println("annotated-js OK: skip + hoist semantics verified ($badgeRenders badge renders)")
+    verifyTemplatesAcrossFiles()
+    println("annotated-js OK: skip + hoist + template semantics verified ($badgeRenders badge renders)")
 }

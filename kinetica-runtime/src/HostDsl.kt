@@ -90,13 +90,13 @@ public fun ComponentScope.row(
 public fun ComponentScope.text(
     value: String,
     strikethrough: Boolean = false,
-    semantics: Semantics? = Semantics(role = Role.Text),
+    semantics: Semantics? = DefaultTextSemantics,
 ) {
     emit(TextNode(value, strikethrough, semantics))
 }
 
 private fun ComponentScope.childShapeFlags(children: List<Node>): Int {
-    var flags = if (consumeKeyedChildren(children) || children.areKeyedTemplateRows()) {
+    var flags = if (consumeKeyedChildren(children)) {
         NodeFlags.CHILDREN_KEYED
     } else {
         0
@@ -105,16 +105,6 @@ private fun ComponentScope.childShapeFlags(children: List<Node>): Int {
         flags = flags or NodeFlags.CHILDREN_SINGLE_TEXT
     }
     return flags
-}
-
-private fun List<Node>.areKeyedTemplateRows(): Boolean {
-    if (isEmpty()) return false
-    val keys = HashSet<String>(size)
-    for (child in this) {
-        val key = (child as? TemplateNode)?.key ?: return false
-        if (!keys.add(key)) return false
-    }
-    return true
 }
 
 private fun TextNode.isPlainDomText(): Boolean =

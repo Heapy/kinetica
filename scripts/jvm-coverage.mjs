@@ -1,7 +1,8 @@
 import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { get } from "node:https";
 import { basename, join, resolve } from "node:path";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
+import { run } from "./lib/run.mjs";
 
 const jacocoVersion = "0.8.14";
 const root = process.cwd();
@@ -145,17 +146,15 @@ console.log(`Coverage XML: ${xmlFile}`);
 console.log(`Coverage HTML: ${htmlDir}/index.html`);
 
 function runKotlinWithCoverage(args, javaToolOptions) {
-  const result = spawnSync("./kotlin", args, {
+  run("./kotlin", args, {
     cwd: root,
     env: {
       ...process.env,
       JAVA_TOOL_OPTIONS: javaToolOptions,
     },
+    printCommand: false,
     stdio: "inherit",
   });
-  if (result.status !== 0) {
-    process.exit(result.status ?? 1);
-  }
 }
 
 function ensureAgentJar() {
