@@ -674,7 +674,7 @@ public class BrowserKineticaApp(
         if (certifiedKeyed || shouldReconcileKeyed(mounted, next)) {
             patchKeyedChildren(parent, mounted, next, appendAnchor, parentPath, ownsParent)
         } else {
-            patchPositionalChildren(parent, mounted, next, appendAnchor, parentPath)
+            patchSegmentedChildren(parent, mounted, next, appendAnchor, parentPath)
         }
     }
 
@@ -689,25 +689,427 @@ public class BrowserKineticaApp(
         return true
     }
 
-    private fun patchPositionalChildren(
+    private data class ChildPivot(
+        val oldIndex: Int,
+        val newIndex: Int,
+    )
+
+    private fun patchSegmentedChildren(
         parent: Element,
         mounted: MutableList<Mounted>,
         next: List<Node>,
         appendAnchor: DomNode?,
         parentPath: String,
     ) {
-        val common = minOf(mounted.size, next.size)
-        for (index in 0 until common) {
-            mounted[index] = patch(mounted[index], next[index], parent, childPathOf(parentPath, index))
+        val result = arrayOfNulls<Mounted>(next.size)
+        patchSegmentedRange(
+            parent = parent,
+            mounted = mounted,
+            next = next,
+            result = result,
+            oldStart = 0,
+            oldEnd = mounted.lastIndex,
+            newStart = 0,
+            newEnd = next.lastIndex,
+            endAnchor = appendAnchor,
+            parentPath = parentPath,
+        )
+        mounted.clear()
+        for (index in next.indices) {
+            mounted.add(result[index]!!)
         }
-        if (mounted.size > next.size) {
-            for (index in mounted.size - 1 downTo next.size) {
-                unmount(mounted.removeAt(index), parent)
+    }
+
+    private fun patchSegmentedRange(
+        parent: Element,
+        mounted: List<Mounted>,
+        next: List<Node>,
+        result: Array<Mounted?>,
+        oldStart: Int,
+        oldEnd: Int,
+        newStart: Int,
+        newEnd: Int,
+        endAnchor: DomNode?,
+        parentPath: String,
+    ) {
+        var leftOld = oldStart
+        var rightOld = oldEnd
+        var leftNew = newStart
+        var rightNew = newEnd
+
+        while (leftOld <= rightOld && leftNew <= rightNew && canAlignChild(mounted[leftOld], next[leftNew])) {
+            result[leftNew] = patch(mounted[leftOld], next[leftNew], parent, childPathOf(parentPath, leftNew))
+            leftOld++
+            leftNew++
+        }
+        while (leftOld <= rightOld && leftNew <= rightNew && canAlignChild(mounted[rightOld], next[rightNew])) {
+            result[rightNew] = patch(mounted[rightOld], next[rightNew], parent, childPathOf(parentPath, rightNew))
+            rightOld--
+            rightNew--
+        }
+        val rangeEndAnchor = firstDomInResult(result, rightNew + 1, newEnd, endAnchor)
+
+        when {
+            leftOld > rightOld -> {
+                mountRange(parent, next, result, leftNew, rightNew, rangeEndAnchor, parentPath)
             }
-        } else if (next.size > mounted.size) {
-            for (index in mounted.size until next.size) {
-                mounted.add(mount(next[index], parent, appendAnchor, childPathOf(parentPath, index)))
+            leftNew > rightNew -> {
+                unmountRange(parent, mounted, leftOld, rightOld)
             }
+            shouldReconcileKeyedRange(mounted, next, leftOld, rightOld, leftNew, rightNew) -> {
+                patchKeyedRange(
+                    parent,
+                    mounted,
+                    next,
+                    result,
+                    leftOld,
+                    rightOld,
+                    leftNew,
+                    rightNew,
+                    rangeEndAnchor,
+                    parentPath,
+                )
+            }
+            else -> {
+                val pivot = findUniqueUnkeyedPivot(mounted, next, leftOld, rightOld, leftNew, rightNew)
+                if (pivot == null) {
+                    if (shouldReconcileKeyedSubsetRange(mounted, next, leftOld, rightOld, leftNew, rightNew)) {
+                        patchKeyedSubsetRange(
+                            parent,
+                            mounted,
+                            next,
+                            result,
+                            leftOld,
+                            rightOld,
+                            leftNew,
+                            rightNew,
+                            rangeEndAnchor,
+                            parentPath,
+                        )
+                    } else {
+                        replaceRange(
+                            parent,
+                            mounted,
+                            next,
+                            result,
+                            leftOld,
+                            rightOld,
+                            leftNew,
+                            rightNew,
+                            rangeEndAnchor,
+                            parentPath,
+                        )
+                    }
+                } else {
+                    result[pivot.newIndex] = patch(
+                        mounted[pivot.oldIndex],
+                        next[pivot.newIndex],
+                        parent,
+                        childPathOf(parentPath, pivot.newIndex),
+                    )
+                    val pivotAnchor = firstDomOf(result[pivot.newIndex]!!)
+                    patchSegmentedRange(
+                        parent = parent,
+                        mounted = mounted,
+                        next = next,
+                        result = result,
+                        oldStart = leftOld,
+                        oldEnd = pivot.oldIndex - 1,
+                        newStart = leftNew,
+                        newEnd = pivot.newIndex - 1,
+                        endAnchor = pivotAnchor,
+                        parentPath = parentPath,
+                    )
+                    patchSegmentedRange(
+                        parent = parent,
+                        mounted = mounted,
+                        next = next,
+                        result = result,
+                        oldStart = pivot.oldIndex + 1,
+                        oldEnd = rightOld,
+                        newStart = pivot.newIndex + 1,
+                        newEnd = rightNew,
+                        endAnchor = rangeEndAnchor,
+                        parentPath = parentPath,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun patchKeyedSubsetRange(
+        parent: Element,
+        mounted: List<Mounted>,
+        next: List<Node>,
+        result: Array<Mounted?>,
+        oldStart: Int,
+        oldEnd: Int,
+        newStart: Int,
+        newEnd: Int,
+        endAnchor: DomNode?,
+        parentPath: String,
+    ) {
+        val middleCount = newEnd - newStart + 1
+        val keyToNewIndex = HashMap<String, Int>(middleCount)
+        for (index in newStart..newEnd) {
+            val key = next[index].reconcileKey ?: continue
+            keyToNewIndex[key] = index
+        }
+        val sourceOldIndex = IntArray(middleCount) { -1 }
+        for (oldIndex in oldStart..oldEnd) {
+            val child = mounted[oldIndex]
+            val key = child.reconcileKey()
+            val newIndex = if (key == null) null else keyToNewIndex[key]
+            if (newIndex == null) {
+                unmount(child, parent)
+            } else {
+                sourceOldIndex[newIndex - newStart] = oldIndex
+                result[newIndex] = patch(child, next[newIndex], parent, childPathOf(parentPath, newIndex))
+            }
+        }
+        val lis = LongestIncreasingSubsequenceScratch()
+        val stableSize = longestIncreasingSubsequenceIndices(sourceOldIndex, middleCount, lis)
+        val stable = lis.result
+        val inStableRun = BooleanArray(middleCount)
+        for (position in 0 until stableSize) {
+            inStableRun[stable[position]] = true
+        }
+        for (middleIndex in middleCount - 1 downTo 0) {
+            val newIndex = newStart + middleIndex
+            val anchor = firstDomInResult(result, newIndex + 1, newEnd, endAnchor)
+            if (result[newIndex] == null) {
+                result[newIndex] = mount(next[newIndex], parent, anchor, childPathOf(parentPath, newIndex))
+            } else if (!inStableRun[middleIndex]) {
+                moveDom(result[newIndex]!!, parent, anchor)
+            }
+        }
+    }
+
+    private fun mountRange(
+        parent: Element,
+        next: List<Node>,
+        result: Array<Mounted?>,
+        newStart: Int,
+        newEnd: Int,
+        endAnchor: DomNode?,
+        parentPath: String,
+    ) {
+        for (index in newEnd downTo newStart) {
+            val anchor = firstDomInResult(result, index + 1, newEnd, endAnchor)
+            result[index] = mount(next[index], parent, anchor, childPathOf(parentPath, index))
+        }
+    }
+
+    private fun unmountRange(
+        parent: Element,
+        mounted: List<Mounted>,
+        oldStart: Int,
+        oldEnd: Int,
+    ) {
+        for (index in oldStart..oldEnd) {
+            unmount(mounted[index], parent)
+        }
+    }
+
+    private fun replaceRange(
+        parent: Element,
+        mounted: List<Mounted>,
+        next: List<Node>,
+        result: Array<Mounted?>,
+        oldStart: Int,
+        oldEnd: Int,
+        newStart: Int,
+        newEnd: Int,
+        endAnchor: DomNode?,
+        parentPath: String,
+    ) {
+        unmountRange(parent, mounted, oldStart, oldEnd)
+        mountRange(parent, next, result, newStart, newEnd, endAnchor, parentPath)
+    }
+
+    private fun patchKeyedRange(
+        parent: Element,
+        mounted: List<Mounted>,
+        next: List<Node>,
+        result: Array<Mounted?>,
+        oldStart: Int,
+        oldEnd: Int,
+        newStart: Int,
+        newEnd: Int,
+        endAnchor: DomNode?,
+        parentPath: String,
+    ) {
+        val middleCount = newEnd - newStart + 1
+        val keyToNewIndex = HashMap<String, Int>(middleCount)
+        for (index in newStart..newEnd) {
+            keyToNewIndex[next[index].reconcileKey!!] = index
+        }
+        val sourceOldIndex = IntArray(middleCount) { -1 }
+        for (oldIndex in oldStart..oldEnd) {
+            val child = mounted[oldIndex]
+            val newIndex = keyToNewIndex[child.reconcileKey()]
+            if (newIndex == null) {
+                unmount(child, parent)
+            } else {
+                sourceOldIndex[newIndex - newStart] = oldIndex
+                result[newIndex] = patch(child, next[newIndex], parent, childPathOf(parentPath, newIndex))
+            }
+        }
+        val lis = LongestIncreasingSubsequenceScratch()
+        val stableSize = longestIncreasingSubsequenceIndices(sourceOldIndex, middleCount, lis)
+        val stable = lis.result
+        val inStableRun = BooleanArray(middleCount)
+        for (position in 0 until stableSize) {
+            inStableRun[stable[position]] = true
+        }
+        for (middleIndex in middleCount - 1 downTo 0) {
+            val newIndex = newStart + middleIndex
+            val anchor = firstDomInResult(result, newIndex + 1, newEnd, endAnchor)
+            if (sourceOldIndex[middleIndex] < 0) {
+                result[newIndex] = mount(next[newIndex], parent, anchor, childPathOf(parentPath, newIndex))
+            } else if (!inStableRun[middleIndex]) {
+                moveDom(result[newIndex]!!, parent, anchor)
+            }
+        }
+    }
+
+    private fun firstDomInResult(
+        result: Array<Mounted?>,
+        start: Int,
+        end: Int,
+        fallback: DomNode?,
+    ): DomNode? {
+        var index = start
+        while (index <= end) {
+            val dom = result[index]?.let(::firstDomOf)
+            if (dom != null) {
+                return dom
+            }
+            index++
+        }
+        return fallback
+    }
+
+    private fun shouldReconcileKeyedRange(
+        mounted: List<Mounted>,
+        next: List<Node>,
+        oldStart: Int,
+        oldEnd: Int,
+        newStart: Int,
+        newEnd: Int,
+    ): Boolean {
+        val oldKeys = HashSet<String>(oldEnd - oldStart + 1)
+        for (index in oldStart..oldEnd) {
+            val key = mounted[index].reconcileKey() ?: return false
+            if (!oldKeys.add(key)) return false
+        }
+        val newKeys = HashSet<String>(newEnd - newStart + 1)
+        for (index in newStart..newEnd) {
+            val key = next[index].reconcileKey ?: return false
+            if (!newKeys.add(key)) return false
+        }
+        return true
+    }
+
+    private fun shouldReconcileKeyedSubsetRange(
+        mounted: List<Mounted>,
+        next: List<Node>,
+        oldStart: Int,
+        oldEnd: Int,
+        newStart: Int,
+        newEnd: Int,
+    ): Boolean {
+        val oldKeys = HashSet<String>()
+        for (index in oldStart..oldEnd) {
+            val key = mounted[index].reconcileKey() ?: continue
+            if (!oldKeys.add(key)) return false
+        }
+        if (oldKeys.isEmpty()) {
+            return false
+        }
+        var hasOverlap = false
+        val newKeys = HashSet<String>()
+        for (index in newStart..newEnd) {
+            val key = next[index].reconcileKey ?: continue
+            if (!newKeys.add(key)) return false
+            hasOverlap = hasOverlap || key in oldKeys
+        }
+        return hasOverlap
+    }
+
+    private fun findUniqueUnkeyedPivot(
+        mounted: List<Mounted>,
+        next: List<Node>,
+        oldStart: Int,
+        oldEnd: Int,
+        newStart: Int,
+        newEnd: Int,
+    ): ChildPivot? {
+        val oldCounts = HashMap<String, Int>()
+        val oldIndexBySignature = HashMap<String, Int>()
+        for (index in oldStart..oldEnd) {
+            val signature = mounted[index].currentNode.unkeyedAlignmentSignature() ?: continue
+            oldCounts[signature] = (oldCounts[signature] ?: 0) + 1
+            if (signature !in oldIndexBySignature) {
+                oldIndexBySignature[signature] = index
+            }
+        }
+
+        val newCounts = HashMap<String, Int>()
+        for (index in newStart..newEnd) {
+            val signature = next[index].unkeyedAlignmentSignature() ?: continue
+            newCounts[signature] = (newCounts[signature] ?: 0) + 1
+        }
+
+        for (newIndex in newStart..newEnd) {
+            val signature = next[newIndex].unkeyedAlignmentSignature() ?: continue
+            if (newCounts[signature] == 1 && oldCounts[signature] == 1) {
+                return ChildPivot(oldIndexBySignature[signature]!!, newIndex)
+            }
+        }
+        return null
+    }
+
+    private fun canAlignChild(mounted: Mounted, next: Node): Boolean {
+        val oldKey = mounted.reconcileKey()
+        val newKey = next.reconcileKey
+        if (oldKey != null || newKey != null) {
+            return oldKey != null && oldKey == newKey
+        }
+        return canPatchUnkeyed(mounted, next)
+    }
+
+    private fun canPatchUnkeyed(mounted: Mounted, next: Node): Boolean =
+        when {
+            mounted is MountedHost && next is HostNode -> mounted.hostNode.tag == next.tag
+            mounted is MountedTemplate && next is TemplateNode ->
+                mounted.templateNode.definition.id == next.definition.id
+            mounted is MountedText && next is TextNode ->
+                textNeedsElement(mounted.textNode) == textNeedsElement(next) &&
+                    mounted.textNode.semantics == next.semantics
+            mounted is MountedFragment && next is FragmentNode -> true
+            mounted is MountedClientRef && next is ClientRef -> mounted.refNode.componentId == next.componentId
+            else -> false
+        }
+
+    private fun Node.unkeyedAlignmentSignature(): String? {
+        if (reconcileKey != null) {
+            return null
+        }
+        return when (this) {
+            is HostNode -> {
+                val builder = StringBuilder()
+                builder.append("host:").append(tag).append('(')
+                children.forEach { child ->
+                    val childSignature = child.unkeyedAlignmentSignature() ?: return null
+                    builder.append(childSignature).append(',')
+                }
+                builder.append(')').toString()
+            }
+            is TemplateNode -> "template:${definition.id}:${values.joinToString(separator = "\u0000")}"
+            is TextNode -> "text:${textNeedsElement(this)}:$strikethrough:$semantics:$value"
+            is ClientRef -> "client:$componentId"
+            is FragmentNode -> null
         }
     }
 

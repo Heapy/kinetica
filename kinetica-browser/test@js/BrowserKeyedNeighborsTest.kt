@@ -22,8 +22,6 @@ class BrowserKeyedNeighborsTest {
     /**
      * KSND-025 (sources: INF-025, SOL-043, PRE-046).
      */
-    // KSND-025: CONFIRMED FRAMEWORK BUG (triage 2026-07-07): mixed static+keyed child lists — shouldReconcileKeyed requires ALL children keyed (BrowserKineticaApp.kt:714-727), so length changes fall to index-aligned patchPositionalChildren and shift statics/rows into replace(); fix needs per-region boundaries / conditional placeholders.
-    @Ignore
     @Test
     fun appendsLandInsideKeyedRegionBeforeStaticTail() {
         installTestDocument()
@@ -60,8 +58,6 @@ class BrowserKeyedNeighborsTest {
     /**
      * KSND-026 (sources: INF-025, INF-176, PRE-057).
      */
-    // KSND-026: CONFIRMED FRAMEWORK BUG (triage 2026-07-07): mixed static+keyed child lists — shouldReconcileKeyed requires ALL children keyed (BrowserKineticaApp.kt:714-727), so length changes fall to index-aligned patchPositionalChildren and shift statics/rows into replace(); fix needs per-region boundaries / conditional placeholders.
-    @Ignore
     @Test
     fun firstInsertIntoEmptyRegionLandsBetweenStaticSiblings() {
         installTestDocument()
@@ -141,8 +137,6 @@ class BrowserKeyedNeighborsTest {
     /**
      * KSND-027 (sources: INF-026).
      */
-    // KSND-027: CONFIRMED FRAMEWORK BUG (triage 2026-07-07): mixed static+keyed child lists — shouldReconcileKeyed requires ALL children keyed (BrowserKineticaApp.kt:714-727), so length changes fall to index-aligned patchPositionalChildren and shift statics/rows into replace(); fix needs per-region boundaries / conditional placeholders.
-    @Ignore
     @Test
     fun siblingKeyedRegionsWithIdenticalKeysStayIndependent() {
         installTestDocument()
@@ -231,8 +225,6 @@ class BrowserKeyedNeighborsTest {
     /**
      * KSND-029 (sources: INF-028, INF-029, PRE-055).
      */
-    // KSND-029: CONFIRMED FRAMEWORK BUG (triage 2026-07-07): mixed static+keyed child lists — shouldReconcileKeyed requires ALL children keyed (BrowserKineticaApp.kt:714-727), so length changes fall to index-aligned patchPositionalChildren and shift statics/rows into replace(); fix needs per-region boundaries / conditional placeholders.
-    @Ignore
     @Test
     fun conditionalBannerAndKeyedRowsShareParentAcrossVisibilityMatrix() {
         installTestDocument()
@@ -287,8 +279,6 @@ class BrowserKeyedNeighborsTest {
     /**
      * KSND-030 (sources: INF-030, INF-021).
      */
-    // KSND-030: CONFIRMED FRAMEWORK BUG (triage 2026-07-07): mixed static+keyed child lists — shouldReconcileKeyed requires ALL children keyed (BrowserKineticaApp.kt:714-727), so length changes fall to index-aligned patchPositionalChildren and shift statics/rows into replace(); fix needs per-region boundaries / conditional placeholders.
-    @Ignore
     @Test
     fun keyedRegionReorderReplaceEmptyAndRemountKeepsStaticsUntouched() {
         installTestDocument()
