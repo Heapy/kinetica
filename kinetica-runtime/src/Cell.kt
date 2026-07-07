@@ -17,6 +17,7 @@ public interface Cell<out T> : ReadOnlyProperty<Any?, T> {
 public interface MutableCell<T> : Cell<T>, ReadWriteProperty<Any?, T> {
     override public var value: T
 
+    // Required to resolve the Cell/ReadWriteProperty getValue diamond.
     override public fun getValue(thisRef: Any?, property: KProperty<*>): T = value
 
     public fun update(transform: (T) -> T) {
@@ -63,6 +64,18 @@ internal interface ReactiveNode {
 
     fun collectExternalObserversInto(into: MutableList<() -> Unit>)
 }
+
+/**
+ * One holder per observe() call. Holder identity, not listener identity, is the registration key,
+ * so registering the same lambda instance twice yields two independent disposables.
+ */
+private class ListenerRegistration(val listener: () -> Unit)
+
+private class CommittedWrite<T>(
+    val previous: T,
+    val next: T,
+    val preVersion: Long,
+)
 
 /**
  * Global monotonic write clock, advanced after every committed source write (and on derived
@@ -233,7 +246,7 @@ internal class MutableCellImpl<T>(
     // process-wide monitor that a slow transform can freeze (nor one that can form
     // an AB-BA cycle with DerivedCell's per-instance lock).
     private val writeLock = SynchronizedObject()
-    private val listeners = atomic<List<() -> Unit>>(emptyList())
+    private val listeners = atomic<List<ListenerRegistration>>(emptyList())
     // Reverse-dependency edges: DerivedCells that read this source. Copy-on-write and
     // lock-free (like `listeners`), so a derived attaching/detaching never contends with
     // the write path and cannot form an AB-BA cycle with any node lock.
@@ -261,7 +274,7 @@ internal class MutableCellImpl<T>(
     override fun hasExternalObservers(): Boolean = listeners.value.isNotEmpty()
 
     override fun collectExternalObserversInto(into: MutableList<() -> Unit>) {
-        into += listeners.value
+        listeners.value.forEach { registration -> into += registration.listener }
     }
 
     override var value: T
@@ -272,64 +285,65 @@ internal class MutableCellImpl<T>(
         set(value) = setAtomic(value)
 
     override fun update(transform: (T) -> T) {
-        val committed = synchronized(writeLock) {
-            val previous = current.value
-            val next = transform(previous)
-            if (policy.equivalent(previous, next)) {
-                null
-            } else {
-                // Capture the pre-write version BEFORE the increment (inside the same
-                // writeLock section) so the wave can tell the source's own observers apart
-                // from a no-op. Publish the version BEFORE the value so that any lock-free
-                // reader that observes the new value is guaranteed to already observe the
-                // matching (or newer) version — never a new value with a stale version.
-                // Both are volatile, so this program order is preserved.
-                val preVersion = versionCounter.value
-                versionCounter.incrementAndGet()
-                current.value = next
-                ReactiveClock.advance()
-                Triple(previous, next, preVersion)
-            }
-        }
-        committed?.let { (previous, next, preVersion) ->
-            // onWrite still fires on every changed write, before propagation (preserves
-            // ComponentScope.state -> runtime.invalidate).
-            onWrite?.invoke(previous, next)
-            // FAST-PATH: only spawn a wave when someone is actually listening or derives from
-            // this cell — keeps writes to isolated cells lean (R09/R12).
-            if (dependents.value.isNotEmpty() || listeners.value.isNotEmpty()) {
-                schedulePropagation(this, preVersion)
-            }
-        }
+        commitAtomic(directNext = null, transform = transform)
     }
 
     override fun observe(listener: () -> Unit): Disposable {
-        listeners.update { currentListeners -> currentListeners + listener }
+        val registration = ListenerRegistration(listener)
+        listeners.update { currentListeners -> currentListeners + registration }
         return Disposable {
-            listeners.update { currentListeners -> currentListeners.filterNot { it === listener } }
+            listeners.update { currentListeners ->
+                currentListeners.filterNot { candidate -> candidate === registration }
+            }
         }
     }
 
     private fun setAtomic(next: T) {
+        commitAtomic(directNext = next, transform = null)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun commitAtomic(
+        directNext: T?,
+        transform: ((T) -> T)?,
+    ) {
         val committed = synchronized(writeLock) {
             val previous = current.value
-            if (policy.equivalent(previous, next)) {
-                null
-            } else {
-                // See update(): capture pre-version before the increment; publish version
-                // before value so a lock-free reader never sees a new value with a stale version.
-                val preVersion = versionCounter.value
-                versionCounter.incrementAndGet()
-                current.value = next
-                ReactiveClock.advance()
-                Triple(previous, next, preVersion)
-            }
+            val next = if (transform == null) directNext as T else transform(previous)
+            commitLocked(previous, next)
         }
-        committed?.let { (previous, value, preVersion) ->
-            onWrite?.invoke(previous, value)
-            if (dependents.value.isNotEmpty() || listeners.value.isNotEmpty()) {
-                schedulePropagation(this, preVersion)
-            }
+        if (committed != null) {
+            notifyCommittedWrite(committed)
+        }
+    }
+
+    private fun commitLocked(
+        previous: T,
+        next: T,
+    ): CommittedWrite<T>? {
+        if (policy.equivalent(previous, next)) {
+            return null
+        }
+        // Capture the pre-write version BEFORE the increment (inside the same writeLock section)
+        // so the wave can tell the source's own observers apart from a no-op. Publish the version
+        // BEFORE the value so any lock-free reader that observes the new value is guaranteed to
+        // already observe the matching (or newer) version — never a new value with a stale version.
+        // Both are volatile, so this program order is preserved.
+        val preVersion = versionCounter.value
+        versionCounter.incrementAndGet()
+        current.value = next
+        ReactiveClock.advance()
+        return CommittedWrite(previous, next, preVersion)
+    }
+
+    private fun notifyCommittedWrite(committed: CommittedWrite<T>) {
+        // onWrite still fires on every changed write, before propagation (preserves
+        // ComponentScope.state -> runtime.invalidate).
+        onWrite?.invoke(committed.previous, committed.next)
+        // FAST-PATH: only spawn a wave when someone is actually listening or derives from
+        // this cell — keeps writes to isolated cells lean (R09/R12).
+        if (dependents.value.isNotEmpty() || listeners.value.isNotEmpty()) {
+            schedulePropagation(this, committed.preVersion)
         }
     }
 }
@@ -341,13 +355,11 @@ internal class DerivedCell<T>(
     private val lock = SynchronizedObject()
 
     /**
-     * Each observe() call produces a fresh [Registration] holder, so two identity-equal
+     * Each observe() call produces a fresh [ListenerRegistration] holder, so two identity-equal
      * listener instances yield two independent entries. Disposing one removes only its own
      * holder, leaving any other registration — even of the same lambda — live.
      */
-    private class Registration(val listener: () -> Unit)
-
-    private val registrations = mutableListOf<Registration>()
+    private val registrations = mutableListOf<ListenerRegistration>()
 
     /**
      * Live subscription to each dependency, keyed by the dependency cell. Present IFF this
@@ -593,7 +605,7 @@ internal class DerivedCell<T>(
     }
 
     override fun observe(listener: () -> Unit): Disposable {
-        val registration = Registration(listener)
+        val registration = ListenerRegistration(listener)
         synchronized(lock) {
             val wasInactive = !isActiveLocked()
             registrations += registration
