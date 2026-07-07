@@ -23,17 +23,13 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseArgs } from "./driver/common.mjs";
 import { frameworks } from "./frameworks.config.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..");
 
-const args = Object.fromEntries(
-  process.argv.slice(2).filter((a) => a.startsWith("--")).map((a) => {
-    const [k, v] = a.replace(/^--/, "").split("=");
-    return [k, v ?? "true"];
-  }),
-);
+const args = parseArgs();
 
 const selected = (args.frameworks ?? frameworks.map((f) => f.name).join(","))
   .split(",")
