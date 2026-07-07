@@ -2,6 +2,7 @@ package io.heapy.kinetica.compiler
 
 import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.FrameTable
+import io.heapy.kinetica.HostNode
 import io.heapy.kinetica.KineticaRuntime
 import io.heapy.kinetica.MissingKineticaPluginException
 import io.heapy.kinetica.Node
@@ -288,6 +289,80 @@ class KineticaIrFrameCompileTest {
             assertEquals(3, component.slotCount, "count, label, launchEffect")
             assertEquals(1, component.eventCount, "button onClick")
             assertEquals(intArrayOf(2).toList(), component.transientSlotOrdinals.toList(), "launchEffect is transient")
+        }
+    }
+
+    @Test
+    fun inlineUnitEventPassedToHostEventFusesIntoFrameEvent() {
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.event
+                    import io.heapy.kinetica.host
+                    import io.heapy.kinetica.hostEvent
+
+                    var fusedClicks: Int = 0
+                    var storedClicks: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Fused() {
+                        val click = hostEvent(onEvent = event { fusedClicks += 1 })
+                        host("button", props = mapOf("event:onClick" to click))
+                    }
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Stored() {
+                        val callback = event { storedClicks += 1 }
+                        val click = hostEvent(onEvent = callback)
+                        host("button", props = mapOf("event:onClick" to click))
+                    }
+
+                    fun renderFused(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Fused() }.tree
+
+                    fun renderStored(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Stored() }.tree
+
+                    fun fusedClickCount(): Int = fusedClicks
+                """,
+            ),
+        ).use { compiled ->
+            val fileClass = compiled.loadClass("app.MainKt")
+            val tables = fileClass.declaredFields
+                .filter { it.type == FrameTable::class.java }
+                .map { field ->
+                    field.isAccessible = true
+                    field.get(null) as FrameTable
+                }
+
+            val fused = tables.single { it.functionFqName == "app.Fused" }
+            assertEquals(0, fused.slotCount, "inline unit event passed to hostEvent must not consume a slot")
+            assertEquals(1, fused.eventCount, "fused hostEvent still consumes one frame event ordinal")
+
+            val stored = tables.single { it.functionFqName == "app.Stored" }
+            assertEquals(1, stored.slotCount, "stored event callback keeps the StableUnitEvent slot")
+            assertEquals(1, stored.eventCount, "stored callback hostEvent still consumes one frame event ordinal")
+
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val first = compiled.invokeRender(fileClass, "renderFused", runtime = runtime, scope = scope) as HostNode
+            val firstEventId = first.props.getValue("event:onClick")
+            val second = compiled.invokeRender(fileClass, "renderFused", runtime = runtime, scope = scope) as HostNode
+            assertEquals(firstEventId, second.props.getValue("event:onClick"), "frame event id must be reused")
+            assertEquals(
+                1,
+                (privateField(runtime, "events") as Map<*, *>).size,
+                "rerender must update, not duplicate, the event",
+            )
+
+            runtime.dispatch(firstEventId)
+            assertEquals(1, fileClass.getDeclaredMethod("fusedClickCount").invoke(null))
         }
     }
 

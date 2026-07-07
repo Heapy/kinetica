@@ -155,6 +155,13 @@ public fun ComponentScope.button(
 public fun ComponentScope.hostEvent(ordinal: Int = -1, onEvent: () -> Unit): String =
     registerHostEvent(ordinal) { onEvent() }
 
+public fun ComponentScope.hostEventBlock(ordinal: Int = -1, block: EventScope.() -> Unit): String {
+    if (ordinal < 0) throw MissingKineticaPluginException("host event")
+    return frameEvent(ordinal, EVENT_ROLE_PRIMARY) {
+        EventScope(runtime).block()
+    }
+}
+
 public fun ComponentScope.textInput(
     value: String,
     onInput: ((String) -> Unit)? = null,

@@ -88,6 +88,7 @@ internal class KineticaFrameSymbols private constructor(
     val intArrayOf: IrSimpleFunctionSymbol,
     val regionTargets: Map<String, IrSimpleFunctionSymbol>,
     val statePersistentOverload: IrSimpleFunctionSymbol,
+    val hostEventBlock: IrSimpleFunctionSymbol,
 ) {
     companion object {
         private val PKG = FqName("io.heapy.kinetica")
@@ -143,6 +144,7 @@ internal class KineticaFrameSymbols private constructor(
                 intArrayOf = intArrayOf,
                 regionTargets = regionTargets,
                 statePersistentOverload = statePersistent,
+                hostEventBlock = topLevel("hostEventBlock") ?: return null,
             )
         }
     }
@@ -161,7 +163,7 @@ private val SLOT_DSL_TRANSIENT = mapOf(
     "resource" to true,
 )
 
-private val EVENT_DSL_NAMES = setOf("button", "textInput", "checkbox", "hostEvent")
+private val EVENT_DSL_NAMES = setOf("button", "textInput", "checkbox", "hostEvent", "hostEventBlock")
 
 /** Region constructs and the parameter names of their fresh-region content lambdas. */
 private val REGION_CONTENT_PARAMS = mapOf(
@@ -184,6 +186,7 @@ private val UI_COMPONENT_FQ = FqName("io.heapy.kinetica.UiComponent")
 private val KOTLIN_PKG = FqName("kotlin")
 private val SINGLE_RUN_SCOPE_FUNCTIONS = setOf("let", "run", "with", "apply", "also")
 private val COMPONENT_SCOPE_FQ = FqName("io.heapy.kinetica.ComponentScope")
+private val EVENT_SCOPE_FQ = FqName("io.heapy.kinetica.EventScope")
 private val KINETICA_PKG = FqName("io.heapy.kinetica")
 
 internal class KineticaFrameTransformer(
@@ -265,6 +268,10 @@ internal class KineticaFrameTransformer(
                 return transformRegion(expression, name)
             }
 
+            if (inKinetica && name == "hostEvent") {
+                tryFuseHostEventBlock(expression)?.let { return it }
+            }
+
             transformArgumentsSelectively(expression, inKinetica, parent)
 
             if (inKinetica && name in SLOT_DSL_TRANSIENT) {
@@ -282,6 +289,33 @@ internal class KineticaFrameTransformer(
             }
             wrapAnnotatedContentArguments(expression)
             return expression
+        }
+
+        private fun tryFuseHostEventBlock(expression: IrCall): IrExpression? {
+            val eventCall = expression.argumentByName("onEvent") as? IrCall ?: return null
+            val eventLambda = eventCall.inlineUnitEventLambda() ?: return null
+
+            val callee = expression.symbol.owner
+            for (parameter in callee.parameters) {
+                val parameterName = parameter.name.asString()
+                if (parameter.kind == IrParameterKind.Regular &&
+                    (parameterName == "ordinal" || parameterName == "onEvent")
+                ) {
+                    continue
+                }
+                val argument = expression.arguments[parameter.indexInParameters] ?: continue
+                expression.arguments[parameter.indexInParameters] = argument.transform(this, null)
+            }
+
+            val builder = DeclarationIrBuilder(pluginContext, enclosingFunction.symbol)
+            return retargetCall(
+                expression,
+                symbols.hostEventBlock,
+                extraArguments = mapOf(
+                    "ordinal" to builder.irInt(numbering.events++),
+                    "block" to eventLambda,
+                ),
+            )
         }
 
         private fun transformSlotCall(expression: IrCall, name: String): IrExpression {
@@ -705,3 +739,19 @@ private fun IrCall.argumentByName(name: String): IrExpression? {
 
 private fun IrCall.constBooleanArgument(name: String): Boolean? =
     (argumentByName(name) as? IrConst)?.value as? Boolean
+
+private fun IrCall.inlineUnitEventLambda(): IrFunctionExpression? {
+    val callee = symbol.owner
+    val calleeFqName = callee.kotlinFqName
+    if (calleeFqName.parentOrNull() != KINETICA_PKG || calleeFqName.shortName().asString() != "event") {
+        return null
+    }
+    val lambda = argumentByName("block") as? IrFunctionExpression ?: return null
+    val receiver = lambda.function.parameters.firstOrNull { it.kind == IrParameterKind.ExtensionReceiver }
+        ?: return null
+    if (receiver.type.classOrNull?.owner?.kotlinFqName != EVENT_SCOPE_FQ) {
+        return null
+    }
+    val valueParameters = lambda.function.parameters.count { it.kind == IrParameterKind.Regular }
+    return lambda.takeIf { valueParameters == 0 }
+}
