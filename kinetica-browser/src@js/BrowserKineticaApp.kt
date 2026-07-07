@@ -232,7 +232,9 @@ public class BrowserKineticaApp(
                 node.children.forEachIndexed { index, child ->
                     children.add(mount(child, parent, anchor, childPathOf(path, index)))
                 }
-                MountedFragment(node, children)
+                MountedFragment(node, children).also { mounted ->
+                    mounted.refreshContainsControlledInputHost()
+                }
             }
             is HostNode -> mountHost(node, parent, anchor, path)
             is TemplateNode -> mountTemplate(node, parent, anchor, path)
@@ -287,6 +289,7 @@ public class BrowserKineticaApp(
         node.children.forEachIndexed { index, child ->
             mounted.children.add(mount(child, element, anchor = null, path = childPathOf(path, index)))
         }
+        mounted.refreshContainsControlledInputHost()
         parent.insertBefore(element, anchor)
         return mounted
     }
@@ -307,6 +310,7 @@ public class BrowserKineticaApp(
             templateNode = node,
             root = root,
             holeDoms = arrayOfNulls(node.definition.holes.size),
+            containsControlledInputHost = node.definition.skeleton.containsControlledInputHost(),
         )
         patchTemplateValues(mounted, previousValues = emptyList(), nextValues = node.values)
         parent.insertBefore(root, anchor)
@@ -345,7 +349,7 @@ public class BrowserKineticaApp(
     // --- patching ---
 
     private fun patch(mounted: Mounted, next: Node, parent: Element, path: String): Mounted {
-        if (mounted.currentNode === next && !mounted.isControlledInputHost()) {
+        if (mounted.currentNode === next && !mounted.containsControlledInputHost) {
             return mounted
         }
         return when {
@@ -438,6 +442,7 @@ public class BrowserKineticaApp(
             next.flags and NodeFlags.CHILDREN_SINGLE_TEXT != 0 &&
             patchSingleTextChild(mounted, next)
         ) {
+            mounted.refreshContainsControlledInputHost()
             return
         }
         patchChildren(
@@ -452,6 +457,7 @@ public class BrowserKineticaApp(
             nextRegions = next.regions,
             ownsParent = true,
         )
+        mounted.refreshContainsControlledInputHost()
     }
 
     private fun patchProps(element: Element, tag: String, old: Map<String, String>, new: Map<String, String>) {
@@ -545,6 +551,7 @@ public class BrowserKineticaApp(
             prevRegions = emptyList(),
             nextRegions = emptyList(),
         )
+        mounted.refreshContainsControlledInputHost()
     }
 
     private fun patchClientRef(mounted: MountedClientRef, next: ClientRef) {
@@ -1430,6 +1437,7 @@ public class BrowserKineticaApp(
 
 private sealed class Mounted {
     abstract val currentNode: Node
+    abstract val containsControlledInputHost: Boolean
 }
 
 private class MountedHost(
@@ -1438,15 +1446,14 @@ private class MountedHost(
     val children: MutableList<Mounted>,
 ) : Mounted() {
     override val currentNode: Node get() = hostNode
+    override var containsControlledInputHost: Boolean = false
 }
-
-private fun Mounted.isControlledInputHost(): Boolean =
-    this is MountedHost && (hostNode.tag == "textInput" || hostNode.tag == "checkbox")
 
 private class MountedTemplate(
     var templateNode: TemplateNode,
     val root: Element,
     val holeDoms: Array<DomNode?>,
+    override val containsControlledInputHost: Boolean,
 ) : Mounted() {
     override val currentNode: Node get() = templateNode
 }
@@ -1468,6 +1475,7 @@ private class MountedText(
     val wrapped: Boolean,
 ) : Mounted() {
     override val currentNode: Node get() = textNode
+    override val containsControlledInputHost: Boolean get() = false
 }
 
 private class MountedFragment(
@@ -1475,6 +1483,7 @@ private class MountedFragment(
     val children: MutableList<Mounted>,
 ) : Mounted() {
     override val currentNode: Node get() = fragmentNode
+    override var containsControlledInputHost: Boolean = false
 }
 
 private class MountedClientRef(
@@ -1482,7 +1491,33 @@ private class MountedClientRef(
     val element: Element,
 ) : Mounted() {
     override val currentNode: Node get() = refNode
+    override val containsControlledInputHost: Boolean get() = false
 }
+
+private fun MountedHost.refreshContainsControlledInputHost() {
+    containsControlledInputHost = hostNode.isControlledInputHost() ||
+        children.any { child -> child.containsControlledInputHost }
+}
+
+private fun MountedFragment.refreshContainsControlledInputHost() {
+    containsControlledInputHost = children.any { child -> child.containsControlledInputHost }
+}
+
+private fun Node.containsControlledInputHost(): Boolean =
+    when (this) {
+        is HostNode -> containsControlledInputHost()
+        is FragmentNode -> children.any { child -> child.containsControlledInputHost() }
+        is TemplateNode -> definition.skeleton.containsControlledInputHost()
+        is TextNode,
+        is ClientRef,
+        -> false
+    }
+
+private fun HostNode.containsControlledInputHost(): Boolean =
+    isControlledInputHost() || children.any { child -> child.containsControlledInputHost() }
+
+private fun HostNode.isControlledInputHost(): Boolean =
+    tag == "textInput" || tag == "checkbox"
 
 private class TemplatePrototype(
     val root: Element,
