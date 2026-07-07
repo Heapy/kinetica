@@ -27,8 +27,9 @@ public data class AddToCartResult(
  * Returns a human-readable error for an invalid input, or `null` when it is acceptable.
  *
  * The dispatcher's serializer-derived schema only checks *shape* (`quantity` is a number);
- * it does not bound the range, so a client can send negatives or `Int.MAX_VALUE` (which overflow
- * the cart total). Handlers must call this before mutating state.
+ * it does not bound the range, so a client could send negatives or `Int.MAX_VALUE` in a single
+ * request. This bounds one request's magnitude; it does not make the cumulative demo `cartCount`
+ * overflow-proof. A production counter should be per-session and saturating/`Long`.
  */
 public fun AddToCartInput.validationError(): String? {
     val trimmed = productId.trim()

@@ -1223,6 +1223,37 @@ class RuntimeSmokeServerTest {
     }
 
     @Test
+    fun serverActionDispatcherConvertsInitBlockFailureToClientError() = runTest {
+        val dispatcher = KineticaServerActionDispatcher(
+            stubs = listOf(
+                serverActionStub(
+                    registration = ServerActionRegistration(
+                        actionId = "guarded.set",
+                        functionFqName = "app.server.guardedSet",
+                    ),
+                    inputSerializer = InitGuardedInput.serializer(),
+                    outputSerializer = Int.serializer(),
+                    handler = { input -> input.n },
+                ),
+            ),
+            verifyCapabilityToken = { true },
+            verifyCsrfToken = { true },
+        )
+        // {"n":-5} is a shape-valid object (n is a Number) but violates the init require, so
+        // decode throws IllegalArgumentException (NOT a SerializationException).
+        val response = dispatcher.dispatch(
+            ServerActionRequest(
+                actionId = "guarded.set",
+                payload = JsonObject(mapOf("n" to JsonPrimitive(-5))),
+                token = CapabilityToken("valid"),
+                csrfToken = CsrfToken("valid"),
+            ),
+        )
+
+        assertEquals(ServerActionResponse.Failure("Invalid server action payload."), response)
+    }
+
+    @Test
     fun serverActionDispatcherFailsClosedWithoutExplicitVerifiers() = runTest {
         // A dispatcher constructed without verifiers must reject every action rather than silently
         // accept unauthenticated ones — the safe default for a public API.
@@ -1599,3 +1630,10 @@ private data class SmokeCartStatusPatch(
     val productId: String,
     val status: SmokeCartStatus,
 )
+
+@Serializable
+private data class InitGuardedInput(val n: Int) {
+    init {
+        require(n in 0..100) { "n out of range" }
+    }
+}

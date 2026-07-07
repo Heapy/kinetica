@@ -213,7 +213,7 @@ public interface ServerActionStub {
  * [ServerActionResponse.Failure], so it must not contain secrets or internals. Any other throwable
  * surfaces only a generic "Server action failed." so server stack traces never leak.
  */
-public class ServerActionRejection(message: String) : RuntimeException(message)
+public class ServerActionRejection(override val message: String) : RuntimeException(message)
 
 public fun <I, O> serverActionStub(
     registration: ServerActionRegistration,
@@ -239,9 +239,13 @@ public fun <I, O> serverActionStub(
             }
             val input = try {
                 json.decodeFromJsonElement(inputSerializer, payload)
-            } catch (error: SerializationException) {
-                // Shape-valid but type-invalid (e.g. 3.5 for an Int, or out-of-range): a client error,
-                // not a server fault — keep it distinct from the generic handler-failure message below.
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                // Any failure decoding the client-supplied payload into the input type - a kotlinx
+                // SerializationException, or an IllegalArgumentException thrown by an @Serializable
+                // init/require block (which kotlinx does NOT wrap) - is a client input error, never a
+                // server fault, and must not escape dispatch() as a thrown exception.
                 return ServerActionResponse.Failure(
                     message = "Invalid server action payload.",
                     retryable = false,
@@ -258,17 +262,10 @@ public fun <I, O> serverActionStub(
                 }
                 // A handler-thrown ServerActionRejection surfaces its client-safe message; any other
                 // throwable stays generic so server internals never reach a response body.
-                if (throwable is ServerActionRejection) {
-                    ServerActionResponse.Failure(
-                        message = throwable.message ?: "Server action rejected.",
-                        retryable = false,
-                    )
-                } else {
-                    ServerActionResponse.Failure(
-                        message = "Server action failed.",
-                        retryable = false,
-                    )
-                }
+                ServerActionResponse.Failure(
+                    message = if (throwable is ServerActionRejection) throwable.message else "Server action failed.",
+                    retryable = false,
+                )
             }
         }
     }
