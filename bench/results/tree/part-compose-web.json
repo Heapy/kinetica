@@ -1,6 +1,6 @@
 {
   "meta": {
-    "date": "2026-07-07T19:25:12.945Z",
+    "date": "2026-07-07T20:30:41.624Z",
     "chromium": "149.0.7827.55",
     "warmup": 1,
     "samples": 5,
@@ -29,65 +29,65 @@
     "compose-web": {
       "t1_createTree": {
         "samples": [
-          53.78,
-          57.72,
-          46.1,
-          47.13,
-          50.26
+          54.39,
+          65.28,
+          58.46,
+          47.78,
+          46.06
         ],
-        "median": 50.26,
-        "mean": 51,
-        "stddev": 4.3,
-        "min": 46.1,
-        "max": 57.72,
-        "gcMedianMs": 23.89,
+        "median": 54.39,
+        "mean": 54.39,
+        "stddev": 7.05,
+        "min": 46.06,
+        "max": 65.28,
+        "gcMedianMs": 27.55,
         "pageErrors": 0
       },
       "t2_updateLeaves": {
         "samples": [
-          13.34,
-          13.75,
-          12.73,
-          12.52,
-          12.31
+          14.31,
+          15.56,
+          14.89,
+          13.09,
+          14.78
         ],
-        "median": 12.73,
-        "mean": 12.93,
-        "stddev": 0.54,
-        "min": 12.31,
-        "max": 13.75,
+        "median": 14.78,
+        "mean": 14.53,
+        "stddev": 0.82,
+        "min": 13.09,
+        "max": 15.56,
         "gcMedianMs": 0,
         "pageErrors": 0
       },
       "t3_reverseTop": {
         "samples": [
-          16.47,
-          16.12,
-          15.79,
-          16.23,
-          14.78
+          23.08,
+          16.09,
+          23.34,
+          20.82,
+          22.1
         ],
-        "median": 16.12,
-        "mean": 15.88,
-        "stddev": 0.59,
-        "min": 14.78,
-        "max": 16.47,
+        "median": 22.1,
+        "mean": 21.09,
+        "stddev": 2.65,
+        "min": 16.09,
+        "max": 23.34,
         "gcMedianMs": 0,
         "pageErrors": 0
       },
       "t4_noopRender": {
         "samples": [
-          8.38,
-          8.65,
-          5.26,
-          7.86,
-          7.9
+          6.05,
+          9.65,
+          5.85,
+          10.01,
+          8.15
         ],
-        "median": 7.9,
-        "mean": 7.61,
-        "stddev": 1.21,
-        "min": 5.26,
-        "max": 8.65,
+        "median": 8.15,
+        "mean": 7.94,
+        "stddev": 1.75,
+        "min": 5.85,
+        "max": 10.01,
         "gcMedianMs": 0,
         "pageErrors": 0
       }

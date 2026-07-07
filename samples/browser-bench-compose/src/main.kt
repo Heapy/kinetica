@@ -6,6 +6,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.referentialEqualityPolicy
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import kotlinx.browser.window
@@ -71,6 +72,11 @@ private fun ToolbarButton(tag: String, label: String, handleClick: () -> Unit) {
 // parameters (Int/String/Boolean + remember-stable callbacks) so Compose can skip
 // recomposing rows whose id/label/selected haven't changed — the same reason the React
 // and Preact implementations wrap their row in memo() with useCallback handlers.
+// selected is computed in the caller's loop (not deferred/hoisted as State<Int> read here)
+// on purpose: measured on this benchmark, hoisting it made select1k/select10k 3x/27x
+// SLOWER (individually invalidating N keyed-list child scopes hits the same pathological
+// per-key-lookup cost that swap/remove show at this list size) — see main.kt's own note
+// on RowItem's caller and bench-harness-findings memory.
 @Composable
 private fun RowItem(id: Int, label: String, selected: Boolean, onSelect: (Int) -> Unit, onRemove: (Int) -> Unit) {
     Tr(attrs = {
@@ -101,13 +107,41 @@ private fun RowItem(id: Int, label: String, selected: Boolean, onSelect: (Int) -
 
 @Composable
 fun BenchApp() {
-    var rows by remember { mutableStateOf(emptyList<RowData>()) }
+    // referentialEqualityPolicy: rows is always wholesale-replaced (never mutated in place),
+    // so the default structural equals — an O(n) element-wise List compare on every write,
+    // including every animate-loop frame — is pure waste; we already know it changed.
+    var rows by remember { mutableStateOf(emptyList<RowData>(), referentialEqualityPolicy()) }
     var selectedId by remember { mutableStateOf(0) }
     var animating by remember { mutableStateOf(false) }
     // remember (no keys) creates each callback exactly once so RowItem's parameters stay
     // referentially stable across recompositions — required for the skip above to trigger.
     val onSelect = remember { { id: Int -> selectedId = id } }
     val onRemove = remember { { id: Int -> rows = rows.filterNot { it.id == id } } }
+    // Toolbar handlers are remembered too, for the same reason as onSelect/onRemove above —
+    // otherwise they're fresh closures on every BenchApp recomposition.
+    val onCreate1k = remember { { rows = buildData(1_000); selectedId = 0 } }
+    val onCreate10k = remember { { rows = buildData(10_000); selectedId = 0 } }
+    val onAppend1k = remember { { rows = rows + buildData(1_000) } }
+    val onUpdateEvery10th = remember {
+        {
+            rows = rows.mapIndexed { index, row ->
+                if (index % 10 == 0) row.copy(label = row.label + " !!!") else row
+            }
+        }
+    }
+    val onClear = remember { { rows = emptyList(); selectedId = 0 } }
+    val onSwapRows = remember {
+        {
+            if (rows.size > 998) {
+                val next = rows.toMutableList()
+                val tmp = next[1]
+                next[1] = next[998]
+                next[998] = tmp
+                rows = next
+            }
+        }
+    }
+    val onToggleAnimate = remember { { animating = !animating } }
 
     // Drives the sustained-update ("animate") loop via a plain rAF chain — Compose's
     // snapshot system schedules recomposition on any state write, from any callback,
@@ -134,25 +168,13 @@ fun BenchApp() {
         Div(attrs = { classes("jumbotron") }) {
             H1 { Text("Compose HTML (keyed)") }
             Div(attrs = { classes("toolbar") }) {
-                ToolbarButton("run", "Create 1,000 rows") { rows = buildData(1_000); selectedId = 0 }
-                ToolbarButton("runlots", "Create 10,000 rows") { rows = buildData(10_000); selectedId = 0 }
-                ToolbarButton("add", "Append 1,000 rows") { rows = rows + buildData(1_000) }
-                ToolbarButton("update", "Update every 10th row") {
-                    rows = rows.mapIndexed { index, row ->
-                        if (index % 10 == 0) row.copy(label = row.label + " !!!") else row
-                    }
-                }
-                ToolbarButton("clear", "Clear") { rows = emptyList(); selectedId = 0 }
-                ToolbarButton("swaprows", "Swap Rows") {
-                    if (rows.size > 998) {
-                        val next = rows.toMutableList()
-                        val tmp = next[1]
-                        next[1] = next[998]
-                        next[998] = tmp
-                        rows = next
-                    }
-                }
-                ToolbarButton("animate", "Animate") { animating = !animating }
+                ToolbarButton("run", "Create 1,000 rows", onCreate1k)
+                ToolbarButton("runlots", "Create 10,000 rows", onCreate10k)
+                ToolbarButton("add", "Append 1,000 rows", onAppend1k)
+                ToolbarButton("update", "Update every 10th row", onUpdateEvery10th)
+                ToolbarButton("clear", "Clear", onClear)
+                ToolbarButton("swaprows", "Swap Rows", onSwapRows)
+                ToolbarButton("animate", "Animate", onToggleAnimate)
             }
         }
         Table(attrs = { classes("test-data") }) {
@@ -222,7 +244,9 @@ private fun TreeNode(node: TreeNodeData, depth: Int) {
 
 @Composable
 fun TreeApp() {
-    var tree by remember { mutableStateOf<TreeNodeData?>(null) }
+    // Same referentialEqualityPolicy reasoning as BenchApp.rows above — tree is always
+    // replaced wholesale, never mutated in place.
+    var tree by remember { mutableStateOf<TreeNodeData?>(null, referentialEqualityPolicy()) }
     var tick by remember { mutableStateOf(0) }
 
     Div {
