@@ -60,6 +60,8 @@ import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.SpecialNames
+import org.jetbrains.kotlin.platform.jvm.isJvm
+import org.jetbrains.kotlin.platform.konan.isNative
 
 /**
  * K2 backend transform (runs for JVM and JS alike): rewrites receiver-style UI components
@@ -82,6 +84,10 @@ public class KineticaIrGenerationExtension(
     private val pluginConfiguration: KineticaCompilerPluginConfiguration,
 ) : IrGenerationExtension {
     override fun generate(moduleFragment: IrModuleFragment, pluginContext: IrPluginContext) {
+        val unwrapAtomics = pluginContext.platform.shouldUnwrapAtomicsOnSingleThreadedBackend()
+        if (unwrapAtomics) {
+            KineticaAtomicUnwrapLowering(pluginContext, ::report).lower(moduleFragment)
+        }
         val symbols = KineticaIrSymbols.resolve(pluginContext) ?: return
         val hoistSymbols = KineticaHoistSymbols.resolve(pluginContext)
         val templateSymbols = KineticaTemplateSymbols.resolve(pluginContext)
@@ -293,6 +299,9 @@ public class KineticaIrGenerationExtension(
         private val COMPONENT_SCOPE_FQ = FqName("io.heapy.kinetica.ComponentScope")
     }
 }
+
+private fun org.jetbrains.kotlin.platform.TargetPlatform?.shouldUnwrapAtomicsOnSingleThreadedBackend(): Boolean =
+    this != null && !isJvm() && !isNative()
 
 private fun IrConstructorCall.skippableFlag(): Boolean {
     val argument = arguments.getOrNull(0) as? IrConst ?: return true

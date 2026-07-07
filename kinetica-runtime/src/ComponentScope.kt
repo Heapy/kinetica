@@ -1,6 +1,5 @@
 package io.heapy.kinetica
 
-import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -411,7 +410,7 @@ public class ComponentScope public constructor(
 
     public fun completeExit(key: Any): Boolean {
         val state = exitGroups[key.toString()] ?: return false
-        val completed = synchronized(state.stateLock) {
+        val completed = synchronizedOn(state.stateLock) {
             if (state.phase != ExitPhase.Leaving) {
                 false
             } else {
@@ -435,7 +434,7 @@ public class ComponentScope public constructor(
         val state = exitGroups[key.toString()] ?: return false
         var remaining = 0
         var shouldComplete = false
-        val completedCallback = synchronized(state.stateLock) {
+        val completedCallback = synchronizedOn(state.stateLock) {
             if (state.phase != ExitPhase.Leaving || state.generation != generation) {
                 false
             } else if (state.pendingCallbacks <= 0) {

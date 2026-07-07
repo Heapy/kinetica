@@ -1,7 +1,5 @@
 package io.heapy.kinetica
 
-import kotlinx.atomicfu.locks.SynchronizedObject
-import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
@@ -132,17 +130,17 @@ private fun ComponentScope.KeyedBranchApp(probe: KeyedBranchProbe) {
 private class RowExitProbe(
     var items: List<String> = emptyList(),
 ) {
-    private val exitLock = SynchronizedObject()
+    private val exitLock = platformLock()
     private val exitLog = mutableListOf<String>()
 
     fun recordExit(item: String) {
-        synchronized(exitLock) {
+        synchronizedOn(exitLock) {
             exitLog += item
         }
     }
 
     fun exitsSnapshot(): List<String> =
-        synchronized(exitLock) {
+        synchronizedOn(exitLock) {
             exitLog.toList()
         }
 }
