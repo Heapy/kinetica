@@ -149,7 +149,9 @@ public fun ComponentScope.button(
     } else {
         propsOf("enabled", enabledValue, "event:onClick", registerHostEvent(ordinal) { onClick() })
     }
-    emit(HostNode("button", props, collect(content), key?.toString(), semantics))
+    val children = collect(content)
+    val regions = lastCollectedRegions
+    emit(HostNode("button", props, children, key?.toString(), semantics, regions = regions))
 }
 
 public fun ComponentScope.hostEvent(ordinal: Int = -1, onEvent: () -> Unit): String =

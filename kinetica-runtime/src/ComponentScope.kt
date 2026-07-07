@@ -212,6 +212,15 @@ public class ComponentScope public constructor(
         nodeStack.last() += node
     }
 
+    internal fun currentNodeFrameSize(): Int =
+        nodeStack.last().size
+
+    internal fun recordChildRegion(ordinal: Int, start: Int) {
+        val top = regionStack.lastIndex
+        val frame = regionStack[top] ?: mutableListOf<ChildRegion>().also { regionStack[top] = it }
+        frame += ChildRegion(ordinal, start, nodeStack.last().size)
+    }
+
     public fun staticNode(
         hoistId: String,
         factory: () -> Node,
@@ -1048,6 +1057,7 @@ public fun <T> ComponentScope.lazyEachRegion(
     val snapshot = keyedLastWins(items, key)
     val visibleRange = state.visibleRange(snapshot.size)
     val visibleKeys = mutableSetOf<Any>()
+    val frameStart = currentNodeFrameSize()
     runtime.record(
         JournalKind.RenderStarted,
         "lazyEach",
@@ -1076,6 +1086,7 @@ public fun <T> ComponentScope.lazyEachRegion(
             }
         }
     }
+    recordChildRegion(ordinal, frameStart)
     when (retain) {
         RetainPolicy.Keyed -> Unit
         RetainPolicy.VisibleOnly -> keyedChildFrameKeys(ordinal).forEach { existingKey ->
