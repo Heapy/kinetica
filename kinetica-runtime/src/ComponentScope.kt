@@ -239,7 +239,8 @@ public class ComponentScope public constructor(
             FrameSkipCache(
                 inputs = inputs,
                 nodes = captured.nodes,
-                dependencies = captured.dependencies,
+                dependencyCells = captured.dependencyCells,
+                dependencyVersions = captured.dependencyVersions,
                 contextReads = captured.contextReads,
                 certifiedKeyedHost = false,
             )
@@ -279,10 +280,14 @@ public class ComponentScope public constructor(
         }
         dependencies.forEach(ReadTracking::record)
         frame.skipCache = if (capture.memoizable) {
+            val dependencyCells = dependencies.toTypedArray()
             FrameSkipCache(
                 inputs = inputs,
                 nodes = listOf(node),
-                dependencies = dependencies.associateWith { dependency -> dependency.version },
+                dependencyCells = dependencyCells,
+                dependencyVersions = LongArray(dependencyCells.size) { index ->
+                    dependencyCells[index].version
+                },
                 contextReads = capture.contextReads ?: emptyList(),
                 certifiedKeyedHost = false,
             )
@@ -632,7 +637,8 @@ public class ComponentScope public constructor(
 
     private class CapturedRender(
         val nodes: List<Node>,
-        val dependencies: Map<ObservableCell<*>, Long>,
+        val dependencyCells: Array<ObservableCell<*>>,
+        val dependencyVersions: LongArray,
         val contextReads: List<FrameContextRead>,
         val memoizable: Boolean,
     )
@@ -655,9 +661,13 @@ public class ComponentScope public constructor(
         }
         // Reads stay visible to the enclosing render/capture collectors.
         dependencies.forEach(ReadTracking::record)
+        val dependencyCells = dependencies.toTypedArray()
         return CapturedRender(
             nodes = nodes,
-            dependencies = dependencies.associateWith { dependency -> dependency.version },
+            dependencyCells = dependencyCells,
+            dependencyVersions = LongArray(dependencyCells.size) { index ->
+                dependencyCells[index].version
+            },
             contextReads = capture.contextReads ?: emptyList(),
             memoizable = capture.memoizable,
         )
@@ -714,7 +724,8 @@ public class ComponentScope public constructor(
                     FrameSkipCache(
                         inputs = listOf(keyed.item),
                         nodes = captured.nodes,
-                        dependencies = captured.dependencies,
+                        dependencyCells = captured.dependencyCells,
+                        dependencyVersions = captured.dependencyVersions,
                         contextReads = captured.contextReads,
                         certifiedKeyedHost = rowCertified,
                     )
@@ -1078,14 +1089,19 @@ internal class FrameCaptureState {
 internal class FrameSkipCache(
     val inputs: List<Any?>,
     val nodes: List<Node>,
-    val dependencies: Map<ObservableCell<*>, Long>,
+    val dependencyCells: Array<ObservableCell<*>>,
+    val dependencyVersions: LongArray,
     val contextReads: List<FrameContextRead>,
     val certifiedKeyedHost: Boolean,
 ) {
-    fun dependenciesUnchanged(): Boolean =
-        dependencies.all { (dependency, version) -> dependency.version == version }
+    fun dependenciesUnchanged(): Boolean {
+        for (i in dependencyCells.indices) {
+            if (dependencyCells[i].version != dependencyVersions[i]) return false
+        }
+        return true
+    }
 
     fun recordDependencies() {
-        dependencies.keys.forEach(ReadTracking::record)
+        dependencyCells.forEach(ReadTracking::record)
     }
 }
