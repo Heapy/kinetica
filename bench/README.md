@@ -81,7 +81,7 @@ bundles/minifies the linked Kotlin/JS graph into
 `../build/tasks/_browser-bench_bundle/browser-bench.bundle.mjs`). Table app at
 `../samples/browser-bench/web/index.html`, tree app at the same page with `?app=tree`.
 `part-kinetica-preplugin-before.json` snapshots the last pre-plugin numbers. Renderer work:
-see git history for the retired `perf-rewrite-design.md`; compiler work: `../compiler-perf-design.md`.
+see git history for the retired `perf-rewrite-design.md` and `compiler-perf-design.md`.
 
 ## What is measured
 
