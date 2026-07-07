@@ -299,7 +299,15 @@ class DocsServer(
 
     private fun respondDemoStackSubmission(exchange: HttpExchange) {
         val session = demoSession(exchange)
-        val body = exchange.requestBody.readAllBytes().decodeToString()
+        val body = readBoundedRequestBody(exchange.requestBody)
+        if (body == null) {
+            exchange.respondText(
+                status = 413,
+                contentType = "text/plain",
+                body = "Request body too large.",
+            )
+            return
+        }
         val language = runCatching {
             Json.parseToJsonElement(body).jsonObject["language"]?.jsonPrimitive?.content
         }.getOrNull()?.trim()

@@ -7,6 +7,7 @@ import app.servercomponents.shared.DEMO_CAPABILITY_TOKEN
 import app.servercomponents.shared.DEMO_CSRF_TOKEN
 import io.heapy.kinetica.CapabilityToken
 import io.heapy.kinetica.CsrfToken
+import io.heapy.kinetica.DEFAULT_MAX_SERVER_ACTION_BODY_BYTES
 import io.heapy.kinetica.KineticaJson
 import io.heapy.kinetica.KineticaServerTransport
 import io.heapy.kinetica.ServerActionRequest
@@ -189,6 +190,18 @@ class DocsServerTest {
         val expired = getDemoStack(baseUrl, "kinetica-demo-session=no-such-session")
         assertEquals(200, expired.statusCode())
         assertTrue(expired.headers().firstValue("Set-Cookie").isPresent)
+    }
+
+    @Test
+    fun demoStackRejectsOversizedBodiesWith413() = withDocsServer { baseUrl ->
+        val fresh = getResponse("$baseUrl/demo/api/stack")
+        val cookie = fresh.headers().firstValue("Set-Cookie").orElseThrow().substringBefore(";")
+        val oversized = postDemoStack(
+            baseUrl,
+            cookie,
+            "x".repeat(DEFAULT_MAX_SERVER_ACTION_BODY_BYTES + 256),
+        )
+        assertEquals(413, oversized.statusCode())
     }
 
     @Test
