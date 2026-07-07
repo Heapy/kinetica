@@ -1,0 +1,15 @@
+product: js/app
+
+settings:
+  kotlin:
+    version: 2.4.0
+    languageVersion: 2.4
+    apiVersion: 2.4
+  compose:
+    enabled: true
+    version: 1.11.1
+
+dependencies:
+  - org.jetbrains.compose.html:html-core:1.11.1
+
+description: "js-framework-benchmark style keyed table app using Compose HTML (JetBrains Compose Multiplatform for Web), for performance comparison against Kinetica."

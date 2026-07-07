@@ -103,6 +103,13 @@ export function makeHarness(page, fw) {
 export async function openPage(browser, url, { throttle = 0 } = {}) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await context.newPage();
+  // Default 30s is an automation safety guard, not part of the measured duration (that
+  // comes from Chrome trace timestamps) — widened so a framework whose click handler
+  // runs synchronously for a long time (e.g. O(n^2)-class reconciliation surfacing on
+  // the 10k ops, exactly what those ops are designed to catch) gets recorded rather than
+  // aborting the run. Applied to every framework; frameworks that return in milliseconds
+  // are unaffected.
+  page.setDefaultTimeout(180_000);
   const pageErrors = [];
   page.on("pageerror", (e) => pageErrors.push(e.message));
   if (throttle > 1) {
@@ -241,7 +248,13 @@ export function logLogSlope(xs, ys) {
 }
 
 // One traced, measured click: starts tracing, runs action(), awaits wait(), returns
-// parseTrace output. The 60/280ms settles mirror the original bench.mjs timing.
+// parseTrace output. The 60ms lead-in mirrors the original bench.mjs timing. The
+// post-wait settle was widened from 280ms to 700ms (2026-07-07, added for compose-web):
+// a GC-heavy framework can legitimately push the browser's actual Paint several hundred
+// ms past when the DOM assertion resolves (concurrent major GC competing with the
+// compositor), and 280ms was tight enough to misreport that as "no paint after click"
+// rather than recording the (large, real) duration. Applied uniformly to every
+// framework — negligible cost for frameworks that already paint within tens of ms.
 export async function measureTracedClick(browser, page, action, wait) {
   await browser.startTracing(page, {
     screenshots: false,
@@ -250,7 +263,7 @@ export async function measureTracedClick(browser, page, action, wait) {
   await page.waitForTimeout(60);
   await action();
   await wait();
-  await page.waitForTimeout(280);
+  await page.waitForTimeout(700);
   const trace = await browser.stopTracing();
   return parseTrace(trace);
 }

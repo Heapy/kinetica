@@ -70,10 +70,20 @@ export const frameworks = [
     rowControl: "a",
     version: "n/a",
   },
+  {
+    name: "compose-web",
+    label: "Compose HTML",
+    url: "/samples/browser-bench-compose/web/index.html",
+    treeUrl: "/samples/browser-bench-compose/web/index.html?app=tree",
+    buttons: "id",
+    rowControl: "a",
+    version: "1.11.1",
+    build: { cmd: process.execPath, args: ["bench/build-compose.mjs"] },
+  },
 ];
 
 // Validated categorical palette (dataviz reference, light/dark pairs), assigned by
-// config position. 8 slots available; 6 in use.
+// config position. 8 slots available; 7 in use.
 export const paletteSlots = [
   ["#2a78d6", "#3987e5"], // blue
   ["#1baf7a", "#199e70"], // aqua

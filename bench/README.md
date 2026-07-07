@@ -83,6 +83,18 @@ bundles/minifies the linked Kotlin/JS graph into
 `part-kinetica-preplugin-before.json` snapshots the last pre-plugin numbers. Renderer work:
 see git history for the retired `perf-rewrite-design.md`; compiler work: `../compiler-perf-design.md`.
 
+The Compose HTML app lives at `../samples/browser-bench-compose/` (module
+`browser-bench-compose`, plain Kotlin/JS + JetBrains Compose Multiplatform's DOM library
+— `org.jetbrains.compose.html:html-core` — no Kinetica compiler plugin involved), built
+through `build-compose.mjs`: runs `../kotlin build -m browser-bench-compose`, then esbuild
+bundles/minifies the linked output into
+`../build/tasks/_browser-bench-compose_bundle/browser-bench-compose.bundle.mjs`. Table app
+at `../samples/browser-bench-compose/web/index.html`, tree app at the same page with
+`?app=tree`. It's the one framework here that isn't hand-tuned for this workload — general-
+purpose Compose Multiplatform runtime (slot-table composition, snapshot state) rather than a
+web-specific fine-grained or vdom renderer — and its numbers reflect that (see Interpreting
+results below).
+
 ## What is measured
 
 ### Main suite (driver/bench.mjs)
@@ -115,6 +127,13 @@ end of the last `Paint`/`Commit` event. Not wall-clock around the click — it i
 flushes, layout and paint. Headless "Chrome for Testing", no CPU throttling by default.
 **GC time** per sample is the summed duration of `MinorGC`/`MajorGC`/`V8.GC*`/`BlinkGC.*`
 events inside the same measured window (`gcMedianMs`/`gcMaxMs`/`gcMeanCount` per op).
+The post-click settle before `stopTracing()` (`measureTracedClick` in `driver/common.mjs`) is
+700ms, and Playwright's default per-action timeout is set to 180s (`openPage`) — both were
+widened from tighter defaults (280ms / 30s) when compose-web's heavier GC pressure and (on the
+10k ops) synchronous reconciliation cost pushed past them; both changes are global, so they
+cost fast frameworks nothing (they already paint and click well inside the old limits) and
+don't change any already-recorded duration, since the extra time is dead time after what's
+actually measured, not part of it.
 
 Also collected per framework:
 
@@ -245,9 +264,10 @@ Example: adding Solid.
    framework lands between vanilla ~1× and React ~1.3× on the geomean; if you see 10×+ on
    partial ops, the implementation probably isn't keyed or is in dev mode).
 
-For a framework whose app lives outside `bench/` (like Kinetica): host the page anywhere under
-the repo root, include the `__mountMs` snippet in its HTML (copy from
-`../samples/browser-bench/web/index.html`), and declare a `build` command in its config entry.
+For a framework whose app lives outside `bench/` (like Kinetica, or Compose HTML in
+`../samples/browser-bench-compose/`): host the page anywhere under the repo root, include the
+`__mountMs` snippet in its HTML (copy from `../samples/browser-bench/web/index.html`), and
+declare a `build` command in its config entry.
 
 ## Environment assumptions (things that break silently)
 
@@ -287,6 +307,26 @@ the repo root, include the `__mountMs` snippet in its HTML (copy from
   (`../kotlin test -m kinetica-runtime --platform jvm`,
   `node ../build/tasks/_kinetica-browser_linkJsTest/kinetica-browser_test.mjs` after
   `../kotlin build -m kinetica-browser`).
+- **Compose HTML context** (`html-core` 1.11.1, latest stable at time of writing; 2026-07-07
+  run, samples=5/warmup=1 — noisier than the standard 10/3 but the medians are stable):
+  single-row ops that Compose can skip via row-level memoization are competitive (select-1k
+  10 ms, select-10k 25 ms, update-10th-1k 13 ms) — confirming `RowItem` in
+  `browser-bench-compose/src/main.kt` is correctly extracted as its own skippable composable
+  (inlining row markup into the list loop instead defeats recomposition scoping entirely and
+  is much slower; don't regress that). Full-list ops are markedly heavier than every other
+  framework (run-1k 238 ms, create-10k 8.0 s) from Compose Multiplatform's general-purpose
+  slot-table/snapshot overhead per composable — expected, it's not a web-specific
+  fine-grained or vdom renderer. The striking result is medial reorder/remove on large lists:
+  swap-1k 562 ms and remove-1k 522 ms (vs. low tens of ms for every other framework), scaling
+  to swap-10k 9.6 s and **remove-10k 49.6 s** — not proportional to the ~997-row affected
+  range (constant across the 1k/10k cases per the op contract), which points to Compose's
+  default `for`+`key()` reconciliation re-walking/diffing the whole list rather than doing an
+  LIS-style minimal-move patch. This is exactly the accidental-O(n²) signal ops 10–13 are
+  designed to surface (see "What is measured" above), not an artifact of this implementation
+  — there's no lower-level Compose HTML list primitive that would avoid it while staying
+  idiomatic. It's also why `measureTracedClick`'s settle and Playwright's action timeout were
+  widened (see Timing methodology above): remove-10k's ~50s runs
+  synchronously inside the click dispatch, well past the old 30s default.
 - **Bench on AC power only.** Below ~10% battery, macOS low-power throttling delays every
   headless-Chrome paint to ~2 vsyncs (~30 ms) — for every framework — and every partial op
   reads as ~30 ms with suspiciously tight stddev. Verify the environment with a quick canary

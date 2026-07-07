@@ -1,0 +1,96 @@
+{
+  "meta": {
+    "date": "2026-07-07T19:25:12.945Z",
+    "chromium": "149.0.7827.55",
+    "warmup": 1,
+    "samples": 5,
+    "totalNodes": 1555,
+    "cpuThrottle": null
+  },
+  "treeBenchmarks": [
+    {
+      "id": "t1_createTree",
+      "label": "create tree (1555 nodes)"
+    },
+    {
+      "id": "t2_updateLeaves",
+      "label": "update every 10th leaf"
+    },
+    {
+      "id": "t3_reverseTop",
+      "label": "reverse top-level subtrees"
+    },
+    {
+      "id": "t4_noopRender",
+      "label": "no-op re-render (data unchanged)"
+    }
+  ],
+  "tree": {
+    "compose-web": {
+      "t1_createTree": {
+        "samples": [
+          53.78,
+          57.72,
+          46.1,
+          47.13,
+          50.26
+        ],
+        "median": 50.26,
+        "mean": 51,
+        "stddev": 4.3,
+        "min": 46.1,
+        "max": 57.72,
+        "gcMedianMs": 23.89,
+        "pageErrors": 0
+      },
+      "t2_updateLeaves": {
+        "samples": [
+          13.34,
+          13.75,
+          12.73,
+          12.52,
+          12.31
+        ],
+        "median": 12.73,
+        "mean": 12.93,
+        "stddev": 0.54,
+        "min": 12.31,
+        "max": 13.75,
+        "gcMedianMs": 0,
+        "pageErrors": 0
+      },
+      "t3_reverseTop": {
+        "samples": [
+          16.47,
+          16.12,
+          15.79,
+          16.23,
+          14.78
+        ],
+        "median": 16.12,
+        "mean": 15.88,
+        "stddev": 0.59,
+        "min": 14.78,
+        "max": 16.47,
+        "gcMedianMs": 0,
+        "pageErrors": 0
+      },
+      "t4_noopRender": {
+        "samples": [
+          8.38,
+          8.65,
+          5.26,
+          7.86,
+          7.9
+        ],
+        "median": 7.9,
+        "mean": 7.61,
+        "stddev": 1.21,
+        "min": 5.26,
+        "max": 8.65,
+        "gcMedianMs": 0,
+        "pageErrors": 0
+      }
+    }
+  }
+}
