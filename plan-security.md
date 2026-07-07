@@ -1,7 +1,8 @@
-# Server-components hardening — remaining work
+# Server-components hardening — status
 
-Follow-up plan from the security review of `security/server-components-hardening`. The highest-value
-structural change is already **done** (see below); everything under "Remaining" is still open.
+Tracking doc for `security/server-components-hardening`. The blocking correctness/security items from
+the security review are now **all resolved** on this branch (each with a red→green regression test);
+what remains under "Follow-up" is design/altitude and minor cleanup that is safe to defer.
 
 ## Done — HTTP action-dispatch glue moved into the runtime
 
@@ -16,116 +17,74 @@ already drifted (the docs CSP dropped `'unsafe-inline'`). They now live once in 
 - `KineticaSecurityHeaders: Map<String, String>` (common) — the shared header baseline; `style-src`
   keeps `'unsafe-inline'` (required by the browser renderer's inline-style layout) with a KDoc note.
 
-Both demos now call these; their local copies are deleted. This resolved the review's CSP-divergence
-bug (docs demo island layout), the duplicated status-mapping, the duplicated header set, the duplicated
-`readBoundedBody`, the duplicated `MAX_ACTION_BODY_BYTES`, and the unused `SerializationException`
-binding. Covered by `RuntimeSmokeServerTest.dispatchHttpMapsRequestBodyToHttpStatusCodes`,
-`ReadBoundedRequestBodyTest`, and the demos' existing suites.
+## Done — blocking review findings (each with a regression test)
 
-## Remaining — blocking (correctness / security)
+1. **Unbounded `/demo/api/stack` POST → heap-exhaustion DoS.** `respondDemoStackSubmission` now reads via
+   `readBoundedRequestBody(...) ?: 413` before parsing, matching `/actions`.
+   Test: `DocsServerTest.demoStackRejectsOversizedBodiesWith413`.
+2. **Compiler-generated dispatcher rejected every action.** The emitter no longer emits a verifier-less
+   `val`; it emits a `kineticaGeneratedServerActionDispatcher(verifyCapabilityToken, verifyCsrfToken)`
+   factory that *requires* the verifiers (so "auth never configured" can't silently become "all
+   rejected", and no secret is compiled in). Golden text pins the factory + verifier forwarding; the
+   annotated sample constructs through it. (This also resolves the root cause of old item 8.)
+3. **`safeHtmlTagName` allowlist broke snapshots + SSR fidelity.** Replaced with a case-insensitive
+   **denylist** of executable/document-mutating tags (`script`, `iframe`, `object`, `embed`, `svg`,
+   `math`, `template`, `style`, `link`, `meta`, `base`, `frame`, `frameset`, `applet`, …) plus the
+   char-gate. Legitimate DSL/HTML tags render verbatim again; dangerous tags (incl. uppercase `<SCRIPT>`)
+   still collapse to `<div data-kinetica-tag=…>`. Tests: existing snapshots pass unchanged + new
+   case-insensitivity/legitimate-tag cases.
+4. **Deferred-subtree render errors leaked raw messages to `/stream`.** `toServerRenderStream` now logs
+   the detail server-side and streams a generic `"Server render failed."` `BoundaryError`.
+   Test: `serverRenderStreamEmitsDeferredSubtreesAsTheyBecomeReady` (asserts the scrubbed message and
+   that the raw detail does not leak).
+5. **Type-invalid-but-shape-valid payload was swallowed as `"Server action failed."`.** Payload decode
+   now happens outside the handler-guarding try and returns a distinct `"Invalid server action payload."`
+   client error. Tests: `serverActionDispatcherReportsTypeInvalidPayloadAsClientError` (3.5→Int) and
+   `serverActionDispatcherConvertsInitBlockFailureToClientError` (`@Serializable init{}` require).
 
-1. **Unbounded `/demo/api/stack` POST → heap-exhaustion DoS.**
-   `docs/docs-site/src/main.kt:299` (`respondDemoStackSubmission`) still does
-   `exchange.requestBody.readAllBytes().decodeToString()` before the length check. The bounded-body
-   hardening only covered `/actions`; this sibling endpoint on the public `0.0.0.0` server can be OOM'd
-   by one large POST — directly contradicting the commit's "one POST cannot OOM the JVM."
-   **Fix (now trivial):** `val body = readBoundedRequestBody(exchange.requestBody) ?: return 413`, then
-   parse `body`. Recommend doing this next — it's a one-liner with the helper just added.
+## Done — follow-up review (second pass)
 
-2. **Compiler-generated dispatcher rejects every action.**
-   `kinetica-compiler/src/KineticaGeneratedSourceEmitter.kt:95` emits
-   `KineticaServerActionDispatcher(KineticaGeneratedServerActionStubs)` with no verifiers. With the new
-   fail-closed `{ false }` defaults, the generated `KineticaGeneratedServerActionDispatcher` now returns
-   `Failure("Invalid capability token.")` for every action, and there is no way to inject verifiers into
-   it. Only golden-text (`CompilerModelTest.kt:728`) and a zero-action sample (`AnnotatedAppTest.kt:25`)
-   touch it, so CI stays green.
-   **Fix:** stop emitting a pre-built dispatcher; emit a factory instead, e.g.
-   `fun kineticaGeneratedServerActionDispatcher(verifyCapabilityToken, verifyCsrfToken) = KineticaServerActionDispatcher(stubs, verifyCapabilityToken = …, verifyCsrfToken = …)`,
-   and add a compiler/sample test that actually dispatches an authorized action through the generated
-   entry point. Ties to item 8.
+- **Decode catch was too narrow (regression from item 5).** kotlinx does not wrap `@Serializable`
+  `init{}`/constructor exceptions, so an `IllegalArgumentException` escaped `dispatch()` (a `suspend fun`
+  contractually returning `ServerActionResponse`) → a 500. Broadened the decode catch to `Exception`
+  (still rethrowing `CancellationException`).
+- **Strict CSP broke the bench report's inline `<script>`.** `respondStaticAsset` applies
+  `script-src 'self'` to every asset, including the published `bench/report/index.html`, whose inline
+  tooltip script was blocked. Externalized it to a same-origin `bench/report/report.js` (referenced via
+  `<script src>`, which `script-src 'self'` permits) — CSP stays strict everywhere, no per-route
+  exception; `generate.mjs` emits it and `bundle-bench-static.mjs` stages it.
+- **Cleanups:** collapsed the dead-elvis / duplicated `Failure` in the handler catch (old items 11–12,
+  `ServerActionRejection.message` is now a non-null `override`); corrected the `validationError()` KDoc
+  overflow overclaim (old item 13).
 
-3. **`safeHtmlTagName` changes `toSafeHtml` output and breaks two existing snapshot tests.**
-   `kinetica-runtime/src/Html.kt:152` maps `column`/`row`/`textInput`/`checkbox` and every
-   non-allowlisted tag to `<div data-kinetica-tag="…">`. `kinetica-test/test/KineticaSnapshotTest.kt:78`
-   and `samples/todo/test/TodoAppTest.kt:55` assert the old verbatim output and now fail
-   (`assertHtmlSnapshot` → `toSafeHtml`, strict `!=`). Those modules were not in the commit's
-   "172 tests pass" tally, so the branch does not pass its full suite. Beyond CI it is an SSR-fidelity
-   regression: `host("select")`, `textarea`, `video`, `audio`, `canvas`, `dialog`, and custom elements
-   now server-render as inert divs while the browser renderer emits them live.
-   **Fix — decide the intended SSR shape, then one of:**
-   - (a) neutralize only *executable* tags (a denylist: `script`, `iframe`, `object`, `embed`, `svg`,
-     `math`, `template`, `style`, `link`, `meta`, `base`), keeping the char-gate for everything else, so
-     legitimate DSL/HTML tags survive; **or**
-   - (b) keep the allowlist but update the two snapshots (and document that DSL tags SSR as div).
-   Option (a) preserves behavior and still closes the injection sink; prefer it. Ties to item 6.
+## Follow-up — design / altitude (safe to defer; not blocking)
 
-4. **Deferred-subtree render errors leak raw messages.**
-   `kinetica-runtime/src/ServerComponents.kt:663` sends `message = error.message ?: error.toString()`
-   into a `BoundaryError` chunk streamed to the client. The action and 500 paths were scrubbed to generic
-   strings; this parallel streaming path was not, so a throwing `ServerRenderDeferredSubtree` (the
-   documented data-fetching pattern) can stream a JDBC/credential error to any `/stream` client.
-   **Fix:** log the detail server-side and put a generic message in the `BoundaryError`, mirroring the
-   action-handler scrubbing.
+- **Two hand-maintained tag tables drift.** `safeHtmlTagName` (`Html.kt`, SSR) and `browserTagNameFor`
+  (`kinetica-browser/src/BrowserMapping.kt`, CSR) encode the DSL-tag→element mapping independently: SSR
+  renders `<column>`/`<textInput>` verbatim while the browser hydrates `<div>`/`<input>`. No shared
+  source of truth, no compile-time check. **Fix:** one tag-descriptor table in the runtime with
+  per-renderer projections.
+- **Error scrubbing is re-implemented per emission site.** The log-then-generic idiom is hand-written at
+  the deferred-subtree stream and at each demo server's 500 catch-all; a future error-emitting path can
+  forget to scrub. **Fix:** funnel error responses/chunks through one scrub helper.
+- **`ServerActionRejection` is exception-as-control-flow.** Consider a `validate: (I) -> String? = {null}`
+  parameter on `serverActionStub` so shape+domain validation is one declarative phase, keeping the
+  exception only for mid-handler faults.
+- **Reference-server dedup.** `applySecurityHeaders()` and `const SERVER_THREAD_POOL_SIZE = 8` are each
+  duplicated in the docs and sample server mains. Move into a small shared server-util (or the runtime
+  JVM source set) if one is introduced.
 
-5. **Type-invalid-but-shape-valid payload returns `200 "Server action failed."` instead of `400`.**
-   `serverActionStub.dispatch` (`ServerComponents.kt`) passes `inputSchema.validate` for e.g.
-   `quantity: 3.5` or `> Int.MAX` (both match `Number`), then `decodeFromJsonElement` into `Int` throws
-   inside `catch (Throwable)` → generic `Failure` at HTTP 200, bypassing both the 400 mapping and
-   `validationError()`.
-   **Fix:** separate payload-decode failure (client error) from handler failure — decode before the
-   `try` that guards the handler, and return a validation `Failure` (or surface it through
-   `dispatchHttp` as 400). Ties to item 7.
+## Follow-up — minor / assessed (low priority)
 
-## Remaining — design / altitude
-
-6. **Two hand-maintained tag tables drift.** `safeHtmlTagName` (`Html.kt`) and `browserTagNameFor`
-   (`kinetica-browser/src/BrowserMapping.kt`) both encode the DSL-tag→element mapping with no shared
-   source of truth; adding a DSL builder needs edits in two modules with no compile-time check. This is
-   the root cause of item 3's SSR/CSR divergence. **Fix:** one tag-descriptor table in the runtime with
-   per-renderer projections that both renderers consume.
-
-7. **`ServerActionRejection` is exception-as-control-flow.** `ServerComponents.kt:216` — the handler type
-   is `suspend (I) -> O`, so throwing is the only in-handler rejection path and any other throwable is
-   swallowed to a generic message. **Fix:** add a `validate: (I) -> String? = { null }` parameter to
-   `serverActionStub` that runs before the handler and returns a `Failure` on non-null, making
-   shape+domain validation one declarative phase; keep the exception only for mid-handler faults.
-
-8. **Fail-closed verifiers are a silent default, not a required parameter.** `ServerComponents.kt:376`
-   defaults `verifyCapabilityToken`/`verifyCsrfToken` to `{ false }`. An adopter who forgets to wire one
-   gets `"Invalid capability token."` on every action — indistinguishable from a real mismatch.
-   **Fix (consider):** make the verifiers required constructor parameters so "auth was never configured"
-   is a compile error rather than a runtime symptom. Resolves item 2's root cause too.
-
-## Remaining — minor / cleanup
-
-9. **`SERVER_THREAD_POOL_SIZE` still duplicated** in both demo companions (`docs …` and `samples …`).
-   Move next to the shared limits or into a tiny shared server-util if one is created.
-
-10. **`readBoundedRequestBody` allocates the full buffer regardless of `Content-Length`.** Optional:
-    read `Content-Length` first and reject an over-limit declared size (or size the buffer to it) before
-    allocating/reading; the bounded loop must stay because the header can lie. Also revisit whether the
-    new 64 KB default is the right framework value.
-
-11. **Duplicate `Failure` construction** in `serverActionStub`'s catch (`ServerComponents.kt:255`):
-    collapse the `if/else` to one `Failure` with a computed message.
-
-12. **Dead elvis fallback** `throwable.message ?: "Server action rejected."` (`ServerComponents.kt:256`):
-    `ServerActionRejection`'s message is non-null by construction — declare
-    `class ServerActionRejection(override val message: String)` and drop the fallback.
-
-13. **`validationError` KDoc overstates overflow prevention** (`server-components-shared/src/Contracts.kt:33`):
-    the per-call cap does not stop the cumulative `AtomicInteger cartCount` from overflowing `Int`.
-    Correct the comment (or make `cartCount` saturating/`Long` for the demo).
-
-## Assessed — low priority / not diff-introduced
-
-- **No request-read timeout on the fixed thread pool** (slowloris): real, but strictly better than the
-  prior single-thread `executor=null`; a demo-server residual, not introduced here.
-- **413 path does not drain a >64 KB request body** → a mid-upload client may see a connection reset
-  instead of a clean 413 (`com.sun.net.httpserver` drains a bounded amount on close).
+- **`readBoundedRequestBody` allocates the full 64 KB buffer regardless of `Content-Length`.** Optional:
+  reject/size by a declared `Content-Length` first (the bounded loop must stay — the header can lie).
+- **413 path does not drain an oversized body** → a client streaming ≫64 KB may see a connection reset
+  instead of a clean 413. Working-as-intended for the DoS goal: fully draining an attacker-sized body
+  would reinstate the exhaustion this guards against; `com.sun.net.httpserver` drains a bounded amount on
+  close, which covers legitimate slightly-over clients.
+- **No request-read timeout on the fixed thread pool** (slowloris): a demo-server residual, strictly
+  better than the prior single-thread `executor=null`; not introduced here.
 - **`respondText("")` (empty body) sends chunked** instead of `Content-Length: 0` — latent; no current
   caller passes an empty body.
 - **Catch-all `respondText(500)` can double-send headers** if a prior handler already sent them (client
   disconnect mid-write) — pre-existing; the client is already gone.
-- **Docs `### Hardening for production` lacks a `<!-- code: … -->` link** — no CLAUDE.md governs it and
-  the convention appears to apply at `##` granularity; cosmetic.
