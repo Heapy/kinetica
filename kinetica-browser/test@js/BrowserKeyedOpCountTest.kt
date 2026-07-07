@@ -228,7 +228,7 @@ class BrowserKeyedOpCountTest {
     }
 
     /**
-     * KSND-022 (sources: KNT-0012, INF-178, Playwright bulk-clear self-test).
+     * KSND-022 (sources: INF-178, Playwright bulk-clear self-test).
      */
     @Test
     fun clearAllUsesBulkPathWithoutPerChildRemoves() {

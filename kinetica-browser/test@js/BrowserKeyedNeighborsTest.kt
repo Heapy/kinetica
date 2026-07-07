@@ -443,7 +443,7 @@ class BrowserKeyedNeighborsTest {
     }
 
     /**
-     * KSND-033 (sources: INF-178, INF-177, KNT-0012).
+     * KSND-033 (sources: INF-178, INF-177).
      */
     @Test
     fun clearingOneRegionDoesNotBulkClearSharedParent() {

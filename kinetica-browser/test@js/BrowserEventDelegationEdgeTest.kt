@@ -252,7 +252,7 @@ class BrowserEventDelegationEdgeTest {
     }
 
     /**
-     * KSND-054 (sources: KNT-0014, PRE-069).
+     * KSND-054 (sources: PRE-069).
      */
     @Test
     fun disposeAndRemountOnSameRootDispatchesExactlyOncePerClick() {
@@ -385,7 +385,7 @@ class BrowserEventDelegationEdgeTest {
     }
 
     /**
-     * KSND-058 (sources: KNT-0006, KNT-0010, KNT-0014, INF-076, SVL-028).
+     * KSND-058 (sources: INF-076, SVL-028).
      */
     @Test
     fun templateEventHolesStayRowCorrectAfterKeyedReorder() {
