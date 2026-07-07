@@ -130,7 +130,6 @@ const heroChart = barChart({
   unit: "×",
 });
 
-// per-benchmark small multiples
 const smallMultiples = benches
   .map((b) => {
     const rows = FW_ORDER.map((f) => {
