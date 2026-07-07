@@ -446,6 +446,24 @@ const fwColorCss = FW_ORDER.map(
 const fwColorTokens = (mode) =>
   FW_ORDER.map((f) => `  --c-${f}: ${FW_COLOR[f][mode]};`).join("\n");
 
+const tooltipScript = `(function () {
+  var tip = document.getElementById("tip");
+  document.addEventListener("mousemove", function (e) {
+    var row = e.target.closest ? e.target.closest("[data-tip]") : null;
+    if (row && row.getAttribute("data-tip")) {
+      tip.textContent = row.getAttribute("data-tip");
+      tip.style.display = "block";
+      var x = Math.min(e.clientX + 14, window.innerWidth - tip.offsetWidth - 8);
+      var y = Math.min(e.clientY + 14, window.innerHeight - tip.offsetHeight - 8);
+      tip.style.left = x + "px";
+      tip.style.top = y + "px";
+    } else {
+      tip.style.display = "none";
+    }
+  });
+})();
+`;
+
 const html = `<title>Kinetica vs React · js-framework-benchmark</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -758,25 +776,11 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
 </div>
 
 <div id="tip" role="tooltip"></div>
-<script>
-(function () {
-  var tip = document.getElementById("tip");
-  document.addEventListener("mousemove", function (e) {
-    var row = e.target.closest ? e.target.closest("[data-tip]") : null;
-    if (row && row.getAttribute("data-tip")) {
-      tip.textContent = row.getAttribute("data-tip");
-      tip.style.display = "block";
-      var x = Math.min(e.clientX + 14, window.innerWidth - tip.offsetWidth - 8);
-      var y = Math.min(e.clientY + 14, window.innerHeight - tip.offsetHeight - 8);
-      tip.style.left = x + "px";
-      tip.style.top = y + "px";
-    } else {
-      tip.style.display = "none";
-    }
-  });
-})();
-</script>
+<script src="report.js"></script>
 `;
 
 writeFileSync(outPath, html.replace(/[ \t]+$/gm, ""));
+const scriptOutPath = join(dirname(outPath), "report.js");
+writeFileSync(scriptOutPath, tooltipScript);
 console.log(`report written to ${outPath}`);
+console.log(`report script written to ${scriptOutPath}`);

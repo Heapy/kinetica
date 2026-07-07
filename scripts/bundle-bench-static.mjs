@@ -74,6 +74,7 @@ stageKotlinApp(
 // 3. The comparison report (self-contained: inlines its data, no fetch() at runtime).
 mkdirSync(join(out, "report"), { recursive: true });
 cpSync(join(repoRoot, "bench", "report", "index.html"), join(out, "report", "index.html"));
+cpSync(join(repoRoot, "bench", "report", "report.js"), join(out, "report", "report.js"));
 
 // 4. Raw results JSON, for anyone who wants the numbers instead of the rendered report.
 cpSync(join(repoRoot, "bench", "results"), join(out, "results"), { recursive: true });
