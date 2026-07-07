@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Builds the kinetica-docs Docker image: packages the site, bundles both client modules,
-# stages artifacts into a minimal build context, and runs docker build.
+# Builds the kinetica-docs Docker image: packages the site, bundles both client modules and
+# the benchmark demo pages/report, stages artifacts into a minimal build context, and runs
+# docker build. Requires `npm install` (or `npm ci`) in bench/ first.
 # Set STAGE_ONLY=1 to stop after preparing docs/.docker-stage for docker buildx.
 set -euo pipefail
 
@@ -14,12 +15,19 @@ cd "$repo_root"
 ./kotlin package -m docs-site
 node scripts/bundle-docs.mjs
 
+# Benchmark demo pages + report, published alongside the docs site (see performance.md).
+node bench/build.mjs
+node bench/build-kinetica.mjs
+node bench/build-compose.mjs
+node scripts/bundle-bench-static.mjs
+
 rm -rf "$stage"
 mkdir -p "$stage/bundles"
 cp build/tasks/_docs-site_executableJarJvm/docs-site-jvm-executable.jar "$stage/docs-site.jar"
 cp -R build/tasks/_docs-site_assets "$stage/bundles/_docs-site_assets"
 cp -R build/tasks/_docs-client_bundle "$stage/bundles/_docs-client_bundle"
 cp -R build/tasks/_server-components-client_bundle "$stage/bundles/_server-components-client_bundle"
+cp -R build/tasks/_bench_dist "$stage/bundles/_bench_dist"
 cp docs/Dockerfile "$stage/Dockerfile"
 
 if [[ "${STAGE_ONLY:-0}" == "1" ]]; then
