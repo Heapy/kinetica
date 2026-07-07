@@ -218,7 +218,6 @@ class BrowserControlledInputTest {
      * KSND-065 (sources: INF-153).
      */
     // KSND-065: CONFIRMED FRAMEWORK BUG (triage 2026-07-07): identity short-circuit (mounted.currentNode === next, BrowserKineticaApp.kt:351) skips patchHost controlled-input resync for memoized surviving rows.
-    @Ignore
     @Test
     fun shrinkingControlledCheckboxListAppliesFreshCheckedToSurvivors() {
         installTestDocument()

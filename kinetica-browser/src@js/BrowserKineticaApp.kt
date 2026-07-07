@@ -348,7 +348,7 @@ public class BrowserKineticaApp(
     // --- patching ---
 
     private fun patch(mounted: Mounted, next: Node, parent: Element, path: String): Mounted {
-        if (mounted.currentNode === next) {
+        if (mounted.currentNode === next && !mounted.isControlledInputHost()) {
             return mounted
         }
         return when {
@@ -981,6 +981,9 @@ private class MountedHost(
 ) : Mounted() {
     override val currentNode: Node get() = hostNode
 }
+
+private fun Mounted.isControlledInputHost(): Boolean =
+    this is MountedHost && (hostNode.tag == "textInput" || hostNode.tag == "checkbox")
 
 private class MountedTemplate(
     var templateNode: TemplateNode,
