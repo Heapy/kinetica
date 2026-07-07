@@ -191,6 +191,67 @@ class KineticaIrFrameCompileTest {
     }
 
     @Test
+    fun eachContentTableIsTheKeyedRowFrame() {
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.each
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Rows(items: List<String>) {
+                        each(items, key = { it }) { item ->
+                            val row = state { item }
+                            text(row.value)
+                            keyed("nested") {
+                                val nested = state { "nested:" + item }
+                                text(nested.value)
+                            }
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope, items: List<String>): Node =
+                        runtime.render(scope) { Rows(items) }.tree
+                """,
+            ),
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            compiled.invokeRender(
+                "app.MainKt",
+                "render",
+                List::class.java to listOf("a"),
+                runtime = runtime,
+                scope = scope,
+            )
+
+            val rootFrame = privateField(scope, "rootFrame")!!
+            val renderFrame = frameRegions(rootFrame).values.single()!!
+            val rowsFrame = frameChildren(renderFrame)[0]!!
+            val rowFrame = childMap(frameChildren(rowsFrame)[0])["a"]!!
+            val rowTable = frameTable(rowFrame)
+            assertTrue(rowTable != null, "each row keyed frame must be the numbered row frame")
+            assertEquals(1, rowTable.slotCount, "row state ordinal belongs to the keyed row frame")
+            assertEquals(1, rowTable.childCount, "nested region ordinal belongs to the keyed row frame")
+            assertEquals(null, privateField(rowFrame, "regions"), "row content must not open a second region frame")
+
+            val nestedKeyedFrame = childMap(frameChildren(rowFrame)[0])["nested"]!!
+            assertEquals(null, frameTable(nestedKeyedFrame), "ordinary keyed frames remain growable")
+            assertTrue(
+                frameRegions(nestedKeyedFrame).isNotEmpty(),
+                "nested region inside the row must still open a child region frame",
+            )
+        }
+    }
+
+    @Test
     fun frameTableStaticsCarryRegionCounts() {
         harness.compile(
             mapOf(
@@ -349,4 +410,21 @@ class KineticaIrFrameCompileTest {
     }
 
     private fun Node.toDebugString(): String = toString()
+
+    private fun privateField(instance: Any, name: String): Any? =
+        instance.javaClass.getDeclaredField(name).also { it.isAccessible = true }.get(instance)
+
+    private fun frameTable(frame: Any): FrameTable? =
+        privateField(frame, "table") as? FrameTable
+
+    private fun frameRegions(frame: Any): Map<*, *> =
+        privateField(frame, "regions") as? Map<*, *> ?: emptyMap<Any, Any>()
+
+    @Suppress("UNCHECKED_CAST")
+    private fun frameChildren(frame: Any): Array<Any?> =
+        privateField(frame, "children") as Array<Any?>
+
+    @Suppress("UNCHECKED_CAST")
+    private fun childMap(entry: Any?): Map<Any, Any> =
+        entry as Map<Any, Any>
 }

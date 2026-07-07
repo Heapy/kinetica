@@ -289,9 +289,9 @@ internal class Frame(
     }
 
     /**
-     * Disposes everything except persistence-addressed slots, recursively: row content
-     * lives in region frames below the keyed frame, so persistent cells at any depth must
-     * survive while their siblings (transients, events, caches) are torn down.
+     * Disposes everything except persistence-addressed slots, recursively. Persistent
+     * cells can live on this frame or in nested child frames, so state at any depth must
+     * survive while sibling transients, events, and caches are torn down.
      */
     internal fun stripForPersistentRetention(runtime: KineticaRuntime) {
         skipCache = null

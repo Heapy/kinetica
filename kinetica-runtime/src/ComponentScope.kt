@@ -129,8 +129,8 @@ public class ComponentScope public constructor(
         return value
     }
 
-    internal fun enterKeyedChildFrame(ordinal: Int, key: Any) {
-        enterFrame(currentFrame.enterKeyedChild(ordinal, key, table = null, generation = slotGeneration))
+    internal fun enterKeyedChildFrame(ordinal: Int, key: Any, table: FrameTable? = null) {
+        enterFrame(currentFrame.enterKeyedChild(ordinal, key, table = table, generation = slotGeneration))
     }
 
     internal fun enterFixedChildFrame(ordinal: Int) {
@@ -683,6 +683,7 @@ public class ComponentScope public constructor(
 
     internal fun <T> renderEachRegion(
         ordinal: Int,
+        rowTable: FrameTable,
         items: Iterable<T>,
         key: (T) -> Any,
         memoize: Boolean,
@@ -700,7 +701,7 @@ public class ComponentScope public constructor(
         for (keyed in snapshot) {
             seen += keyed.key
             val rowKey = keyed.key.toString()
-            val rowFrame = currentFrame.enterKeyedChild(ordinal, keyed.key, table = null, generation = slotGeneration)
+            val rowFrame = currentFrame.enterKeyedChild(ordinal, keyed.key, table = rowTable, generation = slotGeneration)
             val hit = if (memoize) frameSkipHit(rowFrame, listOf(keyed.item)) else null
             val rowCertified: Boolean
             if (hit != null) {
@@ -900,12 +901,13 @@ public fun <T> ComponentScope.each(
  */
 public fun <T> ComponentScope.eachRegion(
     ordinal: Int,
+    rowTable: FrameTable,
     items: Iterable<T>,
     key: (T) -> Any,
     memoize: Boolean = true,
     content: ComponentScope.(T) -> Unit,
 ) {
-    renderEachRegion(ordinal, items, key, memoize, content)
+    renderEachRegion(ordinal, rowTable, items, key, memoize, content)
 }
 
 public interface LazyItems<out T> : Iterable<T> {
@@ -976,6 +978,7 @@ public fun <T> ComponentScope.lazyEach(
  */
 public fun <T> ComponentScope.lazyEachRegion(
     ordinal: Int,
+    rowTable: FrameTable,
     items: LazyItems<T>,
     key: (T) -> Any,
     retain: RetainPolicy = RetainPolicy.Keyed,
@@ -1000,7 +1003,7 @@ public fun <T> ComponentScope.lazyEachRegion(
     snapshot.forEachIndexed { index, keyed ->
         if (index in visibleRange) {
             visibleKeys += keyed.key
-            enterKeyedChildFrame(ordinal, keyed.key)
+            enterKeyedChildFrame(ordinal, keyed.key, rowTable)
             try {
                 content(keyed.item)
             } catch (pending: ResourcePendingException) {

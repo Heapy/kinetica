@@ -59,9 +59,11 @@ import org.jetbrains.kotlin.name.Name
  *    and fills the call's trailing `ordinal` parameter;
  * 2. retargets region constructs (`keyed`, `each`, boundaries, …) to their frame-native
  *    `*Region` overloads, assigning child ordinals from the enclosing region;
- * 3. wraps every fresh-region lambda (region content, `@UiComponent`-typed content
- *    parameters) in `beginRegionFrame(<table>) / try { … } finally { endRegionFrame() }`
- *    with its own numbering region and file-level [io.heapy.kinetica.FrameTable] static;
+ * 3. gives every fresh-region lambda (region content, `@UiComponent`-typed content
+ *    parameters) its own numbering region and file-level [io.heapy.kinetica.FrameTable]
+ *    static; most are wrapped in `beginRegionFrame(<table>) / try { … } finally {
+ *    endRegionFrame() }`, while `each`/`lazyEach` row content passes its table to the
+ *    keyed row frame directly;
  * 4. stages a child ordinal before each `@UiComponent` call (`scope.ordinal(n)`; LIFO in
  *    the runtime, so calls in argument position of other component calls stay correct)
  *    and gives the component body a `beginComponentFrame(<table>)` prologue;
@@ -172,6 +174,8 @@ private val REGION_CONTENT_PARAMS = mapOf(
     "suspendSubtree" to setOf("content", "fallback"),
     "exitGroup" to setOf("content"),
 )
+
+private val MERGED_EACH_REGION_NAMES = setOf("each", "lazyEach")
 
 /** Region constructs that consume a slot ordinal for their boundary state. */
 private val REGION_STATE_SLOTS = setOf("errorBoundary", "loadingBoundary", "suspendSubtree")
@@ -382,14 +386,23 @@ internal class KineticaFrameTransformer(
             // Content lambdas become fresh numbering regions with their own tables.
             for (parameter in callee.parameters) {
                 if (parameter.kind != IrParameterKind.Regular) continue
-                if (parameter.name.asString() !in contentParams) continue
+                val parameterName = parameter.name.asString()
+                if (parameterName !in contentParams) continue
                 val argument = expression.arguments[parameter.indexInParameters] ?: continue
                 val lambda = argument as? IrFunctionExpression ?: run {
                     report("${shared.functionFqName}: $name ${parameter.name} is not a lambda literal; left on the legacy path.")
                     expression.transformChildrenVoid(this)
                     return expression
                 }
-                wrapFreshRegion(lambda)
+                if (name in MERGED_EACH_REGION_NAMES && parameterName == "content") {
+                    val table = buildFreshRegionTable(lambda) ?: run {
+                        expression.transformChildrenVoid(this)
+                        return expression
+                    }
+                    extraArguments["rowTable"] = builder.irGetField(null, table)
+                } else {
+                    wrapFreshRegion(lambda)
+                }
             }
 
             val dropParameters = if (name == "suspendSubtree") setOf("key") else emptySet()
@@ -455,6 +468,9 @@ internal class KineticaFrameTransformer(
         private fun wrapFreshRegion(lambdaExpression: IrFunctionExpression) {
             wrapFreshRegionOf(lambdaExpression, shared)
         }
+
+        private fun buildFreshRegionTable(lambdaExpression: IrFunctionExpression): IrField? =
+            buildFreshRegionTableOf(lambdaExpression, shared)
     }
 
     /**
@@ -492,20 +508,32 @@ internal class KineticaFrameTransformer(
     }
 
     private fun wrapFreshRegionOf(lambdaExpression: IrFunctionExpression, shared: FunctionShared) {
+        val table = buildFreshRegionTableOf(lambdaExpression, shared) ?: return
+        val lambda = lambdaExpression.function
+        val receiver = lambda.parameters.first {
+            it.kind == IrParameterKind.ExtensionReceiver &&
+                it.type.classOrNull?.owner?.kotlinFqName == COMPONENT_SCOPE_FQ
+        }
+        wrapBodyInFrame(lambda, receiver, table, component = false)
+    }
+
+    private fun buildFreshRegionTableOf(
+        lambdaExpression: IrFunctionExpression,
+        shared: FunctionShared,
+    ): IrField? {
         val lambda = lambdaExpression.function
         val receiver = lambda.parameters.firstOrNull { it.kind == IrParameterKind.ExtensionReceiver }
         if (receiver == null || receiver.type.classOrNull?.owner?.kotlinFqName != COMPONENT_SCOPE_FQ) {
             report("${shared.functionFqName}: content lambda without ComponentScope receiver; left unwrapped.")
-            return
+            return null
         }
         if (lambda.body !is IrBlockBody) {
             report("${shared.functionFqName}: content lambda without a block body; left unwrapped.")
-            return
+            return null
         }
         val regionNumbering = RegionNumbering()
         lambda.body?.transformChildrenVoid(Walker(lambda, shared, regionNumbering))
-        val table = addTableField(shared.functionFqName, regionNumbering)
-        wrapBodyInFrame(lambda, receiver, table, component = false)
+        return addTableField(shared.functionFqName, regionNumbering)
     }
 
     private fun fillOrdinal(expression: IrCall, ordinal: Int) {
