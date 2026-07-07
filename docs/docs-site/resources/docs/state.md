@@ -70,7 +70,7 @@ field state). Renders that read a store re-render when it changes.
 
 ## Events
 
-<!-- code: kinetica-runtime/src/Effects.kt (event, StableEvent), kinetica-browser/src@js/BrowserKineticaApp.kt (dispatchAndRender) -->
+<!-- code: kinetica-runtime/src/Effects.kt (event, StableEvent), kinetica-runtime/src/Cell.kt (PropagationWave), kinetica-browser/src@js/BrowserKineticaApp.kt (dispatchAndRender) -->
 
 ```kotlin
 val add = event { todos = todos + draft }         // () -> Unit
@@ -81,6 +81,13 @@ val onInput = event<String> { draft = it }        // (String) -> Unit
 re-render does not re-register anything. Handlers run on the single UI loop: the event executes,
 all cell writes apply, then exactly one synchronous render commits. There is no batching to
 configure and no torn intermediate state to observe.
+
+Propagation is glitch-free: each write recomputes an affected `derived` at most once and fires
+observers only after the whole graph has settled, so an observer never reads a half-updated mix
+of old and new values. This is a single-writer contract — writing cells concurrently from
+several threads into the same observed graph, or writing a cell from inside one of its
+observers, is outside it. There is also no update-depth guard: an effect that unconditionally
+writes state it also watches re-renders forever.
 
 ## Try it
 
