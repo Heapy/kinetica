@@ -41,6 +41,7 @@ public class ComponentScope public constructor(
     private var slotGeneration = 0
     private val layoutEffects = mutableListOf<() -> Unit>()
     private val postCommitEffects = mutableListOf<() -> Unit>()
+    private var nextChildRegionOrdinal = 0
 
     // --- Frame kernel: ordinal-addressed storage assigned by the compiler plugin ---
     internal val rootFrame: Frame = Frame(table = null, parent = null)
@@ -216,9 +217,17 @@ public class ComponentScope public constructor(
         nodeStack.last().size
 
     internal fun recordChildRegion(ordinal: Int, start: Int) {
+        recordChildRegion(ordinal, start, nodeStack.last().size)
+    }
+
+    private fun recordChildRegion(ordinal: Int, start: Int, end: Int) {
         val top = regionStack.lastIndex
         val frame = regionStack[top] ?: mutableListOf<ChildRegion>().also { regionStack[top] = it }
-        frame += ChildRegion(ordinal, start, nodeStack.last().size)
+        frame += ChildRegion(
+            ordinal = currentFrame.childRegionOrdinal(ordinal) { nextChildRegionOrdinal++ },
+            start = start,
+            end = end,
+        )
     }
 
     public fun staticNode(
@@ -748,9 +757,7 @@ public class ComponentScope public constructor(
             }
             allCertified = allCertified && rowCertified
         }
-        val top = regionStack.lastIndex
-        val frame = regionStack[top] ?: mutableListOf<ChildRegion>().also { regionStack[top] = it }
-        frame += ChildRegion(ordinal, frameStart, outFrame.size)
+        recordChildRegion(ordinal, frameStart, outFrame.size)
         recordKeyedEmission(outFrame, frameStart, allCertified && snapshot.isNotEmpty())
         currentFrame.keyedChildKeys(ordinal).forEach { existingKey ->
             if (existingKey !in seen) {

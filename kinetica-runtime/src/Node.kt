@@ -47,6 +47,7 @@ internal fun Int.stripChildShapeFlagsForReplacedChildren(): Int =
 
 @Serializable
 public data class ChildRegion(
+    /** Scope-stable region id allocated from the rendering frame and compiler child ordinal. */
     val ordinal: Int,
     val start: Int,
     val end: Int,

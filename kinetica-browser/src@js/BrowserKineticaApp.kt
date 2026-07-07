@@ -732,13 +732,7 @@ public class BrowserKineticaApp(
         val end: Int,
     )
 
-    private data class StaticGapKey(
-        val beforeOrdinal: Int?,
-        val afterOrdinal: Int?,
-    )
-
     private data class StaticGap(
-        val key: StaticGapKey,
         val start: Int,
         val end: Int,
     )
@@ -780,20 +774,16 @@ public class BrowserKineticaApp(
         oldRegionSegments.forEach { region ->
             oldRegionByOrdinal[region.ordinal] = region
         }
-        val oldGapByKey = HashMap<StaticGapKey, StaticGap>(oldRegionSegments.size + 1)
-        staticGaps(oldRegionSegments, mounted.size).forEach { gap ->
-            oldGapByKey[gap.key] = gap
-        }
-
         val matchedRegionOrdinals = HashSet<Int>(newRegionSegments.size)
-        val matchedGapKeys = HashSet<StaticGapKey>(newRegionSegments.size + 1)
+        val oldGaps = staticGaps(oldRegionSegments, mounted.size)
+        val matchedGapIndexes = HashSet<Int>(newRegionSegments.size + 1)
         val newGaps = staticGaps(newRegionSegments, next.size)
         val plans = ArrayList<ChildPlan>(newRegionSegments.size * 2 + 1)
         for (index in 0..newRegionSegments.size) {
             val newGap = newGaps[index]
-            val oldGap = oldGapByKey[newGap.key]
+            val oldGap = oldGaps.getOrNull(index)
             if (oldGap != null) {
-                matchedGapKeys += newGap.key
+                matchedGapIndexes += index
             }
             plans += StaticPlan(
                 oldStart = oldGap?.start ?: 0,
@@ -854,8 +844,8 @@ public class BrowserKineticaApp(
                 unmountRange(parent, mounted, region.start, region.end - 1)
             }
         }
-        oldGapByKey.values.forEach { gap ->
-            if (gap.key !in matchedGapKeys) {
+        oldGaps.forEachIndexed { index, gap ->
+            if (index !in matchedGapIndexes) {
                 unmountRange(parent, mounted, gap.start, gap.end - 1)
             }
         }
@@ -882,18 +872,14 @@ public class BrowserKineticaApp(
     private fun staticGaps(regions: List<RegionSegment>, childCount: Int): List<StaticGap> {
         val gaps = ArrayList<StaticGap>(regions.size + 1)
         var cursor = 0
-        var previousOrdinal: Int? = null
         regions.forEach { region ->
             gaps += StaticGap(
-                key = StaticGapKey(previousOrdinal, region.ordinal),
                 start = cursor,
                 end = region.start,
             )
             cursor = region.end
-            previousOrdinal = region.ordinal
         }
         gaps += StaticGap(
-            key = StaticGapKey(previousOrdinal, null),
             start = cursor,
             end = childCount,
         )

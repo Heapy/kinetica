@@ -79,6 +79,7 @@ internal class Frame(
     private var children: Array<Any?>? = null
     private var childEnterStamp: IntArray? = null
     private var childForks: IntArray? = null
+    private var childRegionOrdinals: IntArray? = null
 
     // Region frames created by compiler-wrapped content lambdas, keyed by the identity of
     // their FrameTable static — one table per wrapped lambda literal, so table identity is
@@ -258,6 +259,18 @@ internal class Frame(
 
     internal fun keyedChildKeys(ordinal: Int): Set<Any> =
         (children?.getOrNull(ordinal) as? HashMap<*, *>)?.let { childMap(it).keys.toSet() } ?: emptySet()
+
+    internal fun childRegionOrdinal(ordinal: Int, allocate: () -> Int): Int {
+        ensureChildRegionOrdinalCapacity(ordinal)
+        val ordinals = childRegionOrdinals!!
+        val existing = ordinals[ordinal]
+        if (existing != UNASSIGNED_REGION_ORDINAL) {
+            return existing
+        }
+        val assigned = allocate()
+        ordinals[ordinal] = assigned
+        return assigned
+    }
 
     internal fun removeKeyedChild(ordinal: Int, key: Any, runtime: KineticaRuntime) {
         val map = (children?.getOrNull(ordinal) as? HashMap<*, *>)?.let(::childMap) ?: return
@@ -473,11 +486,31 @@ internal class Frame(
         childForks = childForks?.copyOf(capacity)
     }
 
+    private fun ensureChildRegionOrdinalCapacity(ordinal: Int) {
+        val existing = childRegionOrdinals
+        if (existing == null) {
+            val capacity = maxOf(table?.childCount ?: GROWABLE_INITIAL, ordinal + 1)
+            childRegionOrdinals = IntArray(capacity) { UNASSIGNED_REGION_ORDINAL }
+            return
+        }
+        if (ordinal < existing.size) return
+        require(table == null) {
+            "child region ordinal $ordinal out of range for ${table?.functionFqName} (childCount=${table?.childCount})"
+        }
+        val capacity = newCapacity(ordinal, existing.size)
+        childRegionOrdinals = existing.copyOf(capacity).also { expanded ->
+            for (index in existing.size until expanded.size) {
+                expanded[index] = UNASSIGNED_REGION_ORDINAL
+            }
+        }
+    }
+
     private fun newCapacity(ordinal: Int, current: Int): Int = maxOf(ordinal + 1, current * 2)
 
     private companion object {
         private const val GROWABLE_INITIAL = 4
         private const val FIRST_INVOCATION = 0
+        private const val UNASSIGNED_REGION_ORDINAL = -1
     }
 }
 
