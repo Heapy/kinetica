@@ -731,7 +731,7 @@ class RuntimeSmokeServerTest {
         assertFalse("9bad=\"bad\"" in unsafeHtml)
         assertFalse("data bad=\"space\"" in unsafeHtml)
 
-        // Well-formed but executable tag names must be neutralized to a div by the allowlist —
+        // Well-formed but executable tag names must be neutralized to a div —
         // text inside a real <script> would execute even though it's entity-escaped on the way out.
         listOf("script", "iframe", "object", "embed", "svg", "style", "template").forEach { dangerousTag ->
             val neutralized = HostNode(
@@ -744,6 +744,41 @@ class RuntimeSmokeServerTest {
                 "tag '$dangerousTag' should be neutralized to div",
             )
         }
+
+        assertEquals(
+            "<div data-kinetica-tag=\"SCRIPT\">x</div>",
+            HostNode(
+                tag = "SCRIPT",
+                children = listOf(TextNode("x")),
+            ).toSafeHtml(),
+            "dangerous tag denylisting must be case-insensitive",
+        )
+        assertEquals(
+            "<select><option>One</option></select>",
+            HostNode(
+                tag = "select",
+                children = listOf(
+                    HostNode(
+                        tag = "option",
+                        children = listOf(TextNode("One")),
+                    ),
+                ),
+            ).toSafeHtml(),
+            "legitimate HTML tags should render verbatim",
+        )
+        assertEquals(
+            "<column><row>payload</row></column>",
+            HostNode(
+                tag = "column",
+                children = listOf(
+                    HostNode(
+                        tag = "row",
+                        children = listOf(TextNode("payload")),
+                    ),
+                ),
+            ).toSafeHtml(),
+            "layout DSL tags should render verbatim in SSR snapshots",
+        )
 
         assertTrue(isPublicHtmlAttribute("aria-label", "Kept"))
         assertFalse(isPublicHtmlAttribute("event:onClick", "event-0"))

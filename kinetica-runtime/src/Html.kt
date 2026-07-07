@@ -138,102 +138,25 @@ private fun isSafeHtmlName(name: String): Boolean =
 /**
  * Maps a [HostNode] tag to the concrete HTML element name emitted by [toSafeHtml].
  *
- * Abstract layout tags (`column`/`row`) map to `div`, matching the browser renderer's flex layout.
- * Anything else not on the explicit allowlist also falls back to `div`. The allowlist is the
- * security boundary — a hand-built `HostNode(tag = "script")` or `"iframe"` serializes as
- * `<div data-kinetica-tag="script">…</div>` rather than a live element, so SSR cannot introduce a
- * script-injection sink even if attacker-influenced data ever reaches a tag name.
+ * Well-formed tag names render verbatim so SSR snapshots preserve the DSL tree: layout tags like
+ * `column`/`row`, form controls, media tags, canvas, dialog, and custom elements keep their
+ * original names, matching pre-existing SSR behavior. Malformed names still fall back to `div`
+ * through the character gate.
  *
- * This is intentionally **narrower** than `browserTagNameFor` (kinetica-browser): the browser
- * renderer maps the interactive DSL tags `textInput`/`checkbox` to `<input>` for a live hydrated
- * app, but SSR does not hydrate, so those tags render as a neutral `<div>` here. Pages that need
- * an interactive input must use a `ClientRef` island rather than relying on SSR for form controls.
+ * The security boundary is a denylist for executable or document-mutating elements, checked
+ * case-insensitively before the character gate. A hand-built `HostNode(tag = "script")` serializes
+ * as `<div data-kinetica-tag="script">…</div>` rather than a live element, so SSR cannot introduce
+ * a script-injection sink even if attacker-influenced data ever reaches a tag name.
  */
 internal fun safeHtmlTagName(tag: String): String =
-    when (tag) {
-        // Abstract layout tags — rendered as a styled div, same as the browser renderer.
-        "column", "row" -> "div"
-        // Allowlisted concrete HTML tags safe to emit from SSR. Anything that executes content
-        // (script, iframe, object, embed, svg, math, template, style, link, meta, base, …) is
-        // intentionally absent and falls through to the div fallback below.
-        "a",
-        "abbr",
-        "address",
-        "article",
-        "aside",
-        "b",
-        "blockquote",
-        "br",
-        "button",
-        "caption",
-        "cite",
-        "code",
-        "col",
-        "colgroup",
-        "data",
-        "dd",
-        "del",
-        "details",
-        "dfn",
-        "div",
-        "dl",
-        "dt",
-        "em",
-        "figcaption",
-        "figure",
-        "footer",
-        "form",
-        "h1",
-        "h2",
-        "h3",
-        "h4",
-        "h5",
-        "h6",
-        "header",
-        "hgroup",
-        "hr",
-        "i",
-        "img",
-        "input",
-        "ins",
-        "kbd",
-        "label",
-        "li",
-        "main",
-        "mark",
-        "nav",
-        "ol",
-        "optgroup",
-        "option",
-        "p",
-        "pre",
-        "q",
-        "s",
-        "samp",
-        "section",
-        "small",
-        "span",
-        "strong",
-        "sub",
-        "summary",
-        "sup",
-        "table",
-        "tbody",
-        "td",
-        "tfoot",
-        "th",
-        "thead",
-        "time",
-        "tr",
-        "u",
-        "ul",
-        "var",
-        "wbr",
-        -> tag
-        // Anything else (script, iframe, object, embed, svg, template, style, …, as well as any
-        // malformed name) falls back to a plain div — never an executable element.
-        else -> "div"
-    }
+    if (tag.lowercase() in DangerousHtmlTags) "div"
+    else tag.takeIf(::isSafeHtmlName) ?: "div"
+
+private val DangerousHtmlTags: Set<String> = setOf(
+    "script", "iframe", "object", "embed", "svg", "math", "template",
+    "style", "link", "meta", "base", "frame", "frameset", "applet",
+    "noscript", "foreignobject", "portal", "xmp", "noembed",
+)
 
 private val UrlValuedAttributes = setOf(
     "action",
