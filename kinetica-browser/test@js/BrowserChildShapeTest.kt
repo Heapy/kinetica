@@ -12,7 +12,6 @@ import io.heapy.kinetica.store
 import io.heapy.kinetica.text
 import org.w3c.dom.Element
 import org.w3c.dom.Node as DomNode
-import kotlin.test.Ignore
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotSame
@@ -109,8 +108,6 @@ class BrowserChildShapeTest {
     /**
      * KSND-109 (sources: INF-172, RCT-016, PRE-127).
      */
-    // KSND-109: CONFIRMED FRAMEWORK BUG (triage 2026-07-07): mixed static+keyed child lists — shouldReconcileKeyed requires ALL children keyed (BrowserKineticaApp.kt:714-727), so length changes fall to index-aligned patchPositionalChildren and shift statics/rows into replace(); fix needs per-region boundaries / conditional placeholders.
-    @Ignore
     @Test
     fun leadingAndTrailingTextTogglesLeaveHostIdentityAndNoOrphans() {
         installTestDocument()
@@ -324,8 +321,6 @@ class BrowserChildShapeTest {
     /**
      * KSND-114 (sources: INF-029, RCT-013, PRE-055).
      */
-    // KSND-114: CONFIRMED FRAMEWORK BUG (triage 2026-07-07): mixed static+keyed child lists — shouldReconcileKeyed requires ALL children keyed (BrowserKineticaApp.kt:714-727), so length changes fall to index-aligned patchPositionalChildren and shift statics/rows into replace(); fix needs per-region boundaries / conditional placeholders.
-    @Ignore
     @Test
     fun independentNullTogglesBetweenFixedSiblingsKeepFixedSiblingIdentity() {
         installTestDocument()
