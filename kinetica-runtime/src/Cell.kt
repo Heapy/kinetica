@@ -72,7 +72,6 @@ internal interface ReactiveNode {
 private class ListenerRegistration(val listener: () -> Unit)
 
 private class CommittedWrite<T>(
-    val previous: T,
     val next: T,
     val preVersion: Long,
 )
@@ -236,10 +235,9 @@ private class PropagationWave {
     }
 }
 
-internal class MutableCellImpl<T>(
+internal open class MutableCellImpl<T>(
     initial: T,
     private val policy: EqualityPolicy<T>,
-    private val onWrite: ((old: T, new: T) -> Unit)? = null,
 ) : MutableCell<T>, ObservableCell<T>, ReactiveNode {
     // Per-instance write lock. Each cell serializes only its OWN read-modify-write
     // commits; writes to independent cells never contend, and there is no single
@@ -333,18 +331,21 @@ internal class MutableCellImpl<T>(
         versionCounter.incrementAndGet()
         current.value = next
         ReactiveClock.advance()
-        return CommittedWrite(previous, next, preVersion)
+        return CommittedWrite(next, preVersion)
     }
 
     private fun notifyCommittedWrite(committed: CommittedWrite<T>) {
-        // onWrite still fires on every changed write, before propagation (preserves
+        // onCommittedWrite still fires on every changed write, before propagation (preserves
         // ComponentScope.state -> runtime.invalidate).
-        onWrite?.invoke(committed.previous, committed.next)
+        onCommittedWrite(committed.next)
         // FAST-PATH: only spawn a wave when someone is actually listening or derives from
         // this cell — keeps writes to isolated cells lean (R09/R12).
         if (dependents.value.isNotEmpty() || listeners.value.isNotEmpty()) {
             schedulePropagation(this, committed.preVersion)
         }
+    }
+
+    protected open fun onCommittedWrite(next: T) {
     }
 }
 

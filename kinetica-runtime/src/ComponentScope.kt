@@ -123,6 +123,10 @@ public class ComponentScope public constructor(
     internal fun frameSlotValueOrNull(ordinal: Int): Any? =
         currentFrame.slotValueOrNull(ordinal)
 
+    internal fun touchFrameSlot(ordinal: Int, transient: Boolean) {
+        currentFrame.touchSlot(ordinal, slotGeneration, transient)
+    }
+
     /** Stores [value] in the slot, replacing any previous holder (identity-keyed slots). */
     internal fun <T> frameSlotTouch(ordinal: Int, transient: Boolean, value: T): T {
         currentFrame.setSlotValue(ordinal, slotGeneration, transient, value)
@@ -790,24 +794,87 @@ public fun <T> ComponentScope.state(
     initial: () -> T,
 ): MutableCell<T> {
     if (ordinal < 0) throw MissingKineticaPluginException("state")
-    return frameSlot(ordinal, transient) {
-        newStateCell("slot:$ordinal", policy, persistent, transient, initial)
-    }
+    return stateCellSlot(ordinal, policy, persistent, transient, initial)
 }
 
-private fun <T> ComponentScope.newStateCell(
-    slotLabel: String,
+private fun <T> ComponentScope.stateCellSlot(
+    ordinal: Int,
     policy: EqualityPolicy<T>,
     persistent: Boolean,
     transient: Boolean,
     initial: () -> T,
-): MutableCellImpl<T> =
-    MutableCellImpl(
-        initial = initial(),
-        policy = policy,
-        onWrite = { _, next ->
-            recordStateWrite()
-            runtime.record(
+): MutableCellImpl<T> {
+    if (transient) {
+        markEachCapturesUnsafe()
+    }
+    val existing = frameSlotValueOrNull(ordinal)
+    if (existing != null) {
+        touchFrameSlot(ordinal, transient)
+        @Suppress("UNCHECKED_CAST")
+        return existing as MutableCellImpl<T>
+    }
+    return frameSlotTouch(
+        ordinal = ordinal,
+        transient = transient,
+        value = StateCellImpl(
+            initial = initial(),
+            policy = policy,
+            scope = this,
+            slotLabel = "slot:$ordinal",
+            persistent = persistent,
+            transient = transient,
+        ),
+    )
+}
+
+private fun <T> ComponentScope.stateCellSlot(
+    ordinal: Int,
+    slotId: SlotId,
+    policy: EqualityPolicy<T>,
+    persistent: Boolean,
+    transient: Boolean,
+    initial: () -> T,
+): MutableCellImpl<T> {
+    if (transient) {
+        markEachCapturesUnsafe()
+    }
+    val existing = frameSlotValueOrNull(ordinal)
+    if (existing != null) {
+        touchFrameSlot(ordinal, transient)
+        @Suppress("UNCHECKED_CAST")
+        return existing as MutableCellImpl<T>
+    }
+    return frameSlotTouch(
+        ordinal = ordinal,
+        transient = transient,
+        value = StateCellImpl(
+            initial = if (hasPendingRestoredValue(slotId)) {
+                @Suppress("UNCHECKED_CAST")
+                takePendingRestoredValue(slotId) as T
+            } else {
+                initial()
+            },
+            policy = policy,
+            scope = this,
+            slotLabel = slotId.stableKey(),
+            persistent = persistent,
+            transient = transient,
+        ),
+    )
+}
+
+private class StateCellImpl<T>(
+    initial: T,
+    policy: EqualityPolicy<T>,
+    private val scope: ComponentScope,
+    private val slotLabel: String,
+    private val persistent: Boolean,
+    private val transient: Boolean,
+) : MutableCellImpl<T>(initial, policy) {
+    override fun onCommittedWrite(next: T) {
+        scope.recordStateWrite()
+        if (scope.runtime.isRecording) {
+            scope.runtime.record(
                 JournalKind.CellWrite,
                 "cell write",
                 mapOf(
@@ -817,9 +884,10 @@ private fun <T> ComponentScope.newStateCell(
                     "value" to next.toString(),
                 ),
             )
-            runtime.invalidate("cell write")
-        },
-    )
+        }
+        scope.runtime.invalidate("cell write")
+    }
+}
 
 public fun <T> ComponentScope.state(
     slotId: SlotId,
@@ -830,16 +898,7 @@ public fun <T> ComponentScope.state(
     initial: () -> T,
 ): MutableCell<T> {
     if (ordinal < 0) throw MissingKineticaPluginException("state")
-    val cell = frameSlot(ordinal, transient) {
-        newStateCell(slotId.stableKey(), policy, persistent, transient) {
-            if (hasPendingRestoredValue(slotId)) {
-                @Suppress("UNCHECKED_CAST")
-                takePendingRestoredValue(slotId) as T
-            } else {
-                initial()
-            }
-        }
-    }
+    val cell = stateCellSlot(ordinal, slotId, policy, persistent, transient, initial)
     registerSlotIdCell(slotId, cell, persistent, transient, ordinal)
     return cell
 }

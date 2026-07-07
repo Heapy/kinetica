@@ -336,6 +336,24 @@ private fun ComponentScope.JournalCounter() {
     }
 }
 
+// --- productionStateWritesDoNotFormatDebugAttributes ---
+
+private var stateWriteProbeCell: MutableCell<StateWriteProbe>? = null
+private var stateWriteProbeToStringCalls = 0
+
+private class StateWriteProbe(private val label: String) {
+    override fun toString(): String {
+        stateWriteProbeToStringCalls += 1
+        return label
+    }
+}
+
+@UiComponent(skippable = false)
+private fun ComponentScope.StateWriteProbeApp() {
+    stateWriteProbeCell = state { StateWriteProbe("initial") }
+    text("Ready")
+}
+
 class RuntimeSmokeSlotsTest {
 
     @Test
@@ -867,6 +885,39 @@ class RuntimeSmokeSlotsTest {
         assertTrue(journal.all { entry -> entry.sequence % 2L == 0L })
         assertTrue(journal.any { entry -> entry.kind == JournalKind.RenderStarted || entry.kind == JournalKind.RenderCommitted })
         assertTrue(sampled.exportJournal().renderSnapshots.all { snapshot -> snapshot.sequence % 2L == 0L })
+    }
+
+    @Test
+    fun productionStateWritesDoNotFormatDebugAttributes() {
+        stateWriteProbeCell = null
+        stateWriteProbeToStringCalls = 0
+        val runtime = KineticaRuntime(debug = false)
+        val scope = ComponentScope(runtime)
+
+        runtime.render(scope) { StateWriteProbeApp() }
+        val cell = stateWriteProbeCell ?: error("state cell was not created")
+        cell.value = StateWriteProbe("next")
+
+        assertTrue(runtime.hasPendingInvalidation)
+        assertTrue(runtime.journal().isEmpty())
+        assertEquals(0, stateWriteProbeToStringCalls)
+    }
+
+    @Test
+    fun sampledProductionStateWritesStillRecordDebugAttributes() {
+        stateWriteProbeCell = null
+        stateWriteProbeToStringCalls = 0
+        val runtime = KineticaRuntime(debug = false, journalSampleInterval = 1)
+        val scope = ComponentScope(runtime)
+
+        runtime.render(scope) { StateWriteProbeApp() }
+        val cell = stateWriteProbeCell ?: error("state cell was not created")
+        cell.value = StateWriteProbe("recorded")
+
+        val write = runtime.journal().last { entry -> entry.kind == JournalKind.CellWrite }
+        assertTrue(runtime.hasPendingInvalidation)
+        assertEquals("recorded", write.attributes["value"])
+        assertEquals(1, stateWriteProbeToStringCalls)
     }
 }
 

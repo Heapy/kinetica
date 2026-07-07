@@ -51,6 +51,9 @@ public class KineticaRuntime(
     public val virtualTimeMillis: Long
         get() = synchronized(runtimeLock) { currentVirtualTimeMillis }
 
+    internal val isRecording: Boolean
+        get() = journalSampleInterval != null
+
     init {
         require(watchLoopRestartLimit > 0) { "watchLoopRestartLimit must be positive." }
         require(journalSampleInterval == null || journalSampleInterval > 0) {
@@ -243,8 +246,8 @@ public class KineticaRuntime(
         message: String,
         attributes: Map<String, String> = emptyMap(),
     ): JournalEntry? {
-        val entry = JournalEntry(sequence.incrementAndGet(), kind, message, attributes)
         val sampleInterval = journalSampleInterval ?: return null
+        val entry = JournalEntry(sequence.incrementAndGet(), kind, message, attributes)
         return if (entry.sequence % sampleInterval.toLong() == 0L) {
             entry.also(entries::append)
         } else {

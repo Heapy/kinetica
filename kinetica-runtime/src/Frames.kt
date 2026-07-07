@@ -151,6 +151,12 @@ internal class Frame(
         return created
     }
 
+    internal fun touchSlot(ordinal: Int, generation: Int, transient: Boolean) {
+        ensureSlotCapacity(ordinal)
+        slotTouch?.set(ordinal, generation)
+        growableTransient?.set(ordinal, transient)
+    }
+
     internal fun slotValueOrNull(ordinal: Int): Any? = slots.getOrNull(ordinal)
 
     internal fun markPersistent(ordinal: Int) {
