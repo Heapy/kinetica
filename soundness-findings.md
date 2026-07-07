@@ -2,9 +2,10 @@
 
 135 test cases distilled from the test suites of Inferno, React, Svelte 5, SolidJS, Preact and
 Vue 3 (~850 raw cases surveyed, deduplicated and mapped to Kinetica's plugin-only /
-frame-ordinals / template-cloning model — see `soundness-test-plan.md` for the full case list
-and batch layout). All 14 batch files are implemented and green in CI-equivalent runs:
-**126 tests active and passing, 9 `@Ignore`d** documenting the defects below.
+frame-ordinals / template-cloning model). **126 cases active and passing on JVM+JS, 9
+`@Ignore`d** documenting the defects below. Every test's KDoc carries its `KSND-nnn` id, source
+ids and scenario; the full synthesis plan that produced them (batch specs, per-case scenario
+tables) served its purpose and lives in git history (`soundness-test-plan.md`).
 
 ## Confirmed framework bugs
 
@@ -65,20 +66,84 @@ resync pass over mounted controlled inputs per commit.
 - `KSND-135`: a `null` prop-hole removes the attribute while a `null` key-hole restores the
   skeleton default — divergence is annotated in the test; flagged as a design-review candidate.
 
-## Deferred (needs missing infrastructure)
+## Deferred backlog (needs missing infrastructure)
 
-See `soundness-test-plan.md` § "Deferred / not implementable now": SVG/namespaces (no
-`createElementNS` support at all), real focus/selection preservation, IME/composition,
-infinite-loop guards (would hang the Node runner), real-browser-only behaviors (Playwright).
+What + why + the infra that would unlock it:
+
+1. **Real focus & selection preservation across patches** — TestDom has no
+   focus()/selectionStart. Unlock: Playwright self-test in samples/browser-tests
+   (focus + `setSelectionRange`, assert activeElement identity + offsets across keyed
+   insert/remove/reorder), or teach TestDom focus/selection emulation.
+2. **SVG / MathML namespaces** — zero `createElementNS`/namespace code in kinetica-browser.
+   Unlock: renderer namespace propagation (svg context flag, foreignObject switch-back) + DSL.
+3. **select / option / radio / textarea controlled semantics** — DSL has no such elements.
+   Unlock: DSL + browser mapping (+ TestDom option modeling).
+4. **IME / composition sessions** — needs a real browser input pipeline (Playwright).
+5. **Style-object semantics** — no style API beyond flex mapping; props are plain strings.
+   Unlock: style DSL + patcher.
+6. **Capture phase, mouseenter/leave synthesis, non-bubbling emulation, once/passive** —
+   delegation supports click/input/change/keydown-Enter only. Unlock: event-type expansion in
+   DelegatedEventTypes + a capture-semantics decision.
+7. **Infinite-update-loop guard** — no depth guard; a divergent effect hangs awaitIdle/the Node
+   runner. Unlock: scheduler depth limit + diagnostic (then port Svelte's throw-once-stay-usable
+   case).
+8. **Client-side hydration path** — BrowserKineticaApp's hydrate path has no test@js harness.
+   Unlock: server-HTML fixture + hydrate entrypoint callable under TestDom.
+9. **contenteditable / external DOM mutation tolerance** — needs an opt-out contract for
+   externally-mutated managed text (Inferno-style child-diff opt-out) in compiler/renderer.
+10. **FLIP/animate geometry on keyed moves** — needs layout metrics (real browser) +
+    kinetica-motion integration.
+11. **Form reset / defaultValue semantics** — no defaultValue concept in the DSL; TestDom has
+    no form.reset(). Unlock: DSL decision first.
+12. **wasmJs / android / macosArm64 execution of the common batches** — targets build but never
+    run in CI. Unlock: CI runners (wasmJs test task + Node wasm runtime).
+13. **10k-iteration shuffle stress + perf guards** — the Node single-process runner has no
+    timeout isolation (the suite carries a bounded 100-round fuzz, KSND-012). Unlock: a
+    dedicated stress lane (separate script, not kotlin-test).
+
+## Dropped as not applicable (do not revisit)
+
+- VDOM implementation details (vnode flags/cloning/normalization, `$stable` slots,
+  mergeProps/splitProps, lazy prop getters, children-helper flattening).
+- React-hooks/legacy-lifecycle-specific semantics (gDSFP/gSBU/cWRP ordering,
+  setState-in-constructor, functional-updater merge, forceUpdate, useImperativeHandle,
+  callback-ref cleanup protocol).
+- Suspense/transitions/SuspenseList internals; outro transitions.
+- Hydration/SSR internals (covered by RuntimeSmokeServerTest + the Playwright flow).
+- Portals (no portal API in Kinetica).
+- Vue emits/props casting/warnings, deep-watch options and reactive-proxy semantics (cells are
+  value-typed, no proxies); observable interop.
+- Compiler contracts already gated by kinetica-compiler suites (keyed-list detection, template
+  eligibility, children-attr precedence; event names are ids in Kinetica).
+- Already-covered Kinetica ground (derived/scheduler adversarial JVM suite, each
+  memoization/keyed-flag certification, resource staleness, template text patch, escaping,
+  one-render-per-dispatch, dispose-blocks-revival, retry slot collision, LIS plan shape,
+  nested keyed scratch reorders, data-kinetica-key emission, detach-before-bulk-skip).
+
+## Authoring pitfalls (for future additions to the suite)
+
+- `./kotlin publish mavenLocal -m kinetica-compiler` first; republishing the SAME version does
+  not invalidate consumers — `touch` a source in the module under test afterwards.
+- Slot-consuming bodies go in top-level `private @UiComponent fun ComponentScope.X(...)`
+  (`skippable = false` when asserting render counts); slots in multi-run lambdas
+  (`List(n){}`, `repeat`, `map`) fail fast — use `each`/`keyed{}`.
+- Probes are objects passed as component parameters, never top-level mutable vars; shared logs
+  appended from effect finalizers must be thread-safe (Dispatchers.Default races).
+- test@js: `installTestDocument()` is the first statement; `try { } finally { app.dispose() }`;
+  monkeypatch `Element.prototype` only after install; store writes need an explicit
+  `app.render()` (no store→render subscription in the browser app).
+- The bare Node runner does NOT await `runTest` promises — async common tests interleave: salt
+  ResourceRegistry keys per test, keep collaborators per-test; run `node bundle.mjs` without
+  piping when checking exit codes.
 
 ## Suite layout
 
-| Module | Files | Tests | Run |
-|---|---|---|---|
-| kinetica-browser (test@js) | 9 | 104 (9 ignored) | `./kotlin build -m kinetica-browser && node build/tasks/_kinetica-browser_linkJsTest/kinetica-browser_test.mjs` |
-| kinetica-runtime (test) | 2 | 20 | `./kotlin test -m kinetica-runtime --platform jvm` + JS bundle |
-| kinetica-test (test) | 3 | 30 | `./kotlin test -m kinetica-test --platform jvm` + JS bundle |
+| Module | Files | KSND cases | @Test fns | Run |
+|---|---|---|---|---|
+| kinetica-browser (test@js) | 9 | 85 (9 ignored) | 104 | `./kotlin build -m kinetica-browser && node build/tasks/_kinetica-browser_linkJsTest/kinetica-browser_test.mjs` |
+| kinetica-runtime (test) | 2 | 20 | 20 | `./kotlin test -m kinetica-runtime --platform jvm` + JS bundle |
+| kinetica-test (test) | 3 | 30 | 30 | `./kotlin test -m kinetica-test --platform jvm` + JS bundle |
 
-Provenance: every test's KDoc cites its KSND id and source cases (INF/RCT/SVL/SOL/PRE/VUE ids
-map to `soundness-test-plan.md`, which traces back to concrete framework test files and GitHub
-issues).
+Provenance: every test's KDoc cites its KSND id and source-case ids (INF/RCT/SVL/SOL/PRE/VUE);
+the synthesis plan in git history traces those ids back to concrete framework test files and
+GitHub issue numbers, surveyed from the checkouts in `projects/`.
