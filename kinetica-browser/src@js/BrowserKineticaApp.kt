@@ -307,7 +307,6 @@ public class BrowserKineticaApp(
             templateNode = node,
             root = root,
             holeDoms = arrayOfNulls(node.definition.holes.size),
-            eventBindings = arrayOfNulls(node.definition.holes.size),
         )
         patchTemplateValues(mounted, previousValues = emptyList(), nextValues = node.values)
         parent.insertBefore(root, anchor)
@@ -630,14 +629,14 @@ public class BrowserKineticaApp(
                 TemplateHoleKinds.EventProp -> {
                     val element = dom as Element
                     val propName = hole.propName ?: return@forEachIndexed
-                    val binding = mounted.eventBindings[index] ?: MountedTemplateEvent(
-                        element = element,
-                        propName = propName,
-                        eventId = nextValue,
-                    ).also { created ->
-                        mounted.eventBindings[index] = created
-                        storeTemplateEventBinding(created)
-                    }
+                    val binding = templateEventBinding(element.asDynamic().__kinetica, propName)
+                        ?: MountedTemplateEvent(
+                            element = element,
+                            propName = propName,
+                            eventId = nextValue,
+                        ).also { created ->
+                            storeTemplateEventBinding(created)
+                        }
                     binding.eventId = nextValue
                 }
             }
@@ -1330,16 +1329,21 @@ public class BrowserKineticaApp(
                 mounted.children.forEach(::detach)
                 mounted.element.asDynamic().__kinetica = null
             }
-            is MountedTemplate -> {
-                mounted.eventBindings.forEach { binding ->
-                    if (binding != null) {
-                        removeTemplateEventBinding(binding)
-                    }
-                }
-            }
+            is MountedTemplate -> detachTemplate(mounted)
             is MountedText -> {}
             is MountedFragment -> mounted.children.forEach(::detach)
             is MountedClientRef -> clientRefCount--
+        }
+    }
+
+    private fun detachTemplate(mounted: MountedTemplate) {
+        mounted.templateNode.definition.holes.forEachIndexed { index, hole ->
+            if (hole.kind != TemplateHoleKinds.EventProp) {
+                return@forEachIndexed
+            }
+            val propName = hole.propName ?: return@forEachIndexed
+            val element = (mounted.holeDoms[index] ?: templateDomAt(mounted.root, hole.path)) as Element
+            removeTemplateEventBinding(element, propName)
         }
     }
 
@@ -1426,7 +1430,6 @@ private class MountedTemplate(
     var templateNode: TemplateNode,
     val root: Element,
     val holeDoms: Array<DomNode?>,
-    val eventBindings: Array<MountedTemplateEvent?>,
 ) : Mounted() {
     override val currentNode: Node get() = templateNode
 }
@@ -1564,17 +1567,14 @@ private fun storeTemplateEventBinding(binding: MountedTemplateEvent) {
     }
 }
 
-private fun removeTemplateEventBinding(binding: MountedTemplateEvent) {
-    val candidate: Any? = binding.element.asDynamic().__kinetica
-    when (candidate) {
+private fun removeTemplateEventBinding(element: Element, propName: String) {
+    when (val candidate: Any? = element.asDynamic().__kinetica) {
         is MountedTemplateEvent ->
-            if (candidate === binding) {
-                binding.element.asDynamic().__kinetica = null
+            if (candidate.propName == propName) {
+                element.asDynamic().__kinetica = null
             }
         is MountedTemplateEvents -> {
-            if (candidate.byPropName[binding.propName] === binding) {
-                candidate.byPropName.remove(binding.propName)
-            }
+            candidate.byPropName.remove(propName)
             when (candidate.byPropName.size) {
                 0 -> candidate.element.asDynamic().__kinetica = null
                 1 -> candidate.element.asDynamic().__kinetica = candidate.byPropName.values.first()
