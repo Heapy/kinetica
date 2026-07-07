@@ -1,6 +1,8 @@
 package io.heapy.kinetica
 
 import kotlinx.serialization.SerialName
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -44,6 +46,13 @@ internal fun Int.stripChildShapeFlagsForReplacedChildren(): Int =
     this and NodeFlags.CHILDREN_SINGLE_TEXT.inv()
 
 @Serializable
+public data class ChildRegion(
+    val ordinal: Int,
+    val start: Int,
+    val end: Int,
+)
+
+@Serializable
 @SerialName("host")
 public data class HostNode(
     val tag: String,
@@ -52,6 +61,9 @@ public data class HostNode(
     val key: String? = null,
     override val semantics: Semantics? = null,
     val flags: Int = 0,
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val regions: List<ChildRegion> = emptyList(),
 ) : Node
 
 public object TemplateHoleKinds {

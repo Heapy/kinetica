@@ -25,6 +25,7 @@ public class ComponentScope public constructor(
     internal val instanceId: String = "root",
 ) {
     private val nodeStack = mutableListOf<MutableList<Node>>(mutableListOf())
+    private val regionStack = mutableListOf<MutableList<ChildRegion>?>(null)
     private val contexts = mutableMapOf<Context<*>, MutableList<Any?>>()
     private val exitGroups = mutableMapOf<String, ExitGroupState>()
     private val errorBoundaryStack = mutableListOf<ErrorBoundaryState>()
@@ -35,6 +36,8 @@ public class ComponentScope public constructor(
     // record can never certify someone else's children.
     private var keyedEmissionFrame: MutableList<Node>? = null
     private var keyedEmissionEnd = 0
+    internal var lastCollectedRegions: List<ChildRegion> = emptyList()
+        private set
     private val exitGroupStack = mutableListOf<ExitGroupState>()
     private var slotGeneration = 0
     private val layoutEffects = mutableListOf<() -> Unit>()
@@ -163,6 +166,9 @@ public class ComponentScope public constructor(
         postCommitEffects.clear()
         nodeStack.clear()
         nodeStack.add(mutableListOf())
+        regionStack.clear()
+        regionStack.add(null)
+        lastCollectedRegions = emptyList()
     }
 
     internal fun commitRender(): Node {
@@ -291,10 +297,13 @@ public class ComponentScope public constructor(
 
     public suspend fun renderSuspendNode(content: suspend ComponentScope.() -> Unit): Node {
         nodeStack.add(mutableListOf())
+        regionStack.add(null)
         return try {
             content()
+            regionStack.removeAt(regionStack.lastIndex)
             nodeStack.removeAt(nodeStack.lastIndex).toNode()
         } catch (error: Throwable) {
+            regionStack.removeAt(regionStack.lastIndex)
             nodeStack.removeAt(nodeStack.lastIndex)
             throw error
         }
@@ -302,10 +311,13 @@ public class ComponentScope public constructor(
 
     internal fun collect(content: ComponentScope.() -> Unit): List<Node> {
         nodeStack.add(mutableListOf())
+        regionStack.add(null)
         return try {
             content()
+            lastCollectedRegions = regionStack.removeAt(regionStack.lastIndex) ?: emptyList()
             nodeStack.removeAt(nodeStack.lastIndex)
         } catch (error: Throwable) {
+            regionStack.removeAt(regionStack.lastIndex)
             nodeStack.removeAt(nodeStack.lastIndex)
             throw error
         }
@@ -471,6 +483,9 @@ public class ComponentScope public constructor(
         postCommitEffects.clear()
         nodeStack.clear()
         nodeStack.add(mutableListOf())
+        regionStack.clear()
+        regionStack.add(null)
+        lastCollectedRegions = emptyList()
         coroutineScope.cancel()
     }
 
@@ -709,6 +724,9 @@ public class ComponentScope public constructor(
             }
             allCertified = allCertified && rowCertified
         }
+        val top = regionStack.lastIndex
+        val frame = regionStack[top] ?: mutableListOf<ChildRegion>().also { regionStack[top] = it }
+        frame += ChildRegion(ordinal, frameStart, outFrame.size)
         recordKeyedEmission(outFrame, frameStart, allCertified && snapshot.isNotEmpty())
         currentFrame.keyedChildKeys(ordinal).forEach { existingKey ->
             if (existingKey !in seen) {

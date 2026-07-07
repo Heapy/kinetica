@@ -56,8 +56,9 @@ public fun ComponentScope.host(
         }
     }
     val children = collect(content)
+    val regions = lastCollectedRegions
     val flags = childShapeFlags(children)
-    emit(HostNode(tag, mergedProps, children, key?.toString(), semantics, flags))
+    emit(HostNode(tag, mergedProps, children, key?.toString(), semantics, flags, regions))
 }
 
 public fun ComponentScope.column(
@@ -66,7 +67,17 @@ public fun ComponentScope.column(
     content: ComponentScope.() -> Unit,
 ) {
     val children = collect(content)
-    emit(HostNode("column", children = children, key = key?.toString(), semantics = semantics, flags = childShapeFlags(children)))
+    val regions = lastCollectedRegions
+    emit(
+        HostNode(
+            "column",
+            children = children,
+            key = key?.toString(),
+            semantics = semantics,
+            flags = childShapeFlags(children),
+            regions = regions,
+        ),
+    )
 }
 
 public fun ComponentScope.row(
@@ -75,6 +86,7 @@ public fun ComponentScope.row(
     content: ComponentScope.() -> Unit,
 ) {
     val children = collect(content)
+    val regions = lastCollectedRegions
     emit(
         HostNode(
             tag = "row",
@@ -83,6 +95,7 @@ public fun ComponentScope.row(
             key = key?.toString(),
             semantics = semantics,
             flags = childShapeFlags(children),
+            regions = regions,
         ),
     )
 }

@@ -1,6 +1,7 @@
 package io.heapy.kinetica.browser
 
 import io.heapy.kinetica.ClientRef
+import io.heapy.kinetica.ChildRegion
 import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.FragmentNode
 import io.heapy.kinetica.HostNode
@@ -451,6 +452,8 @@ public class BrowserKineticaApp(
             parentPath = path,
             prevFlags = previous.flags,
             nextFlags = next.flags,
+            prevRegions = previous.regions,
+            nextRegions = next.regions,
             ownsParent = true,
         )
     }
@@ -537,7 +540,15 @@ public class BrowserKineticaApp(
     private fun patchFragment(mounted: MountedFragment, next: FragmentNode, parent: Element, path: String) {
         val anchor = domAfter(mounted)
         mounted.fragmentNode = next
-        patchChildren(parent, mounted.children, next.children, appendAnchor = anchor, parentPath = path)
+        patchChildren(
+            parent,
+            mounted.children,
+            next.children,
+            appendAnchor = anchor,
+            parentPath = path,
+            prevRegions = emptyList(),
+            nextRegions = emptyList(),
+        )
     }
 
     private fun patchClientRef(mounted: MountedClientRef, next: ClientRef) {
@@ -659,6 +670,8 @@ public class BrowserKineticaApp(
         parentPath: String,
         prevFlags: Int = 0,
         nextFlags: Int = 0,
+        prevRegions: List<ChildRegion> = emptyList(),
+        nextRegions: List<ChildRegion> = emptyList(),
         ownsParent: Boolean = false,
     ) {
         if (next.isEmpty() && ownsParent && appendAnchor == null && mounted.isNotEmpty()) {
@@ -673,8 +686,10 @@ public class BrowserKineticaApp(
             mounted.isNotEmpty() && next.isNotEmpty()
         if (certifiedKeyed || shouldReconcileKeyed(mounted, next)) {
             patchKeyedChildren(parent, mounted, next, appendAnchor, parentPath, ownsParent)
+        } else if (prevRegions.isNotEmpty() || nextRegions.isNotEmpty()) {
+            patchRegionedChildren(parent, mounted, next, prevRegions, nextRegions, appendAnchor, parentPath)
         } else {
-            patchSegmentedChildren(parent, mounted, next, appendAnchor, parentPath)
+            patchPositionalChildren(parent, mounted, next, appendAnchor, parentPath)
         }
     }
 
@@ -689,12 +704,7 @@ public class BrowserKineticaApp(
         return true
     }
 
-    private data class ChildPivot(
-        val oldIndex: Int,
-        val newIndex: Int,
-    )
-
-    private fun patchSegmentedChildren(
+    private fun patchPositionalChildren(
         parent: Element,
         mounted: MutableList<Mounted>,
         next: List<Node>,
@@ -702,15 +712,15 @@ public class BrowserKineticaApp(
         parentPath: String,
     ) {
         val result = arrayOfNulls<Mounted>(next.size)
-        patchSegmentedRange(
+        patchStaticRange(
             parent = parent,
             mounted = mounted,
             next = next,
             result = result,
             oldStart = 0,
-            oldEnd = mounted.lastIndex,
+            oldEnd = mounted.size,
             newStart = 0,
-            newEnd = next.lastIndex,
+            newEnd = next.size,
             endAnchor = appendAnchor,
             parentPath = parentPath,
         )
@@ -720,7 +730,181 @@ public class BrowserKineticaApp(
         }
     }
 
-    private fun patchSegmentedRange(
+    private data class RegionSegment(
+        val ordinal: Int,
+        val start: Int,
+        val end: Int,
+    )
+
+    private data class StaticGapKey(
+        val beforeOrdinal: Int?,
+        val afterOrdinal: Int?,
+    )
+
+    private data class StaticGap(
+        val key: StaticGapKey,
+        val start: Int,
+        val end: Int,
+    )
+
+    private sealed class ChildPlan {
+        abstract val oldStart: Int
+        abstract val oldEnd: Int
+        abstract val newStart: Int
+        abstract val newEnd: Int
+    }
+
+    private data class StaticPlan(
+        override val oldStart: Int,
+        override val oldEnd: Int,
+        override val newStart: Int,
+        override val newEnd: Int,
+    ) : ChildPlan()
+
+    private data class RegionPlan(
+        val ordinal: Int,
+        override val oldStart: Int,
+        override val oldEnd: Int,
+        override val newStart: Int,
+        override val newEnd: Int,
+    ) : ChildPlan()
+
+    private fun patchRegionedChildren(
+        parent: Element,
+        mounted: MutableList<Mounted>,
+        next: List<Node>,
+        prevRegions: List<ChildRegion>,
+        nextRegions: List<ChildRegion>,
+        appendAnchor: DomNode?,
+        parentPath: String,
+    ) {
+        val oldRegionSegments = regionSegments(prevRegions, mounted.size)
+        val newRegionSegments = regionSegments(nextRegions, next.size)
+        val oldRegionByOrdinal = HashMap<Int, RegionSegment>(oldRegionSegments.size)
+        oldRegionSegments.forEach { region ->
+            oldRegionByOrdinal[region.ordinal] = region
+        }
+        val oldGapByKey = HashMap<StaticGapKey, StaticGap>(oldRegionSegments.size + 1)
+        staticGaps(oldRegionSegments, mounted.size).forEach { gap ->
+            oldGapByKey[gap.key] = gap
+        }
+
+        val matchedRegionOrdinals = HashSet<Int>(newRegionSegments.size)
+        val matchedGapKeys = HashSet<StaticGapKey>(newRegionSegments.size + 1)
+        val newGaps = staticGaps(newRegionSegments, next.size)
+        val plans = ArrayList<ChildPlan>(newRegionSegments.size * 2 + 1)
+        for (index in 0..newRegionSegments.size) {
+            val newGap = newGaps[index]
+            val oldGap = oldGapByKey[newGap.key]
+            if (oldGap != null) {
+                matchedGapKeys += newGap.key
+            }
+            plans += StaticPlan(
+                oldStart = oldGap?.start ?: 0,
+                oldEnd = oldGap?.end ?: 0,
+                newStart = newGap.start,
+                newEnd = newGap.end,
+            )
+            if (index < newRegionSegments.size) {
+                val newRegion = newRegionSegments[index]
+                val oldRegion = oldRegionByOrdinal[newRegion.ordinal]
+                if (oldRegion != null) {
+                    matchedRegionOrdinals += newRegion.ordinal
+                }
+                plans += RegionPlan(
+                    ordinal = newRegion.ordinal,
+                    oldStart = oldRegion?.start ?: 0,
+                    oldEnd = oldRegion?.end ?: 0,
+                    newStart = newRegion.start,
+                    newEnd = newRegion.end,
+                )
+            }
+        }
+
+        val result = arrayOfNulls<Mounted>(next.size)
+        for (index in plans.lastIndex downTo 0) {
+            val plan = plans[index]
+            val anchor = firstDomInResult(result, plan.newEnd, next.lastIndex, appendAnchor)
+            when (plan) {
+                is StaticPlan -> patchStaticRange(
+                    parent = parent,
+                    mounted = mounted,
+                    next = next,
+                    result = result,
+                    oldStart = plan.oldStart,
+                    oldEnd = plan.oldEnd,
+                    newStart = plan.newStart,
+                    newEnd = plan.newEnd,
+                    endAnchor = anchor,
+                    parentPath = parentPath,
+                )
+                is RegionPlan -> patchRegionRange(
+                    parent = parent,
+                    mounted = mounted,
+                    next = next,
+                    result = result,
+                    oldStart = plan.oldStart,
+                    oldEnd = plan.oldEnd,
+                    newStart = plan.newStart,
+                    newEnd = plan.newEnd,
+                    endAnchor = anchor,
+                    parentPath = parentPath,
+                )
+            }
+        }
+
+        oldRegionSegments.forEach { region ->
+            if (region.ordinal !in matchedRegionOrdinals) {
+                unmountRange(parent, mounted, region.start, region.end - 1)
+            }
+        }
+        oldGapByKey.values.forEach { gap ->
+            if (gap.key !in matchedGapKeys) {
+                unmountRange(parent, mounted, gap.start, gap.end - 1)
+            }
+        }
+
+        mounted.clear()
+        for (index in next.indices) {
+            mounted.add(result[index]!!)
+        }
+    }
+
+    private fun regionSegments(regions: List<ChildRegion>, childCount: Int): List<RegionSegment> {
+        if (regions.isEmpty()) {
+            return emptyList()
+        }
+        return regions
+            .sortedWith(compareBy<ChildRegion> { it.start }.thenBy { it.end }.thenBy { it.ordinal })
+            .map { region ->
+                val start = region.start.coerceIn(0, childCount)
+                val end = region.end.coerceIn(start, childCount)
+                RegionSegment(region.ordinal, start, end)
+            }
+    }
+
+    private fun staticGaps(regions: List<RegionSegment>, childCount: Int): List<StaticGap> {
+        val gaps = ArrayList<StaticGap>(regions.size + 1)
+        var cursor = 0
+        var previousOrdinal: Int? = null
+        regions.forEach { region ->
+            gaps += StaticGap(
+                key = StaticGapKey(previousOrdinal, region.ordinal),
+                start = cursor,
+                end = region.start,
+            )
+            cursor = region.end
+            previousOrdinal = region.ordinal
+        }
+        gaps += StaticGap(
+            key = StaticGapKey(previousOrdinal, null),
+            start = cursor,
+            end = childCount,
+        )
+        return gaps
+    }
+
+    private fun patchStaticRange(
         parent: Element,
         mounted: List<Mounted>,
         next: List<Node>,
@@ -733,31 +917,32 @@ public class BrowserKineticaApp(
         parentPath: String,
     ) {
         var leftOld = oldStart
-        var rightOld = oldEnd
+        var rightOld = oldEnd - 1
         var leftNew = newStart
-        var rightNew = newEnd
+        var rightNew = newEnd - 1
 
-        while (leftOld <= rightOld && leftNew <= rightNew && canAlignChild(mounted[leftOld], next[leftNew])) {
+        while (leftOld <= rightOld && leftNew <= rightNew && hasSamePatchTarget(mounted[leftOld], next[leftNew])) {
             result[leftNew] = patch(mounted[leftOld], next[leftNew], parent, childPathOf(parentPath, leftNew))
             leftOld++
             leftNew++
         }
-        while (leftOld <= rightOld && leftNew <= rightNew && canAlignChild(mounted[rightOld], next[rightNew])) {
+        while (leftOld <= rightOld && leftNew <= rightNew && hasSamePatchTarget(mounted[rightOld], next[rightNew])) {
             result[rightNew] = patch(mounted[rightOld], next[rightNew], parent, childPathOf(parentPath, rightNew))
             rightOld--
             rightNew--
         }
-        val rangeEndAnchor = firstDomInResult(result, rightNew + 1, newEnd, endAnchor)
+        val rangeEndAnchor = firstDomInResult(result, rightNew + 1, newEnd - 1, endAnchor)
 
         when {
+            leftOld > rightOld && leftNew > rightNew -> {}
             leftOld > rightOld -> {
                 mountRange(parent, next, result, leftNew, rightNew, rangeEndAnchor, parentPath)
             }
             leftNew > rightNew -> {
                 unmountRange(parent, mounted, leftOld, rightOld)
             }
-            shouldReconcileKeyedRange(mounted, next, leftOld, rightOld, leftNew, rightNew) -> {
-                patchKeyedRange(
+            else -> {
+                replaceRange(
                     parent,
                     mounted,
                     next,
@@ -770,74 +955,10 @@ public class BrowserKineticaApp(
                     parentPath,
                 )
             }
-            else -> {
-                val pivot = findUniqueUnkeyedPivot(mounted, next, leftOld, rightOld, leftNew, rightNew)
-                if (pivot == null) {
-                    if (shouldReconcileKeyedSubsetRange(mounted, next, leftOld, rightOld, leftNew, rightNew)) {
-                        patchKeyedSubsetRange(
-                            parent,
-                            mounted,
-                            next,
-                            result,
-                            leftOld,
-                            rightOld,
-                            leftNew,
-                            rightNew,
-                            rangeEndAnchor,
-                            parentPath,
-                        )
-                    } else {
-                        replaceRange(
-                            parent,
-                            mounted,
-                            next,
-                            result,
-                            leftOld,
-                            rightOld,
-                            leftNew,
-                            rightNew,
-                            rangeEndAnchor,
-                            parentPath,
-                        )
-                    }
-                } else {
-                    result[pivot.newIndex] = patch(
-                        mounted[pivot.oldIndex],
-                        next[pivot.newIndex],
-                        parent,
-                        childPathOf(parentPath, pivot.newIndex),
-                    )
-                    val pivotAnchor = firstDomOf(result[pivot.newIndex]!!)
-                    patchSegmentedRange(
-                        parent = parent,
-                        mounted = mounted,
-                        next = next,
-                        result = result,
-                        oldStart = leftOld,
-                        oldEnd = pivot.oldIndex - 1,
-                        newStart = leftNew,
-                        newEnd = pivot.newIndex - 1,
-                        endAnchor = pivotAnchor,
-                        parentPath = parentPath,
-                    )
-                    patchSegmentedRange(
-                        parent = parent,
-                        mounted = mounted,
-                        next = next,
-                        result = result,
-                        oldStart = pivot.oldIndex + 1,
-                        oldEnd = rightOld,
-                        newStart = pivot.newIndex + 1,
-                        newEnd = rightNew,
-                        endAnchor = rangeEndAnchor,
-                        parentPath = parentPath,
-                    )
-                }
-            }
         }
     }
 
-    private fun patchKeyedSubsetRange(
+    private fun patchRegionRange(
         parent: Element,
         mounted: List<Mounted>,
         next: List<Node>,
@@ -849,39 +970,52 @@ public class BrowserKineticaApp(
         endAnchor: DomNode?,
         parentPath: String,
     ) {
-        val middleCount = newEnd - newStart + 1
-        val keyToNewIndex = HashMap<String, Int>(middleCount)
-        for (index in newStart..newEnd) {
-            val key = next[index].reconcileKey ?: continue
-            keyToNewIndex[key] = index
-        }
-        val sourceOldIndex = IntArray(middleCount) { -1 }
-        for (oldIndex in oldStart..oldEnd) {
-            val child = mounted[oldIndex]
-            val key = child.reconcileKey()
-            val newIndex = if (key == null) null else keyToNewIndex[key]
-            if (newIndex == null) {
-                unmount(child, parent)
-            } else {
-                sourceOldIndex[newIndex - newStart] = oldIndex
-                result[newIndex] = patch(child, next[newIndex], parent, childPathOf(parentPath, newIndex))
+        val oldLast = oldEnd - 1
+        val newLast = newEnd - 1
+        when {
+            oldStart > oldLast && newStart > newLast -> {}
+            oldStart > oldLast -> {
+                mountRange(parent, next, result, newStart, newLast, endAnchor, parentPath)
+            }
+            newStart > newLast -> {
+                unmountRange(parent, mounted, oldStart, oldLast)
+            }
+            shouldReconcileKeyedRange(mounted, next, oldStart, oldLast, newStart, newLast) -> {
+                patchKeyedRange(
+                    parent,
+                    mounted,
+                    next,
+                    result,
+                    oldStart,
+                    oldLast,
+                    newStart,
+                    newLast,
+                    endAnchor,
+                    parentPath,
+                )
+            }
+            else -> {
+                replaceRange(parent, mounted, next, result, oldStart, oldLast, newStart, newLast, endAnchor, parentPath)
             }
         }
-        val lis = LongestIncreasingSubsequenceScratch()
-        val stableSize = longestIncreasingSubsequenceIndices(sourceOldIndex, middleCount, lis)
-        val stable = lis.result
-        val inStableRun = BooleanArray(middleCount)
-        for (position in 0 until stableSize) {
-            inStableRun[stable[position]] = true
+    }
+
+    private fun hasSamePatchTarget(mounted: Mounted, next: Node): Boolean {
+        val oldKey = mounted.reconcileKey()
+        val newKey = next.reconcileKey
+        if (oldKey != null || newKey != null) {
+            return oldKey != null && oldKey == newKey
         }
-        for (middleIndex in middleCount - 1 downTo 0) {
-            val newIndex = newStart + middleIndex
-            val anchor = firstDomInResult(result, newIndex + 1, newEnd, endAnchor)
-            if (result[newIndex] == null) {
-                result[newIndex] = mount(next[newIndex], parent, anchor, childPathOf(parentPath, newIndex))
-            } else if (!inStableRun[middleIndex]) {
-                moveDom(result[newIndex]!!, parent, anchor)
-            }
+        return when {
+            mounted is MountedHost && next is HostNode -> mounted.hostNode.tag == next.tag
+            mounted is MountedTemplate && next is TemplateNode ->
+                mounted.templateNode.definition.id == next.definition.id
+            mounted is MountedText && next is TextNode ->
+                textNeedsElement(mounted.textNode) == textNeedsElement(next) &&
+                    mounted.textNode.semantics == next.semantics
+            mounted is MountedFragment && next is FragmentNode -> true
+            mounted is MountedClientRef && next is ClientRef -> mounted.refNode.componentId == next.componentId
+            else -> false
         }
     }
 
@@ -894,6 +1028,9 @@ public class BrowserKineticaApp(
         endAnchor: DomNode?,
         parentPath: String,
     ) {
+        if (newStart > newEnd) {
+            return
+        }
         for (index in newEnd downTo newStart) {
             val anchor = firstDomInResult(result, index + 1, newEnd, endAnchor)
             result[index] = mount(next[index], parent, anchor, childPathOf(parentPath, index))
@@ -906,6 +1043,9 @@ public class BrowserKineticaApp(
         oldStart: Int,
         oldEnd: Int,
     ) {
+        if (oldStart > oldEnd) {
+            return
+        }
         for (index in oldStart..oldEnd) {
             unmount(mounted[index], parent)
         }
@@ -1009,108 +1149,6 @@ public class BrowserKineticaApp(
             if (!newKeys.add(key)) return false
         }
         return true
-    }
-
-    private fun shouldReconcileKeyedSubsetRange(
-        mounted: List<Mounted>,
-        next: List<Node>,
-        oldStart: Int,
-        oldEnd: Int,
-        newStart: Int,
-        newEnd: Int,
-    ): Boolean {
-        val oldKeys = HashSet<String>()
-        for (index in oldStart..oldEnd) {
-            val key = mounted[index].reconcileKey() ?: continue
-            if (!oldKeys.add(key)) return false
-        }
-        if (oldKeys.isEmpty()) {
-            return false
-        }
-        var hasOverlap = false
-        val newKeys = HashSet<String>()
-        for (index in newStart..newEnd) {
-            val key = next[index].reconcileKey ?: continue
-            if (!newKeys.add(key)) return false
-            hasOverlap = hasOverlap || key in oldKeys
-        }
-        return hasOverlap
-    }
-
-    private fun findUniqueUnkeyedPivot(
-        mounted: List<Mounted>,
-        next: List<Node>,
-        oldStart: Int,
-        oldEnd: Int,
-        newStart: Int,
-        newEnd: Int,
-    ): ChildPivot? {
-        val oldCounts = HashMap<String, Int>()
-        val oldIndexBySignature = HashMap<String, Int>()
-        for (index in oldStart..oldEnd) {
-            val signature = mounted[index].currentNode.unkeyedAlignmentSignature() ?: continue
-            oldCounts[signature] = (oldCounts[signature] ?: 0) + 1
-            if (signature !in oldIndexBySignature) {
-                oldIndexBySignature[signature] = index
-            }
-        }
-
-        val newCounts = HashMap<String, Int>()
-        for (index in newStart..newEnd) {
-            val signature = next[index].unkeyedAlignmentSignature() ?: continue
-            newCounts[signature] = (newCounts[signature] ?: 0) + 1
-        }
-
-        for (newIndex in newStart..newEnd) {
-            val signature = next[newIndex].unkeyedAlignmentSignature() ?: continue
-            if (newCounts[signature] == 1 && oldCounts[signature] == 1) {
-                return ChildPivot(oldIndexBySignature[signature]!!, newIndex)
-            }
-        }
-        return null
-    }
-
-    private fun canAlignChild(mounted: Mounted, next: Node): Boolean {
-        val oldKey = mounted.reconcileKey()
-        val newKey = next.reconcileKey
-        if (oldKey != null || newKey != null) {
-            return oldKey != null && oldKey == newKey
-        }
-        return canPatchUnkeyed(mounted, next)
-    }
-
-    private fun canPatchUnkeyed(mounted: Mounted, next: Node): Boolean =
-        when {
-            mounted is MountedHost && next is HostNode -> mounted.hostNode.tag == next.tag
-            mounted is MountedTemplate && next is TemplateNode ->
-                mounted.templateNode.definition.id == next.definition.id
-            mounted is MountedText && next is TextNode ->
-                textNeedsElement(mounted.textNode) == textNeedsElement(next) &&
-                    mounted.textNode.semantics == next.semantics
-            mounted is MountedFragment && next is FragmentNode -> true
-            mounted is MountedClientRef && next is ClientRef -> mounted.refNode.componentId == next.componentId
-            else -> false
-        }
-
-    private fun Node.unkeyedAlignmentSignature(): String? {
-        if (reconcileKey != null) {
-            return null
-        }
-        return when (this) {
-            is HostNode -> {
-                val builder = StringBuilder()
-                builder.append("host:").append(tag).append('(')
-                children.forEach { child ->
-                    val childSignature = child.unkeyedAlignmentSignature() ?: return null
-                    builder.append(childSignature).append(',')
-                }
-                builder.append(')').toString()
-            }
-            is TemplateNode -> "template:${definition.id}:${values.joinToString(separator = "\u0000")}"
-            is TextNode -> "text:${textNeedsElement(this)}:$strikethrough:$semantics:$value"
-            is ClientRef -> "client:$componentId"
-            is FragmentNode -> null
-        }
     }
 
     private fun shouldReconcileKeyed(mounted: List<Mounted>, next: List<Node>): Boolean {
