@@ -71,7 +71,8 @@ internal class Frame(
     internal val parent: Frame?,
 ) {
     private var slots: Array<Any?> = arrayOfNulls(table?.slotCount ?: GROWABLE_INITIAL)
-    private var slotTouch: IntArray = IntArray(slots.size)
+    private var slotTouch: IntArray? =
+        if (table == null || table.transientSlotOrdinals.isNotEmpty()) IntArray(slots.size) else null
     private var growableTransient: BooleanArray? = if (table == null) BooleanArray(slots.size) else null
     private var events: Array<HostEventGroup?>? = null
     private var eventTouch: IntArray? = null
@@ -120,8 +121,10 @@ internal class Frame(
      * frames must survive the commit checks exactly as if the body had run.
      */
     internal fun markContentsKept(generation: Int) {
-        for (ordinal in slots.indices) {
-            if (slots[ordinal] != null) slotTouch[ordinal] = generation
+        slotTouch?.let { touch ->
+            for (ordinal in slots.indices) {
+                if (slots[ordinal] != null) touch[ordinal] = generation
+            }
         }
         events?.let { groups ->
             val touch = eventTouch!!
@@ -136,7 +139,7 @@ internal class Frame(
 
     internal fun <T> slot(ordinal: Int, generation: Int, transient: Boolean, initial: () -> T): T {
         ensureSlotCapacity(ordinal)
-        slotTouch[ordinal] = generation
+        slotTouch?.set(ordinal, generation)
         growableTransient?.set(ordinal, transient)
         val existing = slots[ordinal]
         if (existing != null) {
@@ -158,7 +161,7 @@ internal class Frame(
     /** Replaces a slot's holder (identity-keyed slots such as resources); disposes nothing. */
     internal fun setSlotValue(ordinal: Int, generation: Int, transient: Boolean, value: Any?) {
         ensureSlotCapacity(ordinal)
-        slotTouch[ordinal] = generation
+        slotTouch?.set(ordinal, generation)
         growableTransient?.set(ordinal, transient)
         slots[ordinal] = value
     }
@@ -309,17 +312,20 @@ internal class Frame(
     internal fun commitChecks(generation: Int, runtime: KineticaRuntime) {
         val transientFlags = growableTransient
         if (transientFlags != null) {
+            val touch = slotTouch!!
             for (ordinal in slots.indices) {
-                if (transientFlags[ordinal] && slots[ordinal] != null && slotTouch[ordinal] != generation) {
+                if (transientFlags[ordinal] && slots[ordinal] != null && touch[ordinal] != generation) {
                     disposeFrameSlotValue(slots[ordinal])
                     slots[ordinal] = null
                 }
             }
         } else {
-            for (ordinal in table!!.transientSlotOrdinals) {
-                if (slots[ordinal] != null && slotTouch[ordinal] != generation) {
-                    disposeFrameSlotValue(slots[ordinal])
-                    slots[ordinal] = null
+            slotTouch?.let { touch ->
+                for (ordinal in table!!.transientSlotOrdinals) {
+                    if (slots[ordinal] != null && touch[ordinal] != generation) {
+                        disposeFrameSlotValue(slots[ordinal])
+                        slots[ordinal] = null
+                    }
                 }
             }
         }
@@ -422,7 +428,7 @@ internal class Frame(
         }
         val capacity = newCapacity(ordinal, slots.size)
         slots = slots.copyOf(capacity)
-        slotTouch = slotTouch.copyOf(capacity)
+        slotTouch = slotTouch?.copyOf(capacity)
         growableTransient = growableTransient!!.copyOf(capacity)
     }
 
