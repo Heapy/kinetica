@@ -938,7 +938,7 @@ public class BrowserKineticaApp(
                 unmountRange(parent, mounted, leftOld, rightOld)
             }
             else -> {
-                replaceRange(
+                patchPositionalRange(
                     parent,
                     mounted,
                     next,
@@ -991,7 +991,7 @@ public class BrowserKineticaApp(
                 )
             }
             else -> {
-                replaceRange(parent, mounted, next, result, oldStart, oldLast, newStart, newLast, endAnchor, parentPath)
+                patchStaticRange(parent, mounted, next, result, oldStart, oldEnd, newStart, newEnd, endAnchor, parentPath)
             }
         }
     }
@@ -1061,6 +1061,37 @@ public class BrowserKineticaApp(
     ) {
         unmountRange(parent, mounted, oldStart, oldEnd)
         mountRange(parent, next, result, newStart, newEnd, endAnchor, parentPath)
+    }
+
+    private fun patchPositionalRange(
+        parent: Element,
+        mounted: List<Mounted>,
+        next: List<Node>,
+        result: Array<Mounted?>,
+        oldStart: Int,
+        oldEnd: Int,
+        newStart: Int,
+        newEnd: Int,
+        endAnchor: DomNode?,
+        parentPath: String,
+    ) {
+        val common = minOf(oldEnd - oldStart + 1, newEnd - newStart + 1)
+        for (offset in 0 until common) {
+            val newIndex = newStart + offset
+            result[newIndex] = patch(
+                mounted[oldStart + offset],
+                next[newIndex],
+                parent,
+                childPathOf(parentPath, newIndex),
+            )
+        }
+        val oldTailStart = oldStart + common
+        val newTailStart = newStart + common
+        if (newTailStart <= newEnd) {
+            mountRange(parent, next, result, newTailStart, newEnd, endAnchor, parentPath)
+        } else if (oldTailStart <= oldEnd) {
+            unmountRange(parent, mounted, oldTailStart, oldEnd)
+        }
     }
 
     private fun patchKeyedRange(
