@@ -14,26 +14,28 @@ Duration = trusted click → end of last paint.
 Median milliseconds; geometric-mean slowdown vs the per-operation fastest framework. React,
 Preact, Vue, Svelte and Vanilla were freshly re-measured this pass against Google Chrome
 150.0.7871.47 (previously measured against the vendored Playwright "Chrome for Testing" build,
-Chromium 149.0.7827.55); the Kinetica column is retained from the prior snapshot — an
-in-progress branch carrying unreviewed runtime/compiler memory optimizations is currently ahead
-of it and will get its own re-measurement once that work lands.
+Chromium 149.0.7827.55); the Kinetica and Compose HTML columns are retained from the prior
+Chromium 149 snapshot — Kinetica because an in-progress branch carrying unreviewed
+runtime/compiler memory optimizations is currently ahead of it and will get its own
+re-measurement once that work lands, Compose HTML because it isn't part of that rewrite at all
+(see below).
 
-| Operation | Kinetica | React | Preact | Vue | Svelte | Vanilla |
-|---|---:|---:|---:|---:|---:|---:|
-| create 1,000 rows | 33.5 | 33.2 | 34.1 | 29.3 | 28.5 | 29.5 |
-| replace all 1,000 rows | 33.1 | 34.7 | 36.9 | 31.1 | 32.2 | 32.1 |
-| partial update (every 10th row) | 7.5 | 7.3 | 8.2 | 8.3 | 8.1 | 7.8 |
-| select row | 7.5 | 6.6 | 8.4 | 7.8 | 7.3 | 7.0 |
-| swap two rows | 8.0 | 27.1 | 7.3 | 8.9 | 8.0 | 7.4 |
-| remove one row | 8.3 | 7.2 | 7.9 | 7.9 | 7.6 | 7.6 |
-| create 10,000 rows | 297 | 328 | 260 | 249 | 220 | 210 |
-| append 1,000 rows to 1,000 | 36.3 | 30.5 | 36.1 | 29.1 | 30.6 | 31.4 |
-| clear 1,000 rows | 7.8 | 7.0 | 7.5 | 7.2 | 7.4 | 6.8 |
-| select row (10k table) | 9.1 | 7.7 | 9.2 | 15.2 | 8.5 | 8.8 |
-| swap two rows (10k table) | 41.5 | 51.0 | 33.1 | 44.2 | 30.8 | 28.1 |
-| remove one row (10k table) | 52.8 | 40.7 | 42.7 | 52.9 | 43.4 | 43.0 |
-| partial update (every 10th of 10k) | 42.8 | 34.9 | 38.1 | 46.0 | 31.8 | 32.6 |
-| **geometric mean** | **1.23×** | 1.24× | 1.16× | 1.22× | 1.06× | 1.04× |
+| Operation | Kinetica | React | Preact | Vue | Svelte | Vanilla | Compose HTML |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| create 1,000 rows | 33.5 | 33.2 | 34.1 | 29.3 | 28.5 | 29.5 | 238.6 |
+| replace all 1,000 rows | 33.1 | 34.7 | 36.9 | 31.1 | 32.2 | 32.1 | 360.9 |
+| partial update (every 10th row) | 7.5 | 7.3 | 8.2 | 8.3 | 8.1 | 7.8 | 13.3 |
+| select row | 7.5 | 6.6 | 8.4 | 7.8 | 7.3 | 7.0 | 12.1 |
+| swap two rows | 8.0 | 27.1 | 7.3 | 8.9 | 8.0 | 7.4 | 554.0 |
+| remove one row | 8.3 | 7.2 | 7.9 | 7.9 | 7.6 | 7.6 | 507.2 |
+| create 10,000 rows | 297 | 328 | 260 | 249 | 220 | 210 | 7.52 s |
+| append 1,000 rows to 1,000 | 36.3 | 30.5 | 36.1 | 29.1 | 30.6 | 31.4 | 240.7 |
+| clear 1,000 rows | 7.8 | 7.0 | 7.5 | 7.2 | 7.4 | 6.8 | 22.0 |
+| select row (10k table) | 9.1 | 7.7 | 9.2 | 15.2 | 8.5 | 8.8 | 23.6 |
+| swap two rows (10k table) | 41.5 | 51.0 | 33.1 | 44.2 | 30.8 | 28.1 | 9.27 s |
+| remove one row (10k table) | 52.8 | 40.7 | 42.7 | 52.9 | 43.4 | 43.0 | 49.2 s |
+| partial update (every 10th of 10k) | 42.8 | 34.9 | 38.1 | 46.0 | 31.8 | 32.6 | 112.4 |
+| **geometric mean** | **1.23×** | 1.24× | 1.16× | 1.22× | 1.06× | 1.04× | 16.6× |
 
 Kinetica's 13-op headline against React directly is **0.96×** — still ahead of React on the DOM
 operations. It wins create-10k (297 ms vs 316 ms) and both swap cases (8.0 ms vs 22.4 ms on 1k;
@@ -41,6 +43,26 @@ operations. It wins create-10k (297 ms vs 316 ms) and both swap cases (8.0 ms vs
 operations sit near the paint floor. The open items: update-every-10th-10k (1.24× React) and
 remove-10k still scale with row count, and **startup regressed** — 32.6 ms against React's
 27.3 ms, up from 24.5 ms before the post-frame-ordinals soundness fixes added mount-time work.
+
+Compose HTML (JetBrains Compose Multiplatform for Web, added 2026-07-08) is included for
+reference, not as part of Kinetica's own rewrite history below — its 16.6× geomean is driven
+almost entirely by swap/remove on large keyed lists; see "Live demos" for why.
+
+## Live demos
+
+<!-- code: scripts/bundle-bench-static.mjs, docs/docs-site/src/main.kt, bench/build.mjs -->
+
+Every benchmarked framework is hosted live at `/bench/`, unmodified — the same production
+bundles the numbers above come from.
+
+- **[Full comparison report](/bench/report/)** — the interactive charts `bench/report/generate.mjs` renders locally, published as a static page.
+- **Table apps** — [Kinetica](/bench/kinetica/) · [React](/bench/react/) · [Preact](/bench/preact/) · [Vue](/bench/vue/) · [Svelte](/bench/svelte/) · [Vanilla JS](/bench/vanilla/) · [Compose HTML](/bench/compose-web/)
+- **Tree apps** (1,555-node keyed tree) — [Kinetica](/bench/kinetica/?app=tree) · [React](/bench/react-tree/) · [Preact](/bench/preact-tree/) · [Vue](/bench/vue-tree/) · [Svelte](/bench/svelte-tree/) · [Vanilla JS](/bench/vanilla-tree/) · [Compose HTML](/bench/compose-web/?app=tree)
+- **Raw numbers** — [results.json](/bench/results/results.json) · [tree.json](/bench/results/tree.json) · [scaling.json](/bench/results/scaling.json)
+
+A heads-up before you click around the Compose HTML page: its `swap`/`remove` on large keyed
+lists scale close to O(n²), not a fluke of one run — clicking "Create 10,000 rows" then
+"Remove" will visibly hang the tab for tens of seconds.
 
 ## How it got there
 

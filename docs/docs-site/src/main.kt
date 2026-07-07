@@ -136,6 +136,9 @@ class DocsServer(
                         relative = path.removePrefix("/sc-client/"),
                     )
 
+                exchange.requestMethod == "GET" && path.startsWith("/bench/") ->
+                    respondBenchAsset(exchange, path.removePrefix("/bench/"))
+
                 exchange.requestMethod == "GET" && path == "/examples/server-components" ->
                     exchange.respondText(contentType = "text/html", body = renderDemoDocument())
 
@@ -385,6 +388,27 @@ class DocsServer(
         exchange.respondStaticAsset(asset)
     }
 
+    // Static benchmark demo pages + comparison report + raw results JSON, staged by
+    // scripts/bundle-bench-static.mjs into bundlesDir/_bench_dist. Directory paths (trailing
+    // slash, or the bare "/bench/") resolve to that directory's index.html.
+    private fun respondBenchAsset(exchange: HttpExchange, relativeRaw: String) {
+        val relative = if (relativeRaw.isEmpty() || relativeRaw.endsWith("/")) {
+            "${relativeRaw}index.html"
+        } else {
+            relativeRaw
+        }
+        val asset = bundleCandidate("_bench_dist", relative)
+        if (asset == null) {
+            exchange.respondText(
+                status = 404,
+                contentType = "text/plain",
+                body = "Missing bench asset $relative under $bundlesDir. Build with node scripts/bundle-bench-static.mjs, or set KINETICA_BUNDLES_DIR.",
+            )
+            return
+        }
+        exchange.respondStaticAsset(asset)
+    }
+
     private fun siteCssAsset(): StaticAsset {
         val generated = staticAssetFromPath(
             bundlesDir.resolve("_docs-site_assets").resolve("site.css").normalize(),
@@ -552,5 +576,6 @@ private fun contentTypeFor(path: String): String =
         "mjs", "js" -> "application/javascript"
         "json", "map" -> "application/json"
         "css" -> "text/css"
+        "html" -> "text/html"
         else -> "text/plain"
     }
