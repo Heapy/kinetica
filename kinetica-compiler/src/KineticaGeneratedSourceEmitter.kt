@@ -77,6 +77,8 @@ public class KineticaGeneratedSourceEmitter {
                 package io.heapy.kinetica.generated
 
                 import io.heapy.kinetica.KineticaServerActionDispatcher
+                import io.heapy.kinetica.CapabilityToken
+                import io.heapy.kinetica.CsrfToken
                 import io.heapy.kinetica.ServerActionRegistration
                 import io.heapy.kinetica.ServerActionStub
                 import io.heapy.kinetica.serverActionStub
@@ -91,8 +93,15 @@ public class KineticaGeneratedSourceEmitter {
             ${actions.joinToString(separator = ",\n") { it.toServerActionStubSource().prependIndent("    ") }}
                 )
 
-                public val KineticaGeneratedServerActionDispatcher: KineticaServerActionDispatcher =
-                    KineticaServerActionDispatcher(KineticaGeneratedServerActionStubs)
+                public fun kineticaGeneratedServerActionDispatcher(
+                    verifyCapabilityToken: (CapabilityToken) -> Boolean,
+                    verifyCsrfToken: (CsrfToken?) -> Boolean,
+                ): KineticaServerActionDispatcher =
+                    KineticaServerActionDispatcher(
+                        stubs = KineticaGeneratedServerActionStubs,
+                        verifyCapabilityToken = verifyCapabilityToken,
+                        verifyCsrfToken = verifyCsrfToken,
+                    )
             """.trimGeneratedSource(),
         )
 

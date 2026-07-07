@@ -725,7 +725,10 @@ class CompilerModelTest {
         assertTrue("inputSerializer = serializer<app.TodoDraft>()" in serverActions)
         assertTrue("outputSerializer = serializer<app.Todo>()" in serverActions)
         assertTrue("handler = { input -> app.server.createTodo(input) }" in serverActions)
-        assertTrue("public val KineticaGeneratedServerActionDispatcher: KineticaServerActionDispatcher" in serverActions)
+        assertTrue("public fun kineticaGeneratedServerActionDispatcher(" in serverActions)
+        assertTrue("verifyCapabilityToken = verifyCapabilityToken" in serverActions)
+        assertTrue("verifyCsrfToken = verifyCsrfToken" in serverActions)
+        assertTrue("stubs = KineticaGeneratedServerActionStubs" in serverActions)
 
         val clientRefs = generated.getValue("generated/io/heapy/kinetica/generated/KineticaClientRefs.kt").text
         assertTrue("public fun clientRef_app_AddTodoButton(" in clientRefs)
