@@ -60,7 +60,8 @@ class RuntimeSmokeServerTest {
         assertEquals("Fast", assertIs<TextNode>(assertIs<ServerRenderChunk.Patch>(chunks[1]).node).value)
         val error = assertIs<ServerRenderChunk.BoundaryError>(chunks[2])
         assertEquals("failing", error.boundaryId)
-        assertEquals("broken subtree", error.message)
+        assertEquals("Server render failed.", error.message)
+        assertFalse("broken subtree" in error.message, "raw exception detail must not leak to the client")
         assertEquals(listOf(0), assertIs<ServerRenderChunk.Patch>(chunks[3]).path)
         assertEquals("Slow", assertIs<TextNode>(assertIs<ServerRenderChunk.Patch>(chunks[3]).node).value)
         assertIs<ServerRenderChunk.End>(chunks[4])
@@ -1185,6 +1186,39 @@ class RuntimeSmokeServerTest {
                     csrfToken = CsrfToken("csrf"),
                 ),
             ),
+        )
+    }
+
+    @Test
+    fun serverActionDispatcherReportsTypeInvalidPayloadAsClientError() = runTest {
+        val dispatcher = KineticaServerActionDispatcher(
+            stubs = listOf(
+                serverActionStub(
+                    registration = ServerActionRegistration(
+                        actionId = "count.set",
+                        functionFqName = "app.server.setCount",
+                    ),
+                    inputSerializer = Int.serializer(),
+                    outputSerializer = Int.serializer(),
+                    handler = { input -> input },
+                ),
+            ),
+            verifyCapabilityToken = { true },
+            verifyCsrfToken = { true },
+        )
+        // 3.5 passes the Number-kind schema check but cannot decode into Int.
+        val response = dispatcher.dispatch(
+            ServerActionRequest(
+                actionId = "count.set",
+                payload = JsonPrimitive(3.5),
+                token = CapabilityToken("valid"),
+                csrfToken = CsrfToken("valid"),
+            ),
+        )
+
+        assertEquals(
+            ServerActionResponse.Failure("Invalid server action payload."),
+            response,
         )
     }
 

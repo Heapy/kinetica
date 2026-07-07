@@ -229,28 +229,35 @@ public fun <I, O> serverActionStub(
         override suspend fun dispatch(
             json: Json,
             payload: JsonElement,
-        ): ServerActionResponse =
-            try {
-                val validationErrors = inputSchema.validate(payload)
-                if (validationErrors.isNotEmpty()) {
-                    ServerActionResponse.Failure(
-                        message = "Invalid server action payload: ${validationErrors.joinToString(separator = "; ")}",
-                        retryable = false,
-                    )
-                } else {
-                    val input = json.decodeFromJsonElement(inputSerializer, payload)
-                    val output = handler(input)
-                    ServerActionResponse.Success(
-                        payload = json.encodeToJsonElement(outputSerializer, output),
-                        invalidated = registration.invalidates,
-                    )
-                }
+        ): ServerActionResponse {
+            val validationErrors = inputSchema.validate(payload)
+            if (validationErrors.isNotEmpty()) {
+                return ServerActionResponse.Failure(
+                    message = "Invalid server action payload: ${validationErrors.joinToString(separator = "; ")}",
+                    retryable = false,
+                )
+            }
+            val input = try {
+                json.decodeFromJsonElement(inputSerializer, payload)
+            } catch (error: SerializationException) {
+                // Shape-valid but type-invalid (e.g. 3.5 for an Int, or out-of-range): a client error,
+                // not a server fault — keep it distinct from the generic handler-failure message below.
+                return ServerActionResponse.Failure(
+                    message = "Invalid server action payload.",
+                    retryable = false,
+                )
+            }
+            return try {
+                ServerActionResponse.Success(
+                    payload = json.encodeToJsonElement(outputSerializer, handler(input)),
+                    invalidated = registration.invalidates,
+                )
             } catch (throwable: Throwable) {
                 if (throwable is CancellationException) {
                     throw throwable
                 }
-                // A handler-thrown ServerActionRejection surfaces its client-safe message; any
-                // other throwable stays generic so server internals never reach a response body.
+                // A handler-thrown ServerActionRejection surfaces its client-safe message; any other
+                // throwable stays generic so server internals never reach a response body.
                 if (throwable is ServerActionRejection) {
                     ServerActionResponse.Failure(
                         message = throwable.message ?: "Server action rejected.",
@@ -263,6 +270,7 @@ public fun <I, O> serverActionStub(
                     )
                 }
             }
+        }
     }
 
 public fun serverActionPayloadSchema(serializer: KSerializer<*>): ServerActionPayloadSchema =
@@ -657,10 +665,13 @@ public suspend fun Node.toServerRenderStream(
                 results.close(cancelled)
                 throw cancelled
             } catch (error: Throwable) {
+                // Log the detail server-side; stream only a generic message so a throwing subtree can never
+                // leak JDBC/credential/stack internals to a /stream client (mirrors the action-handler scrub).
+                error.printStackTrace()
                 results.send(
                     ServerRenderDeferredResult.Failed(
                         boundaryId = subtree.boundaryId,
-                        message = error.message ?: error.toString(),
+                        message = "Server render failed.",
                     ),
                 )
             }
