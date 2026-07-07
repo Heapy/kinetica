@@ -59,9 +59,11 @@ import org.jetbrains.kotlin.name.Name
  *    and fills the call's trailing `ordinal` parameter;
  * 2. retargets region constructs (`keyed`, `each`, boundaries, …) to their frame-native
  *    `*Region` overloads, assigning child ordinals from the enclosing region;
- * 3. wraps every fresh-region lambda (region content, `@UiComponent`-typed content
- *    parameters) in `beginRegionFrame(<table>) / try { … } finally { endRegionFrame() }`
- *    with its own numbering region and file-level [io.heapy.kinetica.FrameTable] static;
+ * 3. gives every fresh-region lambda (region content, `@UiComponent`-typed content
+ *    parameters) its own numbering region and file-level [io.heapy.kinetica.FrameTable]
+ *    static; most are wrapped in `beginRegionFrame(<table>) / try { … } finally {
+ *    endRegionFrame() }`, while `each`/`lazyEach` row content passes its table to the
+ *    keyed row frame directly;
  * 4. stages a child ordinal before each `@UiComponent` call (`scope.ordinal(n)`; LIFO in
  *    the runtime, so calls in argument position of other component calls stay correct)
  *    and gives the component body a `beginComponentFrame(<table>)` prologue;
@@ -86,6 +88,7 @@ internal class KineticaFrameSymbols private constructor(
     val intArrayOf: IrSimpleFunctionSymbol,
     val regionTargets: Map<String, IrSimpleFunctionSymbol>,
     val statePersistentOverload: IrSimpleFunctionSymbol,
+    val hostEventBlock: IrSimpleFunctionSymbol,
 ) {
     companion object {
         private val PKG = FqName("io.heapy.kinetica")
@@ -141,6 +144,7 @@ internal class KineticaFrameSymbols private constructor(
                 intArrayOf = intArrayOf,
                 regionTargets = regionTargets,
                 statePersistentOverload = statePersistent,
+                hostEventBlock = topLevel("hostEventBlock") ?: return null,
             )
         }
     }
@@ -159,7 +163,7 @@ private val SLOT_DSL_TRANSIENT = mapOf(
     "resource" to true,
 )
 
-private val EVENT_DSL_NAMES = setOf("button", "textInput", "checkbox", "hostEvent")
+private val EVENT_DSL_NAMES = setOf("button", "textInput", "checkbox", "hostEvent", "hostEventBlock")
 
 /** Region constructs and the parameter names of their fresh-region content lambdas. */
 private val REGION_CONTENT_PARAMS = mapOf(
@@ -173,6 +177,8 @@ private val REGION_CONTENT_PARAMS = mapOf(
     "exitGroup" to setOf("content"),
 )
 
+private val MERGED_EACH_REGION_NAMES = setOf("each", "lazyEach")
+
 /** Region constructs that consume a slot ordinal for their boundary state. */
 private val REGION_STATE_SLOTS = setOf("errorBoundary", "loadingBoundary", "suspendSubtree")
 
@@ -180,6 +186,7 @@ private val UI_COMPONENT_FQ = FqName("io.heapy.kinetica.UiComponent")
 private val KOTLIN_PKG = FqName("kotlin")
 private val SINGLE_RUN_SCOPE_FUNCTIONS = setOf("let", "run", "with", "apply", "also")
 private val COMPONENT_SCOPE_FQ = FqName("io.heapy.kinetica.ComponentScope")
+private val EVENT_SCOPE_FQ = FqName("io.heapy.kinetica.EventScope")
 private val KINETICA_PKG = FqName("io.heapy.kinetica")
 
 internal class KineticaFrameTransformer(
@@ -261,6 +268,10 @@ internal class KineticaFrameTransformer(
                 return transformRegion(expression, name)
             }
 
+            if (inKinetica && name == "hostEvent") {
+                tryFuseHostEventBlock(expression)?.let { return it }
+            }
+
             transformArgumentsSelectively(expression, inKinetica, parent)
 
             if (inKinetica && name in SLOT_DSL_TRANSIENT) {
@@ -278,6 +289,33 @@ internal class KineticaFrameTransformer(
             }
             wrapAnnotatedContentArguments(expression)
             return expression
+        }
+
+        private fun tryFuseHostEventBlock(expression: IrCall): IrExpression? {
+            val eventCall = expression.argumentByName("onEvent") as? IrCall ?: return null
+            val eventLambda = eventCall.inlineUnitEventLambda() ?: return null
+
+            val callee = expression.symbol.owner
+            for (parameter in callee.parameters) {
+                val parameterName = parameter.name.asString()
+                if (parameter.kind == IrParameterKind.Regular &&
+                    (parameterName == "ordinal" || parameterName == "onEvent")
+                ) {
+                    continue
+                }
+                val argument = expression.arguments[parameter.indexInParameters] ?: continue
+                expression.arguments[parameter.indexInParameters] = argument.transform(this, null)
+            }
+
+            val builder = DeclarationIrBuilder(pluginContext, enclosingFunction.symbol)
+            return retargetCall(
+                expression,
+                symbols.hostEventBlock,
+                extraArguments = mapOf(
+                    "ordinal" to builder.irInt(numbering.events++),
+                    "block" to eventLambda,
+                ),
+            )
         }
 
         private fun transformSlotCall(expression: IrCall, name: String): IrExpression {
@@ -382,14 +420,23 @@ internal class KineticaFrameTransformer(
             // Content lambdas become fresh numbering regions with their own tables.
             for (parameter in callee.parameters) {
                 if (parameter.kind != IrParameterKind.Regular) continue
-                if (parameter.name.asString() !in contentParams) continue
+                val parameterName = parameter.name.asString()
+                if (parameterName !in contentParams) continue
                 val argument = expression.arguments[parameter.indexInParameters] ?: continue
                 val lambda = argument as? IrFunctionExpression ?: run {
                     report("${shared.functionFqName}: $name ${parameter.name} is not a lambda literal; left on the legacy path.")
                     expression.transformChildrenVoid(this)
                     return expression
                 }
-                wrapFreshRegion(lambda)
+                if (name in MERGED_EACH_REGION_NAMES && parameterName == "content") {
+                    val table = buildFreshRegionTable(lambda) ?: run {
+                        expression.transformChildrenVoid(this)
+                        return expression
+                    }
+                    extraArguments["rowTable"] = builder.irGetField(null, table)
+                } else {
+                    wrapFreshRegion(lambda)
+                }
             }
 
             val dropParameters = if (name == "suspendSubtree") setOf("key") else emptySet()
@@ -455,6 +502,9 @@ internal class KineticaFrameTransformer(
         private fun wrapFreshRegion(lambdaExpression: IrFunctionExpression) {
             wrapFreshRegionOf(lambdaExpression, shared)
         }
+
+        private fun buildFreshRegionTable(lambdaExpression: IrFunctionExpression): IrField? =
+            buildFreshRegionTableOf(lambdaExpression, shared)
     }
 
     /**
@@ -492,20 +542,32 @@ internal class KineticaFrameTransformer(
     }
 
     private fun wrapFreshRegionOf(lambdaExpression: IrFunctionExpression, shared: FunctionShared) {
+        val table = buildFreshRegionTableOf(lambdaExpression, shared) ?: return
+        val lambda = lambdaExpression.function
+        val receiver = lambda.parameters.first {
+            it.kind == IrParameterKind.ExtensionReceiver &&
+                it.type.classOrNull?.owner?.kotlinFqName == COMPONENT_SCOPE_FQ
+        }
+        wrapBodyInFrame(lambda, receiver, table, component = false)
+    }
+
+    private fun buildFreshRegionTableOf(
+        lambdaExpression: IrFunctionExpression,
+        shared: FunctionShared,
+    ): IrField? {
         val lambda = lambdaExpression.function
         val receiver = lambda.parameters.firstOrNull { it.kind == IrParameterKind.ExtensionReceiver }
         if (receiver == null || receiver.type.classOrNull?.owner?.kotlinFqName != COMPONENT_SCOPE_FQ) {
             report("${shared.functionFqName}: content lambda without ComponentScope receiver; left unwrapped.")
-            return
+            return null
         }
         if (lambda.body !is IrBlockBody) {
             report("${shared.functionFqName}: content lambda without a block body; left unwrapped.")
-            return
+            return null
         }
         val regionNumbering = RegionNumbering()
         lambda.body?.transformChildrenVoid(Walker(lambda, shared, regionNumbering))
-        val table = addTableField(shared.functionFqName, regionNumbering)
-        wrapBodyInFrame(lambda, receiver, table, component = false)
+        return addTableField(shared.functionFqName, regionNumbering)
     }
 
     private fun fillOrdinal(expression: IrCall, ordinal: Int) {
@@ -677,3 +739,19 @@ private fun IrCall.argumentByName(name: String): IrExpression? {
 
 private fun IrCall.constBooleanArgument(name: String): Boolean? =
     (argumentByName(name) as? IrConst)?.value as? Boolean
+
+private fun IrCall.inlineUnitEventLambda(): IrFunctionExpression? {
+    val callee = symbol.owner
+    val calleeFqName = callee.kotlinFqName
+    if (calleeFqName.parentOrNull() != KINETICA_PKG || calleeFqName.shortName().asString() != "event") {
+        return null
+    }
+    val lambda = argumentByName("block") as? IrFunctionExpression ?: return null
+    val receiver = lambda.function.parameters.firstOrNull { it.kind == IrParameterKind.ExtensionReceiver }
+        ?: return null
+    if (receiver.type.classOrNull?.owner?.kotlinFqName != EVENT_SCOPE_FQ) {
+        return null
+    }
+    val valueParameters = lambda.function.parameters.count { it.kind == IrParameterKind.Regular }
+    return lambda.takeIf { valueParameters == 0 }
+}

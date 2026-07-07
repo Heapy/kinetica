@@ -71,13 +71,15 @@ internal class Frame(
     internal val parent: Frame?,
 ) {
     private var slots: Array<Any?> = arrayOfNulls(table?.slotCount ?: GROWABLE_INITIAL)
-    private var slotTouch: IntArray = IntArray(slots.size)
+    private var slotTouch: IntArray? =
+        if (table == null || table.transientSlotOrdinals.isNotEmpty()) IntArray(slots.size) else null
     private var growableTransient: BooleanArray? = if (table == null) BooleanArray(slots.size) else null
     private var events: Array<HostEventGroup?>? = null
     private var eventTouch: IntArray? = null
     private var children: Array<Any?>? = null
     private var childEnterStamp: IntArray? = null
     private var childForks: IntArray? = null
+    private var childRegionOrdinals: IntArray? = null
 
     // Region frames created by compiler-wrapped content lambdas, keyed by the identity of
     // their FrameTable static — one table per wrapped lambda literal, so table identity is
@@ -120,8 +122,10 @@ internal class Frame(
      * frames must survive the commit checks exactly as if the body had run.
      */
     internal fun markContentsKept(generation: Int) {
-        for (ordinal in slots.indices) {
-            if (slots[ordinal] != null) slotTouch[ordinal] = generation
+        slotTouch?.let { touch ->
+            for (ordinal in slots.indices) {
+                if (slots[ordinal] != null) touch[ordinal] = generation
+            }
         }
         events?.let { groups ->
             val touch = eventTouch!!
@@ -136,7 +140,7 @@ internal class Frame(
 
     internal fun <T> slot(ordinal: Int, generation: Int, transient: Boolean, initial: () -> T): T {
         ensureSlotCapacity(ordinal)
-        slotTouch[ordinal] = generation
+        slotTouch?.set(ordinal, generation)
         growableTransient?.set(ordinal, transient)
         val existing = slots[ordinal]
         if (existing != null) {
@@ -146,6 +150,12 @@ internal class Frame(
         val created = initial()
         slots[ordinal] = created
         return created
+    }
+
+    internal fun touchSlot(ordinal: Int, generation: Int, transient: Boolean) {
+        ensureSlotCapacity(ordinal)
+        slotTouch?.set(ordinal, generation)
+        growableTransient?.set(ordinal, transient)
     }
 
     internal fun slotValueOrNull(ordinal: Int): Any? = slots.getOrNull(ordinal)
@@ -158,7 +168,7 @@ internal class Frame(
     /** Replaces a slot's holder (identity-keyed slots such as resources); disposes nothing. */
     internal fun setSlotValue(ordinal: Int, generation: Int, transient: Boolean, value: Any?) {
         ensureSlotCapacity(ordinal)
-        slotTouch[ordinal] = generation
+        slotTouch?.set(ordinal, generation)
         growableTransient?.set(ordinal, transient)
         slots[ordinal] = value
     }
@@ -250,6 +260,18 @@ internal class Frame(
     internal fun keyedChildKeys(ordinal: Int): Set<Any> =
         (children?.getOrNull(ordinal) as? HashMap<*, *>)?.let { childMap(it).keys.toSet() } ?: emptySet()
 
+    internal fun childRegionOrdinal(ordinal: Int, allocate: () -> Int): Int {
+        ensureChildRegionOrdinalCapacity(ordinal)
+        val ordinals = childRegionOrdinals!!
+        val existing = ordinals[ordinal]
+        if (existing != UNASSIGNED_REGION_ORDINAL) {
+            return existing
+        }
+        val assigned = allocate()
+        ordinals[ordinal] = assigned
+        return assigned
+    }
+
     internal fun removeKeyedChild(ordinal: Int, key: Any, runtime: KineticaRuntime) {
         val map = (children?.getOrNull(ordinal) as? HashMap<*, *>)?.let(::childMap) ?: return
         map.remove(key)?.dispose(runtime)
@@ -286,9 +308,9 @@ internal class Frame(
     }
 
     /**
-     * Disposes everything except persistence-addressed slots, recursively: row content
-     * lives in region frames below the keyed frame, so persistent cells at any depth must
-     * survive while their siblings (transients, events, caches) are torn down.
+     * Disposes everything except persistence-addressed slots, recursively. Persistent
+     * cells can live on this frame or in nested child frames, so state at any depth must
+     * survive while sibling transients, events, and caches are torn down.
      */
     internal fun stripForPersistentRetention(runtime: KineticaRuntime) {
         skipCache = null
@@ -309,17 +331,20 @@ internal class Frame(
     internal fun commitChecks(generation: Int, runtime: KineticaRuntime) {
         val transientFlags = growableTransient
         if (transientFlags != null) {
+            val touch = slotTouch!!
             for (ordinal in slots.indices) {
-                if (transientFlags[ordinal] && slots[ordinal] != null && slotTouch[ordinal] != generation) {
+                if (transientFlags[ordinal] && slots[ordinal] != null && touch[ordinal] != generation) {
                     disposeFrameSlotValue(slots[ordinal])
                     slots[ordinal] = null
                 }
             }
         } else {
-            for (ordinal in table!!.transientSlotOrdinals) {
-                if (slots[ordinal] != null && slotTouch[ordinal] != generation) {
-                    disposeFrameSlotValue(slots[ordinal])
-                    slots[ordinal] = null
+            slotTouch?.let { touch ->
+                for (ordinal in table!!.transientSlotOrdinals) {
+                    if (slots[ordinal] != null && touch[ordinal] != generation) {
+                        disposeFrameSlotValue(slots[ordinal])
+                        slots[ordinal] = null
+                    }
                 }
             }
         }
@@ -422,7 +447,7 @@ internal class Frame(
         }
         val capacity = newCapacity(ordinal, slots.size)
         slots = slots.copyOf(capacity)
-        slotTouch = slotTouch.copyOf(capacity)
+        slotTouch = slotTouch?.copyOf(capacity)
         growableTransient = growableTransient!!.copyOf(capacity)
     }
 
@@ -461,11 +486,31 @@ internal class Frame(
         childForks = childForks?.copyOf(capacity)
     }
 
+    private fun ensureChildRegionOrdinalCapacity(ordinal: Int) {
+        val existing = childRegionOrdinals
+        if (existing == null) {
+            val capacity = maxOf(table?.childCount ?: GROWABLE_INITIAL, ordinal + 1)
+            childRegionOrdinals = IntArray(capacity) { UNASSIGNED_REGION_ORDINAL }
+            return
+        }
+        if (ordinal < existing.size) return
+        require(table == null) {
+            "child region ordinal $ordinal out of range for ${table?.functionFqName} (childCount=${table?.childCount})"
+        }
+        val capacity = newCapacity(ordinal, existing.size)
+        childRegionOrdinals = existing.copyOf(capacity).also { expanded ->
+            for (index in existing.size until expanded.size) {
+                expanded[index] = UNASSIGNED_REGION_ORDINAL
+            }
+        }
+    }
+
     private fun newCapacity(ordinal: Int, current: Int): Int = maxOf(ordinal + 1, current * 2)
 
     private companion object {
         private const val GROWABLE_INITIAL = 4
         private const val FIRST_INVOCATION = 0
+        private const val UNASSIGNED_REGION_ORDINAL = -1
     }
 }
 

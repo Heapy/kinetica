@@ -10,10 +10,9 @@ import kotlin.test.assertTrue
 /**
  * R12 — Global `cellWriteLock` serializes all writes and runs user code under locks.
  *
- * Every cell write acquires ONE module-global [kotlinx.atomicfu.locks.SynchronizedObject]
- * (`cellWriteLock` in Cell.kt:80) and runs the user `transform`/equality WHILE that lock is
- * held (Cell.kt:126-133 and :152-163). As a consequence a slow/blocking transform on one cell
- * freezes writes to every OTHER, completely independent cell process-wide.
+ * The buggy version acquired one module-global lock and ran the user `transform`/equality while
+ * that lock was held. As a consequence a slow/blocking transform on one cell froze writes to
+ * every OTHER, completely independent cell process-wide.
  *
  * Desired behavior (asserted here): two DIFFERENT cells must be writable concurrently. A write
  * to cell B must make progress even while an unrelated in-flight write to cell A is parked

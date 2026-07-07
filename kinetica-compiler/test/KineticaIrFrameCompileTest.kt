@@ -2,6 +2,7 @@ package io.heapy.kinetica.compiler
 
 import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.FrameTable
+import io.heapy.kinetica.HostNode
 import io.heapy.kinetica.KineticaRuntime
 import io.heapy.kinetica.MissingKineticaPluginException
 import io.heapy.kinetica.Node
@@ -191,6 +192,67 @@ class KineticaIrFrameCompileTest {
     }
 
     @Test
+    fun eachContentTableIsTheKeyedRowFrame() {
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.each
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Rows(items: List<String>) {
+                        each(items, key = { it }) { item ->
+                            val row = state { item }
+                            text(row.value)
+                            keyed("nested") {
+                                val nested = state { "nested:" + item }
+                                text(nested.value)
+                            }
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope, items: List<String>): Node =
+                        runtime.render(scope) { Rows(items) }.tree
+                """,
+            ),
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            compiled.invokeRender(
+                "app.MainKt",
+                "render",
+                List::class.java to listOf("a"),
+                runtime = runtime,
+                scope = scope,
+            )
+
+            val rootFrame = privateField(scope, "rootFrame")!!
+            val renderFrame = frameRegions(rootFrame).values.single()!!
+            val rowsFrame = frameChildren(renderFrame)[0]!!
+            val rowFrame = childMap(frameChildren(rowsFrame)[0])["a"]!!
+            val rowTable = frameTable(rowFrame)
+            assertTrue(rowTable != null, "each row keyed frame must be the numbered row frame")
+            assertEquals(1, rowTable.slotCount, "row state ordinal belongs to the keyed row frame")
+            assertEquals(1, rowTable.childCount, "nested region ordinal belongs to the keyed row frame")
+            assertEquals(null, privateField(rowFrame, "regions"), "row content must not open a second region frame")
+
+            val nestedKeyedFrame = childMap(frameChildren(rowFrame)[0])["nested"]!!
+            assertEquals(null, frameTable(nestedKeyedFrame), "ordinary keyed frames remain growable")
+            assertTrue(
+                frameRegions(nestedKeyedFrame).isNotEmpty(),
+                "nested region inside the row must still open a child region frame",
+            )
+        }
+    }
+
+    @Test
     fun frameTableStaticsCarryRegionCounts() {
         harness.compile(
             mapOf(
@@ -227,6 +289,80 @@ class KineticaIrFrameCompileTest {
             assertEquals(3, component.slotCount, "count, label, launchEffect")
             assertEquals(1, component.eventCount, "button onClick")
             assertEquals(intArrayOf(2).toList(), component.transientSlotOrdinals.toList(), "launchEffect is transient")
+        }
+    }
+
+    @Test
+    fun inlineUnitEventPassedToHostEventFusesIntoFrameEvent() {
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.event
+                    import io.heapy.kinetica.host
+                    import io.heapy.kinetica.hostEvent
+
+                    var fusedClicks: Int = 0
+                    var storedClicks: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Fused() {
+                        val click = hostEvent(onEvent = event { fusedClicks += 1 })
+                        host("button", props = mapOf("event:onClick" to click))
+                    }
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Stored() {
+                        val callback = event { storedClicks += 1 }
+                        val click = hostEvent(onEvent = callback)
+                        host("button", props = mapOf("event:onClick" to click))
+                    }
+
+                    fun renderFused(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Fused() }.tree
+
+                    fun renderStored(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Stored() }.tree
+
+                    fun fusedClickCount(): Int = fusedClicks
+                """,
+            ),
+        ).use { compiled ->
+            val fileClass = compiled.loadClass("app.MainKt")
+            val tables = fileClass.declaredFields
+                .filter { it.type == FrameTable::class.java }
+                .map { field ->
+                    field.isAccessible = true
+                    field.get(null) as FrameTable
+                }
+
+            val fused = tables.single { it.functionFqName == "app.Fused" }
+            assertEquals(0, fused.slotCount, "inline unit event passed to hostEvent must not consume a slot")
+            assertEquals(1, fused.eventCount, "fused hostEvent still consumes one frame event ordinal")
+
+            val stored = tables.single { it.functionFqName == "app.Stored" }
+            assertEquals(1, stored.slotCount, "stored event callback keeps the StableUnitEvent slot")
+            assertEquals(1, stored.eventCount, "stored callback hostEvent still consumes one frame event ordinal")
+
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val first = compiled.invokeRender(fileClass, "renderFused", runtime = runtime, scope = scope) as HostNode
+            val firstEventId = first.props.getValue("event:onClick")
+            val second = compiled.invokeRender(fileClass, "renderFused", runtime = runtime, scope = scope) as HostNode
+            assertEquals(firstEventId, second.props.getValue("event:onClick"), "frame event id must be reused")
+            assertEquals(
+                1,
+                (privateField(runtime, "events") as Map<*, *>).size,
+                "rerender must update, not duplicate, the event",
+            )
+
+            runtime.dispatch(firstEventId)
+            assertEquals(1, fileClass.getDeclaredMethod("fusedClickCount").invoke(null))
         }
     }
 
@@ -349,4 +485,21 @@ class KineticaIrFrameCompileTest {
     }
 
     private fun Node.toDebugString(): String = toString()
+
+    private fun privateField(instance: Any, name: String): Any? =
+        instance.javaClass.getDeclaredField(name).also { it.isAccessible = true }.get(instance)
+
+    private fun frameTable(frame: Any): FrameTable? =
+        privateField(frame, "table") as? FrameTable
+
+    private fun frameRegions(frame: Any): Map<*, *> =
+        privateField(frame, "regions") as? Map<*, *> ?: emptyMap<Any, Any>()
+
+    @Suppress("UNCHECKED_CAST")
+    private fun frameChildren(frame: Any): Array<Any?> =
+        privateField(frame, "children") as Array<Any?>
+
+    @Suppress("UNCHECKED_CAST")
+    private fun childMap(entry: Any?): Map<Any, Any> =
+        entry as Map<Any, Any>
 }

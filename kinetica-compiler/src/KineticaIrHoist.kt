@@ -74,13 +74,20 @@ internal class KineticaHoistSymbols private constructor(
             val emptyList = pluginContext
                 .referenceFunctions(CallableId(FqName("kotlin.collections"), Name.identifier("emptyList")))
                 .firstOrNull() ?: return null
-            val hostNodeConstructorParameters = setOf("tag", "props", "children", "key", "semantics", "flags")
+            // The hoister only populates these core parameters; every other HostNode parameter
+            // (flags, regions, and any future additive field) MUST have a default and is left to
+            // it in buildHostNode. Match by CONTAINMENT, not exact-set equality, so adding a
+            // defaulted HostNode field never again silently disables hoisting — the `regions`
+            // field (KNT-0033) did exactly that under the previous `==` match, and because
+            // hoisting-off is a perf regression rather than a compile error, only the compiler's
+            // own KineticaIrHoistCompileTest caught it.
+            val requiredHostNodeParameters = setOf("tag", "props", "children", "key", "semantics")
             val constructor = hostNode.constructors.firstOrNull { symbol ->
                 val parameterNames = symbol.owner.parameters
                     .filter { parameter -> parameter.kind == IrParameterKind.Regular }
                     .map { parameter -> parameter.name.asString() }
                     .toSet()
-                parameterNames == hostNodeConstructorParameters
+                parameterNames.containsAll(requiredHostNodeParameters)
             } ?: return null
             val string = pluginContext.irBuiltIns.stringType
             val mapClass = pluginContext.irBuiltIns.mapClass

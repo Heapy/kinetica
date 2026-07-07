@@ -8,8 +8,8 @@ import kotlin.test.Test
 import kotlin.test.assertNull
 
 /**
- * R09 — `versionCounter.incrementAndGet()` runs in `notifyWrite`, OUTSIDE the
- * `synchronized(cellWriteLock)` block that commits `current`. That means the new
+ * R09 — the version increment used to run in `notifyWrite`, OUTSIDE the lock
+ * block that commits `current`. That means the new
  * value becomes visible before the version is bumped, so there is a window in
  * which a reader observes the new value paired with the OLD version.
  *

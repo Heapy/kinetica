@@ -1,6 +1,5 @@
 package io.heapy.kinetica
 
-import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -25,6 +24,7 @@ public class ComponentScope public constructor(
     internal val instanceId: String = "root",
 ) {
     private val nodeStack = mutableListOf<MutableList<Node>>(mutableListOf())
+    private val regionStack = mutableListOf<MutableList<ChildRegion>?>(null)
     private val contexts = mutableMapOf<Context<*>, MutableList<Any?>>()
     private val exitGroups = mutableMapOf<String, ExitGroupState>()
     private val errorBoundaryStack = mutableListOf<ErrorBoundaryState>()
@@ -35,10 +35,13 @@ public class ComponentScope public constructor(
     // record can never certify someone else's children.
     private var keyedEmissionFrame: MutableList<Node>? = null
     private var keyedEmissionEnd = 0
+    internal var lastCollectedRegions: List<ChildRegion> = emptyList()
+        private set
     private val exitGroupStack = mutableListOf<ExitGroupState>()
     private var slotGeneration = 0
     private val layoutEffects = mutableListOf<() -> Unit>()
     private val postCommitEffects = mutableListOf<() -> Unit>()
+    private var nextChildRegionOrdinal = 0
 
     // --- Frame kernel: ordinal-addressed storage assigned by the compiler plugin ---
     internal val rootFrame: Frame = Frame(table = null, parent = null)
@@ -120,14 +123,18 @@ public class ComponentScope public constructor(
     internal fun frameSlotValueOrNull(ordinal: Int): Any? =
         currentFrame.slotValueOrNull(ordinal)
 
+    internal fun touchFrameSlot(ordinal: Int, transient: Boolean) {
+        currentFrame.touchSlot(ordinal, slotGeneration, transient)
+    }
+
     /** Stores [value] in the slot, replacing any previous holder (identity-keyed slots). */
     internal fun <T> frameSlotTouch(ordinal: Int, transient: Boolean, value: T): T {
         currentFrame.setSlotValue(ordinal, slotGeneration, transient, value)
         return value
     }
 
-    internal fun enterKeyedChildFrame(ordinal: Int, key: Any) {
-        enterFrame(currentFrame.enterKeyedChild(ordinal, key, table = null, generation = slotGeneration))
+    internal fun enterKeyedChildFrame(ordinal: Int, key: Any, table: FrameTable? = null) {
+        enterFrame(currentFrame.enterKeyedChild(ordinal, key, table = table, generation = slotGeneration))
     }
 
     internal fun enterFixedChildFrame(ordinal: Int) {
@@ -163,6 +170,9 @@ public class ComponentScope public constructor(
         postCommitEffects.clear()
         nodeStack.clear()
         nodeStack.add(mutableListOf())
+        regionStack.clear()
+        regionStack.add(null)
+        lastCollectedRegions = emptyList()
     }
 
     internal fun commitRender(): Node {
@@ -203,6 +213,23 @@ public class ComponentScope public constructor(
         nodeStack.last() += node
     }
 
+    internal fun currentNodeFrameSize(): Int =
+        nodeStack.last().size
+
+    internal fun recordChildRegion(ordinal: Int, start: Int) {
+        recordChildRegion(ordinal, start, nodeStack.last().size)
+    }
+
+    private fun recordChildRegion(ordinal: Int, start: Int, end: Int) {
+        val top = regionStack.lastIndex
+        val frame = regionStack[top] ?: mutableListOf<ChildRegion>().also { regionStack[top] = it }
+        frame += ChildRegion(
+            ordinal = currentFrame.childRegionOrdinal(ordinal) { nextChildRegionOrdinal++ },
+            start = start,
+            end = end,
+        )
+    }
+
     public fun staticNode(
         hoistId: String,
         factory: () -> Node,
@@ -233,7 +260,8 @@ public class ComponentScope public constructor(
             FrameSkipCache(
                 inputs = inputs,
                 nodes = captured.nodes,
-                dependencies = captured.dependencies,
+                dependencyCells = captured.dependencyCells,
+                dependencyVersions = captured.dependencyVersions,
                 contextReads = captured.contextReads,
                 certifiedKeyedHost = false,
             )
@@ -273,10 +301,14 @@ public class ComponentScope public constructor(
         }
         dependencies.forEach(ReadTracking::record)
         frame.skipCache = if (capture.memoizable) {
+            val dependencyCells = dependencies.toTypedArray()
             FrameSkipCache(
                 inputs = inputs,
                 nodes = listOf(node),
-                dependencies = dependencies.associateWith { dependency -> dependency.version },
+                dependencyCells = dependencyCells,
+                dependencyVersions = LongArray(dependencyCells.size) { index ->
+                    dependencyCells[index].version
+                },
                 contextReads = capture.contextReads ?: emptyList(),
                 certifiedKeyedHost = false,
             )
@@ -291,10 +323,13 @@ public class ComponentScope public constructor(
 
     public suspend fun renderSuspendNode(content: suspend ComponentScope.() -> Unit): Node {
         nodeStack.add(mutableListOf())
+        regionStack.add(null)
         return try {
             content()
+            regionStack.removeAt(regionStack.lastIndex)
             nodeStack.removeAt(nodeStack.lastIndex).toNode()
         } catch (error: Throwable) {
+            regionStack.removeAt(regionStack.lastIndex)
             nodeStack.removeAt(nodeStack.lastIndex)
             throw error
         }
@@ -302,10 +337,13 @@ public class ComponentScope public constructor(
 
     internal fun collect(content: ComponentScope.() -> Unit): List<Node> {
         nodeStack.add(mutableListOf())
+        regionStack.add(null)
         return try {
             content()
+            lastCollectedRegions = regionStack.removeAt(regionStack.lastIndex) ?: emptyList()
             nodeStack.removeAt(nodeStack.lastIndex)
         } catch (error: Throwable) {
+            regionStack.removeAt(regionStack.lastIndex)
             nodeStack.removeAt(nodeStack.lastIndex)
             throw error
         }
@@ -390,7 +428,7 @@ public class ComponentScope public constructor(
 
     public fun completeExit(key: Any): Boolean {
         val state = exitGroups[key.toString()] ?: return false
-        val completed = synchronized(state.stateLock) {
+        val completed = synchronizedOn(state.stateLock) {
             if (state.phase != ExitPhase.Leaving) {
                 false
             } else {
@@ -414,7 +452,7 @@ public class ComponentScope public constructor(
         val state = exitGroups[key.toString()] ?: return false
         var remaining = 0
         var shouldComplete = false
-        val completedCallback = synchronized(state.stateLock) {
+        val completedCallback = synchronizedOn(state.stateLock) {
             if (state.phase != ExitPhase.Leaving || state.generation != generation) {
                 false
             } else if (state.pendingCallbacks <= 0) {
@@ -471,6 +509,9 @@ public class ComponentScope public constructor(
         postCommitEffects.clear()
         nodeStack.clear()
         nodeStack.add(mutableListOf())
+        regionStack.clear()
+        regionStack.add(null)
+        lastCollectedRegions = emptyList()
         coroutineScope.cancel()
     }
 
@@ -617,7 +658,8 @@ public class ComponentScope public constructor(
 
     private class CapturedRender(
         val nodes: List<Node>,
-        val dependencies: Map<ObservableCell<*>, Long>,
+        val dependencyCells: Array<ObservableCell<*>>,
+        val dependencyVersions: LongArray,
         val contextReads: List<FrameContextRead>,
         val memoizable: Boolean,
     )
@@ -640,9 +682,13 @@ public class ComponentScope public constructor(
         }
         // Reads stay visible to the enclosing render/capture collectors.
         dependencies.forEach(ReadTracking::record)
+        val dependencyCells = dependencies.toTypedArray()
         return CapturedRender(
             nodes = nodes,
-            dependencies = dependencies.associateWith { dependency -> dependency.version },
+            dependencyCells = dependencyCells,
+            dependencyVersions = LongArray(dependencyCells.size) { index ->
+                dependencyCells[index].version
+            },
             contextReads = capture.contextReads ?: emptyList(),
             memoizable = capture.memoizable,
         )
@@ -658,6 +704,7 @@ public class ComponentScope public constructor(
 
     internal fun <T> renderEachRegion(
         ordinal: Int,
+        rowTable: FrameTable,
         items: Iterable<T>,
         key: (T) -> Any,
         memoize: Boolean,
@@ -675,7 +722,7 @@ public class ComponentScope public constructor(
         for (keyed in snapshot) {
             seen += keyed.key
             val rowKey = keyed.key.toString()
-            val rowFrame = currentFrame.enterKeyedChild(ordinal, keyed.key, table = null, generation = slotGeneration)
+            val rowFrame = currentFrame.enterKeyedChild(ordinal, keyed.key, table = rowTable, generation = slotGeneration)
             val hit = if (memoize) frameSkipHit(rowFrame, listOf(keyed.item)) else null
             val rowCertified: Boolean
             if (hit != null) {
@@ -699,7 +746,8 @@ public class ComponentScope public constructor(
                     FrameSkipCache(
                         inputs = listOf(keyed.item),
                         nodes = captured.nodes,
-                        dependencies = captured.dependencies,
+                        dependencyCells = captured.dependencyCells,
+                        dependencyVersions = captured.dependencyVersions,
                         contextReads = captured.contextReads,
                         certifiedKeyedHost = rowCertified,
                     )
@@ -709,6 +757,7 @@ public class ComponentScope public constructor(
             }
             allCertified = allCertified && rowCertified
         }
+        recordChildRegion(ordinal, frameStart, outFrame.size)
         recordKeyedEmission(outFrame, frameStart, allCertified && snapshot.isNotEmpty())
         currentFrame.keyedChildKeys(ordinal).forEach { existingKey ->
             if (existingKey !in seen) {
@@ -760,24 +809,87 @@ public fun <T> ComponentScope.state(
     initial: () -> T,
 ): MutableCell<T> {
     if (ordinal < 0) throw MissingKineticaPluginException("state")
-    return frameSlot(ordinal, transient) {
-        newStateCell("slot:$ordinal", policy, persistent, transient, initial)
-    }
+    return stateCellSlot(ordinal, policy, persistent, transient, initial)
 }
 
-private fun <T> ComponentScope.newStateCell(
-    slotLabel: String,
+private fun <T> ComponentScope.stateCellSlot(
+    ordinal: Int,
     policy: EqualityPolicy<T>,
     persistent: Boolean,
     transient: Boolean,
     initial: () -> T,
-): MutableCellImpl<T> =
-    MutableCellImpl(
-        initial = initial(),
-        policy = policy,
-        onWrite = { _, next ->
-            recordStateWrite()
-            runtime.record(
+): MutableCellImpl<T> {
+    if (transient) {
+        markEachCapturesUnsafe()
+    }
+    val existing = frameSlotValueOrNull(ordinal)
+    if (existing != null) {
+        touchFrameSlot(ordinal, transient)
+        @Suppress("UNCHECKED_CAST")
+        return existing as MutableCellImpl<T>
+    }
+    return frameSlotTouch(
+        ordinal = ordinal,
+        transient = transient,
+        value = StateCellImpl(
+            initial = initial(),
+            policy = policy,
+            scope = this,
+            slotLabel = "slot:$ordinal",
+            persistent = persistent,
+            transient = transient,
+        ),
+    )
+}
+
+private fun <T> ComponentScope.stateCellSlot(
+    ordinal: Int,
+    slotId: SlotId,
+    policy: EqualityPolicy<T>,
+    persistent: Boolean,
+    transient: Boolean,
+    initial: () -> T,
+): MutableCellImpl<T> {
+    if (transient) {
+        markEachCapturesUnsafe()
+    }
+    val existing = frameSlotValueOrNull(ordinal)
+    if (existing != null) {
+        touchFrameSlot(ordinal, transient)
+        @Suppress("UNCHECKED_CAST")
+        return existing as MutableCellImpl<T>
+    }
+    return frameSlotTouch(
+        ordinal = ordinal,
+        transient = transient,
+        value = StateCellImpl(
+            initial = if (hasPendingRestoredValue(slotId)) {
+                @Suppress("UNCHECKED_CAST")
+                takePendingRestoredValue(slotId) as T
+            } else {
+                initial()
+            },
+            policy = policy,
+            scope = this,
+            slotLabel = slotId.stableKey(),
+            persistent = persistent,
+            transient = transient,
+        ),
+    )
+}
+
+private class StateCellImpl<T>(
+    initial: T,
+    policy: EqualityPolicy<T>,
+    private val scope: ComponentScope,
+    private val slotLabel: String,
+    private val persistent: Boolean,
+    private val transient: Boolean,
+) : MutableCellImpl<T>(initial, policy) {
+    override fun onCommittedWrite(next: T) {
+        scope.recordStateWrite()
+        if (scope.runtime.isRecording) {
+            scope.runtime.record(
                 JournalKind.CellWrite,
                 "cell write",
                 mapOf(
@@ -787,9 +899,10 @@ private fun <T> ComponentScope.newStateCell(
                     "value" to next.toString(),
                 ),
             )
-            runtime.invalidate("cell write")
-        },
-    )
+        }
+        scope.runtime.invalidate("cell write")
+    }
+}
 
 public fun <T> ComponentScope.state(
     slotId: SlotId,
@@ -800,16 +913,7 @@ public fun <T> ComponentScope.state(
     initial: () -> T,
 ): MutableCell<T> {
     if (ordinal < 0) throw MissingKineticaPluginException("state")
-    val cell = frameSlot(ordinal, transient) {
-        newStateCell(slotId.stableKey(), policy, persistent, transient) {
-            if (hasPendingRestoredValue(slotId)) {
-                @Suppress("UNCHECKED_CAST")
-                takePendingRestoredValue(slotId) as T
-            } else {
-                initial()
-            }
-        }
-    }
+    val cell = stateCellSlot(ordinal, slotId, policy, persistent, transient, initial)
     registerSlotIdCell(slotId, cell, persistent, transient, ordinal)
     return cell
 }
@@ -871,12 +975,13 @@ public fun <T> ComponentScope.each(
  */
 public fun <T> ComponentScope.eachRegion(
     ordinal: Int,
+    rowTable: FrameTable,
     items: Iterable<T>,
     key: (T) -> Any,
     memoize: Boolean = true,
     content: ComponentScope.(T) -> Unit,
 ) {
-    renderEachRegion(ordinal, items, key, memoize, content)
+    renderEachRegion(ordinal, rowTable, items, key, memoize, content)
 }
 
 public interface LazyItems<out T> : Iterable<T> {
@@ -947,6 +1052,7 @@ public fun <T> ComponentScope.lazyEach(
  */
 public fun <T> ComponentScope.lazyEachRegion(
     ordinal: Int,
+    rowTable: FrameTable,
     items: LazyItems<T>,
     key: (T) -> Any,
     retain: RetainPolicy = RetainPolicy.Keyed,
@@ -958,6 +1064,7 @@ public fun <T> ComponentScope.lazyEachRegion(
     val snapshot = keyedLastWins(items, key)
     val visibleRange = state.visibleRange(snapshot.size)
     val visibleKeys = mutableSetOf<Any>()
+    val frameStart = currentNodeFrameSize()
     runtime.record(
         JournalKind.RenderStarted,
         "lazyEach",
@@ -971,7 +1078,7 @@ public fun <T> ComponentScope.lazyEachRegion(
     snapshot.forEachIndexed { index, keyed ->
         if (index in visibleRange) {
             visibleKeys += keyed.key
-            enterKeyedChildFrame(ordinal, keyed.key)
+            enterKeyedChildFrame(ordinal, keyed.key, rowTable)
             try {
                 content(keyed.item)
             } catch (pending: ResourcePendingException) {
@@ -986,6 +1093,7 @@ public fun <T> ComponentScope.lazyEachRegion(
             }
         }
     }
+    recordChildRegion(ordinal, frameStart)
     when (retain) {
         RetainPolicy.Keyed -> Unit
         RetainPolicy.VisibleOnly -> keyedChildFrameKeys(ordinal).forEach { existingKey ->
@@ -1060,14 +1168,19 @@ internal class FrameCaptureState {
 internal class FrameSkipCache(
     val inputs: List<Any?>,
     val nodes: List<Node>,
-    val dependencies: Map<ObservableCell<*>, Long>,
+    val dependencyCells: Array<ObservableCell<*>>,
+    val dependencyVersions: LongArray,
     val contextReads: List<FrameContextRead>,
     val certifiedKeyedHost: Boolean,
 ) {
-    fun dependenciesUnchanged(): Boolean =
-        dependencies.all { (dependency, version) -> dependency.version == version }
+    fun dependenciesUnchanged(): Boolean {
+        for (i in dependencyCells.indices) {
+            if (dependencyCells[i].version != dependencyVersions[i]) return false
+        }
+        return true
+    }
 
     fun recordDependencies() {
-        dependencies.keys.forEach(ReadTracking::record)
+        dependencyCells.forEach(ReadTracking::record)
     }
 }

@@ -1,9 +1,7 @@
 package io.heapy.kinetica
 
-import kotlinx.atomicfu.atomic
-import kotlinx.atomicfu.locks.SynchronizedObject
-import kotlinx.atomicfu.locks.synchronized
-import kotlinx.atomicfu.update
+import kotlin.concurrent.atomics.AtomicLong
+import kotlin.concurrent.atomics.AtomicReference
 import kotlin.properties.ReadOnlyProperty
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
@@ -17,6 +15,7 @@ public interface Cell<out T> : ReadOnlyProperty<Any?, T> {
 public interface MutableCell<T> : Cell<T>, ReadWriteProperty<Any?, T> {
     override public var value: T
 
+    // Required to resolve the Cell/ReadWriteProperty getValue diamond.
     override public fun getValue(thisRef: Any?, property: KProperty<*>): T = value
 
     public fun update(transform: (T) -> T) {
@@ -65,6 +64,17 @@ internal interface ReactiveNode {
 }
 
 /**
+ * One holder per observe() call. Holder identity, not listener identity, is the registration key,
+ * so registering the same lambda instance twice yields two independent disposables.
+ */
+private class ListenerRegistration(val listener: () -> Unit)
+
+private class CommittedWrite<T>(
+    val next: T,
+    val preVersion: Long,
+)
+
+/**
  * Global monotonic write clock, advanced after every committed source write (and on derived
  * definition refreshes). A [DerivedCell] that validated its transitive dependencies while the
  * clock read C is provably still clean as long as the clock still reads C — no write happened
@@ -83,13 +93,13 @@ internal interface ReactiveNode {
  * acceptable: the only foreign ObservableCell is test-only, see [DerivedCell.foreignDependencyListener].)
  */
 internal object ReactiveClock {
-    private val counter = atomic(0L)
+    private val counter = AtomicLong(0L)
 
     val current: Long
-        get() = counter.value
+        get() = counter.load()
 
     fun advance() {
-        counter.incrementAndGet()
+        counter.addAndFetch(1L)
     }
 }
 
@@ -223,114 +233,137 @@ private class PropagationWave {
     }
 }
 
-internal class MutableCellImpl<T>(
+internal open class MutableCellImpl<T>(
     initial: T,
     private val policy: EqualityPolicy<T>,
-    private val onWrite: ((old: T, new: T) -> Unit)? = null,
 ) : MutableCell<T>, ObservableCell<T>, ReactiveNode {
     // Per-instance write lock. Each cell serializes only its OWN read-modify-write
     // commits; writes to independent cells never contend, and there is no single
     // process-wide monitor that a slow transform can freeze (nor one that can form
     // an AB-BA cycle with DerivedCell's per-instance lock).
-    private val writeLock = SynchronizedObject()
-    private val listeners = atomic<List<() -> Unit>>(emptyList())
+    private val writeLock = platformLock()
+    private val listeners = AtomicReference<List<ListenerRegistration>>(emptyList())
     // Reverse-dependency edges: DerivedCells that read this source. Copy-on-write and
     // lock-free (like `listeners`), so a derived attaching/detaching never contends with
     // the write path and cannot form an AB-BA cycle with any node lock.
-    private val dependents = atomic<List<DerivedCell<*>>>(emptyList())
-    private val current = atomic(initial)
-    private val versionCounter = atomic(0L)
+    private val dependents = AtomicReference<List<DerivedCell<*>>>(emptyList())
+    private val current = AtomicReference(initial)
+    private val versionCounter = AtomicLong(0L)
 
     override val version: Long
-        get() = versionCounter.value
+        get() = versionCounter.load()
 
     // A source is never dirty: raw and healed versions are identical.
-    override val versionSnapshot: Long get() = versionCounter.value
-    override val versionHealed: Long get() = versionCounter.value
+    override val versionSnapshot: Long get() = versionCounter.load()
+    override val versionHealed: Long get() = versionCounter.load()
 
     override fun addDependent(dependent: DerivedCell<*>) {
-        dependents.update { it + dependent }
+        while (true) {
+            val currentDependents = dependents.load()
+            if (dependents.compareAndSet(currentDependents, currentDependents + dependent)) {
+                return
+            }
+        }
     }
 
     override fun removeDependent(dependent: DerivedCell<*>) {
-        dependents.update { list -> list.filterNot { it === dependent } }
+        while (true) {
+            val currentDependents = dependents.load()
+            val nextDependents = currentDependents.filterNot { it === dependent }
+            if (dependents.compareAndSet(currentDependents, nextDependents)) {
+                return
+            }
+        }
     }
 
-    override fun snapshotDependents(): List<DerivedCell<*>> = dependents.value
+    override fun snapshotDependents(): List<DerivedCell<*>> = dependents.load()
 
-    override fun hasExternalObservers(): Boolean = listeners.value.isNotEmpty()
+    override fun hasExternalObservers(): Boolean = listeners.load().isNotEmpty()
 
     override fun collectExternalObserversInto(into: MutableList<() -> Unit>) {
-        into += listeners.value
+        listeners.load().forEach { registration -> into += registration.listener }
     }
 
     override var value: T
         get() {
             ReadTracking.record(this)
-            return current.value
+            return current.load()
         }
         set(value) = setAtomic(value)
 
     override fun update(transform: (T) -> T) {
-        val committed = synchronized(writeLock) {
-            val previous = current.value
-            val next = transform(previous)
-            if (policy.equivalent(previous, next)) {
-                null
-            } else {
-                // Capture the pre-write version BEFORE the increment (inside the same
-                // writeLock section) so the wave can tell the source's own observers apart
-                // from a no-op. Publish the version BEFORE the value so that any lock-free
-                // reader that observes the new value is guaranteed to already observe the
-                // matching (or newer) version — never a new value with a stale version.
-                // Both are volatile, so this program order is preserved.
-                val preVersion = versionCounter.value
-                versionCounter.incrementAndGet()
-                current.value = next
-                ReactiveClock.advance()
-                Triple(previous, next, preVersion)
-            }
-        }
-        committed?.let { (previous, next, preVersion) ->
-            // onWrite still fires on every changed write, before propagation (preserves
-            // ComponentScope.state -> runtime.invalidate).
-            onWrite?.invoke(previous, next)
-            // FAST-PATH: only spawn a wave when someone is actually listening or derives from
-            // this cell — keeps writes to isolated cells lean (R09/R12).
-            if (dependents.value.isNotEmpty() || listeners.value.isNotEmpty()) {
-                schedulePropagation(this, preVersion)
-            }
-        }
+        commitAtomic(directNext = null, transform = transform)
     }
 
     override fun observe(listener: () -> Unit): Disposable {
-        listeners.update { currentListeners -> currentListeners + listener }
+        val registration = ListenerRegistration(listener)
+        while (true) {
+            val currentListeners = listeners.load()
+            if (listeners.compareAndSet(currentListeners, currentListeners + registration)) {
+                break
+            }
+        }
         return Disposable {
-            listeners.update { currentListeners -> currentListeners.filterNot { it === listener } }
+            while (true) {
+                val currentListeners = listeners.load()
+                val nextListeners = currentListeners.filterNot { candidate -> candidate === registration }
+                if (listeners.compareAndSet(currentListeners, nextListeners)) {
+                    return@Disposable
+                }
+            }
         }
     }
 
     private fun setAtomic(next: T) {
-        val committed = synchronized(writeLock) {
-            val previous = current.value
-            if (policy.equivalent(previous, next)) {
-                null
-            } else {
-                // See update(): capture pre-version before the increment; publish version
-                // before value so a lock-free reader never sees a new value with a stale version.
-                val preVersion = versionCounter.value
-                versionCounter.incrementAndGet()
-                current.value = next
-                ReactiveClock.advance()
-                Triple(previous, next, preVersion)
-            }
+        commitAtomic(directNext = next, transform = null)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun commitAtomic(
+        directNext: T?,
+        transform: ((T) -> T)?,
+    ) {
+        val committed = synchronizedOn(writeLock) {
+            val previous = current.load()
+            val next = if (transform == null) directNext as T else transform(previous)
+            commitLocked(previous, next)
         }
-        committed?.let { (previous, value, preVersion) ->
-            onWrite?.invoke(previous, value)
-            if (dependents.value.isNotEmpty() || listeners.value.isNotEmpty()) {
-                schedulePropagation(this, preVersion)
-            }
+        if (committed != null) {
+            notifyCommittedWrite(committed)
         }
+    }
+
+    private fun commitLocked(
+        previous: T,
+        next: T,
+    ): CommittedWrite<T>? {
+        if (policy.equivalent(previous, next)) {
+            return null
+        }
+        // Capture the pre-write version BEFORE the increment (inside the same writeLock section)
+        // so the wave can tell the source's own observers apart from a no-op. Publish the version
+        // BEFORE the value so any lock-free reader that observes the new value is guaranteed to
+        // already observe the matching (or newer) version — never a new value with a stale version.
+        // Both are volatile, so this program order is preserved.
+        val preVersion = versionCounter.load()
+        versionCounter.addAndFetch(1L)
+        current.store(next)
+        ReactiveClock.advance()
+        return CommittedWrite(next, preVersion)
+    }
+
+    private fun notifyCommittedWrite(committed: CommittedWrite<T>) {
+        // onCommittedWrite still fires on every changed write, before propagation (preserves
+        // ComponentScope.state -> runtime.invalidate).
+        onCommittedWrite(committed.next)
+        // FAST-PATH: only spawn a wave when someone is actually listening or derives from
+        // this cell — keeps writes to isolated cells lean (R09/R12).
+        if (dependents.load().isNotEmpty() || listeners.load().isNotEmpty()) {
+            schedulePropagation(this, committed.preVersion)
+        }
+    }
+
+    protected open fun onCommittedWrite(next: T) {
     }
 }
 
@@ -338,16 +371,14 @@ internal class DerivedCell<T>(
     private var policy: EqualityPolicy<T>,
     private var compute: () -> T,
 ) : Cell<T>, ObservableCell<T>, ReactiveNode {
-    private val lock = SynchronizedObject()
+    private val lock = platformLock()
 
     /**
-     * Each observe() call produces a fresh [Registration] holder, so two identity-equal
+     * Each observe() call produces a fresh [ListenerRegistration] holder, so two identity-equal
      * listener instances yield two independent entries. Disposing one removes only its own
      * holder, leaving any other registration — even of the same lambda — live.
      */
-    private class Registration(val listener: () -> Unit)
-
-    private val registrations = mutableListOf<Registration>()
+    private val registrations = mutableListOf<ListenerRegistration>()
 
     /**
      * Live subscription to each dependency, keyed by the dependency cell. Present IFF this
@@ -376,7 +407,7 @@ internal class DerivedCell<T>(
      * eager-push semantics with zero risk: it seeds a fresh wave rooted at THIS cell.
      */
     private val foreignDependencyListener: () -> Unit = {
-        val pre = synchronized(lock) { versionCounter }
+        val pre = synchronizedOn(lock) { versionCounter }
         schedulePropagation(this, pre)
     }
 
@@ -405,7 +436,7 @@ internal class DerivedCell<T>(
     internal fun updateDefinition(
         policy: EqualityPolicy<T>,
         compute: () -> T,
-    ) = synchronized(lock) {
+    ) = synchronizedOn(lock) {
         this.policy = policy
         this.compute = compute
         dirty = true
@@ -415,7 +446,7 @@ internal class DerivedCell<T>(
     }
 
     override val version: Long
-        get() = synchronized(lock) {
+        get() = synchronizedOn(lock) {
             settleLocked()
             versionCounter
         }
@@ -423,7 +454,7 @@ internal class DerivedCell<T>(
     override val value: T
         get() {
             ReadTracking.record(this)
-            val current = synchronized(lock) {
+            val current = synchronizedOn(lock) {
                 settleLocked()
                 cached
             }
@@ -593,8 +624,8 @@ internal class DerivedCell<T>(
     }
 
     override fun observe(listener: () -> Unit): Disposable {
-        val registration = Registration(listener)
-        synchronized(lock) {
+        val registration = ListenerRegistration(listener)
+        synchronizedOn(lock) {
             val wasInactive = !isActiveLocked()
             registrations += registration
             if (wasInactive) {
@@ -608,7 +639,7 @@ internal class DerivedCell<T>(
             }
         }
         return Disposable {
-            synchronized(lock) {
+            synchronizedOn(lock) {
                 registrations.remove(registration)
                 if (!isActiveLocked()) {
                     clearSubscriptionsLocked()
@@ -621,13 +652,13 @@ internal class DerivedCell<T>(
 
     // RAW version — must NOT trigger a recompute/self-heal (used to capture the pre-wave version).
     override val versionSnapshot: Long
-        get() = synchronized(lock) { versionCounter }
+        get() = synchronizedOn(lock) { versionCounter }
 
     // The existing self-healing getter — settles the cell (and, transitively, its deps).
     override val versionHealed: Long
         get() = version
 
-    override fun addDependent(dependent: DerivedCell<*>) = synchronized(lock) {
+    override fun addDependent(dependent: DerivedCell<*>) = synchronizedOn(lock) {
         val wasInactive = !isActiveLocked()
         dependents.add(dependent)
         if (wasInactive) {
@@ -638,18 +669,18 @@ internal class DerivedCell<T>(
         }
     }
 
-    override fun removeDependent(dependent: DerivedCell<*>) = synchronized(lock) {
+    override fun removeDependent(dependent: DerivedCell<*>) = synchronizedOn(lock) {
         dependents.remove(dependent)
         if (!isActiveLocked()) {
             clearSubscriptionsLocked()
         }
     }
 
-    override fun snapshotDependents(): List<DerivedCell<*>> = synchronized(lock) { dependents.toList() }
+    override fun snapshotDependents(): List<DerivedCell<*>> = synchronizedOn(lock) { dependents.toList() }
 
-    override fun hasExternalObservers(): Boolean = synchronized(lock) { registrations.isNotEmpty() }
+    override fun hasExternalObservers(): Boolean = synchronizedOn(lock) { registrations.isNotEmpty() }
 
-    override fun collectExternalObserversInto(into: MutableList<() -> Unit>) = synchronized(lock) {
+    override fun collectExternalObserversInto(into: MutableList<() -> Unit>) = synchronizedOn(lock) {
         registrations.forEach { into += it.listener }
     }
 }

@@ -1,9 +1,7 @@
 package io.heapy.kinetica
 
-import kotlinx.atomicfu.atomic
-import kotlinx.atomicfu.locks.SynchronizedObject
-import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.CompletableDeferred
+import kotlin.concurrent.atomics.AtomicReference
 import kotlin.coroutines.cancellation.CancellationException
 
 public interface ResourceKey
@@ -67,7 +65,7 @@ private fun interface ResourceInvalidationListener {
 }
 
 private object ResourceRegistry {
-    private val lock = SynchronizedObject()
+    private val lock = platformLock()
     private val entries = mutableMapOf<Pair<ResourceCacheNamespace, ResourceKey>, ResourceEntry<Any?>>()
     private val generations = mutableMapOf<Pair<ResourceCacheNamespace, ResourceKey>, Long>()
     private val listeners = mutableMapOf<Pair<ResourceCacheNamespace, ResourceKey>, MutableSet<ResourceInvalidationListener>>()
@@ -77,7 +75,7 @@ private object ResourceRegistry {
         key: K,
         nowMillis: Long,
         ttlMillis: Long?,
-    ): ResourceState<T> = synchronized(lock) {
+    ): ResourceState<T> = synchronizedOn(lock) {
         val entry = entries[namespace to key] ?: return ResourceState.Idle
         if (entry.isExpired(namespace, nowMillis, ttlMillis)) {
             entries.remove(namespace to key)
@@ -92,7 +90,7 @@ private object ResourceRegistry {
         key: K,
         nowMillis: Long,
         ttlMillis: Long?,
-    ): ResourceFlight<T> = synchronized(lock) {
+    ): ResourceFlight<T> = synchronizedOn(lock) {
         flightLocked(namespace, key, nowMillis, ttlMillis)
     }
 
@@ -137,7 +135,7 @@ private object ResourceRegistry {
             -> Unit
         }
 
-        val flight = synchronized(lock) {
+        val flight = synchronizedOn(lock) {
             flightLocked<K, T>(namespace, key, nowMillis, ttlMillis)
         }
         if (!flight.startedByCaller) {
@@ -164,7 +162,7 @@ private object ResourceRegistry {
         nowMillis: Long,
         value: T,
     ): Boolean {
-        val deferred = synchronized(lock) {
+        val deferred = synchronizedOn(lock) {
             val entry = entries[namespace to key] ?: return false
             @Suppress("UNCHECKED_CAST")
             val typed = entry as ResourceEntry<T>
@@ -189,7 +187,7 @@ private object ResourceRegistry {
         nowMillis: Long,
         error: Throwable,
     ): Boolean {
-        val deferred = synchronized(lock) {
+        val deferred = synchronizedOn(lock) {
             val entry = entries[namespace to key] ?: return false
             if (entry.generation != generation) {
                 return false
@@ -211,7 +209,7 @@ private object ResourceRegistry {
         generation: Long,
         error: CancellationException,
     ): Boolean {
-        val deferred = synchronized(lock) {
+        val deferred = synchronizedOn(lock) {
             val entry = entries[namespace to key] ?: return false
             if (entry.generation != generation) {
                 return false
@@ -231,10 +229,10 @@ private object ResourceRegistry {
         key: ResourceKey,
         generation: Long,
         taskHandle: RuntimeTaskHandle,
-    ): Boolean = synchronized(lock) {
-        val entry = entries[namespace to key] ?: return@synchronized false
+    ): Boolean = synchronizedOn(lock) {
+        val entry = entries[namespace to key] ?: return@synchronizedOn false
         if (entry.generation != generation || entry.state !is ResourceState.Loading) {
-            return@synchronized false
+            return@synchronizedOn false
         }
         entry.taskHandle = taskHandle
         true
@@ -245,13 +243,13 @@ private object ResourceRegistry {
         key: ResourceKey,
         listener: ResourceInvalidationListener,
     ): Disposable {
-        val listenersForKey = synchronized(lock) {
+        val listenersForKey = synchronizedOn(lock) {
             listeners.getOrPut(namespace to key) { mutableSetOf() }.also { listenersForKey ->
                 listenersForKey += listener
             }
         }
         return Disposable {
-            val cancellation = synchronized(lock) {
+            val cancellation = synchronizedOn(lock) {
                 listenersForKey -= listener
                 if (listenersForKey.isEmpty()) {
                     listeners.remove(namespace to key)
@@ -278,7 +276,7 @@ private object ResourceRegistry {
         invalidateMatching { predicate(it.second) }
 
     private fun invalidateMatching(predicate: (Pair<ResourceCacheNamespace, ResourceKey>) -> Boolean) {
-        val invalidationListeners = synchronized(lock) {
+        val invalidationListeners = synchronizedOn(lock) {
             val invalidatedKeys = entries.keys.filter(predicate)
             invalidatedKeys.forEach { cacheKey ->
                 val entry = entries.remove(cacheKey)
@@ -326,19 +324,19 @@ private class ResourceImpl<K : ResourceKey, T>(
     private val ttlMillis: Long?,
     private var loader: suspend (K) -> T,
 ) : Resource<T>, Disposable {
-    private val currentState = atomic<ResourceState<T>>(ResourceState.Idle)
+    private val currentState = AtomicReference<ResourceState<T>>(ResourceState.Idle)
     private val invalidationRegistration = ResourceRegistry.registerInvalidationListener(namespace, key) {
-        currentState.value = ResourceState.Idle
+        currentState.store(ResourceState.Idle)
         runtime.record(JournalKind.ResourceInvalidated, "resource invalidated", mapOf("key" to key.toString()))
         runtime.invalidate("resource invalidated")
     }
 
     override val state: ResourceState<T>
-        get() = currentState.value
+        get() = currentState.load()
 
     override suspend fun await(): T {
         runtime.record(JournalKind.ResourceLoad, "resource load", mapOf("key" to key.toString()))
-        currentState.value = ResourceState.Loading
+        currentState.store(ResourceState.Loading)
         return try {
             val value = ResourceRegistry.await(
                 namespace = namespace,
@@ -347,13 +345,13 @@ private class ResourceImpl<K : ResourceKey, T>(
                 ttlMillis = ttlMillis,
                 loader = loader,
             )
-            currentState.value = ResourceState.Ready(value)
+            currentState.store(ResourceState.Ready(value))
             value
         } catch (error: CancellationException) {
-            currentState.value = ResourceState.Idle
+            currentState.store(ResourceState.Idle)
             throw error
         } catch (error: Throwable) {
-            currentState.value = ResourceState.Failed(error)
+            currentState.store(ResourceState.Failed(error))
             throw error
         }
     }
@@ -366,15 +364,15 @@ private class ResourceImpl<K : ResourceKey, T>(
             ttlMillis = ttlMillis,
         )) {
             is ResourceState.Ready -> {
-                currentState.value = cached
+                currentState.store(cached)
                 return cached.value
             }
             is ResourceState.Failed -> {
-                currentState.value = cached
+                currentState.store(cached)
                 throw cached.error
             }
             ResourceState.Loading -> {
-                currentState.value = cached
+                currentState.store(cached)
                 throw ResourcePendingException(key.toString())
             }
             ResourceState.Idle -> startLoad()
@@ -401,7 +399,7 @@ private class ResourceImpl<K : ResourceKey, T>(
             nowMillis = runtime.virtualTimeMillis,
             ttlMillis = ttlMillis,
         )
-        currentState.value = ResourceState.Loading
+        currentState.store(ResourceState.Loading)
         if (!flight.startedByCaller) {
             return
         }
@@ -417,7 +415,7 @@ private class ResourceImpl<K : ResourceKey, T>(
                     nowMillis = runtime.virtualTimeMillis,
                     value = value,
                 )) {
-                    currentState.value = ResourceState.Ready(value)
+                    currentState.store(ResourceState.Ready(value))
                     runtime.record(JournalKind.ResourceLoad, "resource resume", mapOf("key" to key.toString()))
                     runtime.invalidate("resource resume")
                 }
@@ -428,7 +426,7 @@ private class ResourceImpl<K : ResourceKey, T>(
                     generation = flight.generation,
                     error = error,
                 )) {
-                    currentState.value = ResourceState.Idle
+                    currentState.store(ResourceState.Idle)
                     runtime.record(
                         JournalKind.ResourceLoad,
                         "resource cancelled",
@@ -444,7 +442,7 @@ private class ResourceImpl<K : ResourceKey, T>(
                     nowMillis = runtime.virtualTimeMillis,
                     error = error,
                 )) {
-                    currentState.value = ResourceState.Failed(error)
+                    currentState.store(ResourceState.Failed(error))
                     runtime.record(
                         JournalKind.ResourceLoad,
                         "resource failed",

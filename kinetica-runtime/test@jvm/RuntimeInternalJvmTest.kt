@@ -1,6 +1,5 @@
 package io.heapy.kinetica
 
-import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
@@ -12,6 +11,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -73,7 +73,7 @@ class RuntimeInternalJvmTest {
 
     @Test
     fun runtimeTaskHandleMarksIdleAtMostOnceUnderConcurrentCalls() = runTest {
-        val markedIdle = atomic(0)
+        val markedIdle = AtomicInteger(0)
         val handle = RuntimeTaskHandle {
             markedIdle.incrementAndGet()
         }
@@ -90,7 +90,7 @@ class RuntimeInternalJvmTest {
             jobs.joinAll()
         }
 
-        assertEquals(1, markedIdle.value)
+        assertEquals(1, markedIdle.get())
     }
 
     @Test

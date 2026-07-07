@@ -60,7 +60,7 @@ private val SLOT_DSL_NAMES = setOf(
     "state", "derived", "launchEffect", "watch", "event",
     "hostRef", "imperativeHandle", "resource", "frameValue",
     "errorBoundary", "loadingBoundary", "suspendSubtree", "exitGroup",
-    "hostEvent", "button", "textInput", "checkbox",
+    "hostEvent", "hostEventBlock", "button", "textInput", "checkbox",
 )
 
 /** Region constructs that disambiguate loop iterations by user key (allowed in loops). */

@@ -1,7 +1,5 @@
 package io.heapy.kinetica
 
-import kotlinx.atomicfu.locks.SynchronizedObject
-import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.delay
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -361,23 +359,23 @@ internal enum class ExitPhase {
 internal class ExitGroupState(
     val key: String,
 ) {
-    val stateLock = SynchronizedObject()
+    val stateLock = platformLock()
     var phase: ExitPhase = ExitPhase.Active
     var retained: Node? = null
     var generation: Int = 0
     var pendingCallbacks: Int = 0
     val callbacks: MutableList<suspend ExitScope.() -> Unit> = mutableListOf()
     private val tasks: MutableList<RuntimeTaskHandle> = mutableListOf()
-    private val taskLock = SynchronizedObject()
+    private val taskLock = platformLock()
 
     fun addTask(task: RuntimeTaskHandle) {
-        synchronized(taskLock) {
+        synchronizedOn(taskLock) {
             tasks += task
         }
     }
 
     fun cancelTasks() {
-        val snapshot = synchronized(taskLock) {
+        val snapshot = synchronizedOn(taskLock) {
             tasks.toList().also { tasks.clear() }
         }
         snapshot.forEach { task -> task.cancel() }

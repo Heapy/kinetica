@@ -1,8 +1,5 @@
 package io.heapy.kinetica
 
-import kotlinx.atomicfu.atomic
-import kotlinx.atomicfu.locks.SynchronizedObject
-import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -13,8 +10,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.concurrent.atomics.AtomicBoolean
+import kotlin.concurrent.atomics.AtomicLong
 
-private val nextRuntimeResourceCacheId = atomic(0L)
+private val nextRuntimeResourceCacheId = AtomicLong(0L)
 
 public class KineticaRuntime(
     public val debug: Boolean = true,
@@ -24,9 +23,9 @@ public class KineticaRuntime(
     public val appResourceTtlMillis: Long? = null,
     public val exitTimeoutMillis: Long? = if (debug) 5_000 else null,
 ) {
-    private val runtimeLock = SynchronizedObject()
-    private val sequence = atomic(0L)
-    private val warningSequence = atomic(0L)
+    private val runtimeLock = platformLock()
+    private val sequence = AtomicLong(0L)
+    private val warningSequence = AtomicLong(0L)
     private var nextEventId = 0L
     private var nextFrameValueId = 0L
     private val events = mutableMapOf<String, (Any?) -> Unit>()
@@ -38,9 +37,9 @@ public class KineticaRuntime(
     private val renderSubscriptions = mutableMapOf<ObservableCell<*>, Disposable>()
     private var hasRendered = false
     private var invalidated = false
-    private val disposed = atomic(false)
+    private val disposed = AtomicBoolean(false)
     private var currentVirtualTimeMillis: Long = 0L
-    private val runtimeResourceCacheId = nextRuntimeResourceCacheId.incrementAndGet()
+    private val runtimeResourceCacheId = nextRuntimeResourceCacheId.addAndFetch(1L)
 
     internal val appResourceCacheId: String = "app-$runtimeResourceCacheId"
     internal val requestResourceCacheId: String = "request-$runtimeResourceCacheId"
@@ -49,7 +48,10 @@ public class KineticaRuntime(
     private val activeTasks = MutableStateFlow(0)
 
     public val virtualTimeMillis: Long
-        get() = synchronized(runtimeLock) { currentVirtualTimeMillis }
+        get() = synchronizedOn(runtimeLock) { currentVirtualTimeMillis }
+
+    internal val isRecording: Boolean
+        get() = journalSampleInterval != null
 
     init {
         require(watchLoopRestartLimit > 0) { "watchLoopRestartLimit must be positive." }
@@ -108,7 +110,7 @@ public class KineticaRuntime(
     }
 
     private fun beginRender(scope: ComponentScope): String {
-        val cause = synchronized(runtimeLock) {
+        val cause = synchronizedOn(runtimeLock) {
             val consumedCause = consumeRenderCauseLocked()
             invalidated = false
             consumedCause
@@ -129,7 +131,7 @@ public class KineticaRuntime(
         recordRenderSnapshot(scope, node, cause)
         scope.runLayoutEffects()
         scope.runPostCommitEffects()
-        val hasPendingInvalidation = synchronized(runtimeLock) {
+        val hasPendingInvalidation = synchronizedOn(runtimeLock) {
             hasRendered = true
             invalidated
         }
@@ -137,7 +139,7 @@ public class KineticaRuntime(
     }
 
     private fun updateRenderSubscriptions(dependencies: Set<ObservableCell<*>>) {
-        synchronized(runtimeLock) {
+        synchronizedOn(runtimeLock) {
             val removed = renderSubscriptions.keys.filterNot { dependency -> dependency in dependencies }
             removed.forEach { dependency ->
                 renderSubscriptions.remove(dependency)?.dispose()
@@ -150,44 +152,44 @@ public class KineticaRuntime(
         }
     }
 
-    internal fun registerEvent(callback: (Any?) -> Unit): String = synchronized(runtimeLock) {
+    internal fun registerEvent(callback: (Any?) -> Unit): String = synchronizedOn(runtimeLock) {
         val id = "event-${nextEventId++}"
         events[id] = callback
         id
     }
 
     internal fun updateEvent(eventId: String, callback: (Any?) -> Unit): Boolean =
-        synchronized(runtimeLock) {
+        synchronizedOn(runtimeLock) {
             if (!events.containsKey(eventId)) {
-                return@synchronized false
+                return@synchronizedOn false
             }
             events[eventId] = callback
             true
         }
 
     internal fun removeEvent(eventId: String) {
-        synchronized(runtimeLock) { events.remove(eventId) }
+        synchronizedOn(runtimeLock) { events.remove(eventId) }
     }
 
-    internal fun registeredEventCount(): Int = synchronized(runtimeLock) { events.size }
+    internal fun registeredEventCount(): Int = synchronizedOn(runtimeLock) { events.size }
 
-    internal fun createFrameValue(initial: Float): FrameValue = synchronized(runtimeLock) {
+    internal fun createFrameValue(initial: Float): FrameValue = synchronizedOn(runtimeLock) {
         val value = FrameValue("frame-${nextFrameValueId++}", initial)
         frameValues[value.id] = value
         value
     }
 
     public fun frameValue(id: String): FrameValue? =
-        synchronized(runtimeLock) { frameValues[id] }
+        synchronizedOn(runtimeLock) { frameValues[id] }
 
     public fun dispatch(eventId: String, payload: Any? = Unit) {
-        val event = synchronized(runtimeLock) { events[eventId] } ?: return
+        val event = synchronizedOn(runtimeLock) { events[eventId] } ?: return
         record(JournalKind.Event, "event dispatched", mapOf("eventId" to eventId))
         event(payload)
     }
 
     public fun invalidate(cause: String = "manual") {
-        synchronized(runtimeLock) {
+        synchronizedOn(runtimeLock) {
             invalidated = true
             pendingRenderCauses += cause
         }
@@ -202,7 +204,7 @@ public class KineticaRuntime(
     }
 
     public val hasPendingInvalidation: Boolean
-        get() = synchronized(runtimeLock) { invalidated }
+        get() = synchronizedOn(runtimeLock) { invalidated }
 
     internal fun launchTrackedTask(
         onCompletion: (Throwable?) -> Unit = {},
@@ -226,7 +228,7 @@ public class KineticaRuntime(
         if (millis == 0L) {
             return
         }
-        val now = synchronized(runtimeLock) {
+        val now = synchronizedOn(runtimeLock) {
             currentVirtualTimeMillis += millis
             currentVirtualTimeMillis
         }
@@ -243,8 +245,8 @@ public class KineticaRuntime(
         message: String,
         attributes: Map<String, String> = emptyMap(),
     ): JournalEntry? {
-        val entry = JournalEntry(sequence.incrementAndGet(), kind, message, attributes)
         val sampleInterval = journalSampleInterval ?: return null
+        val entry = JournalEntry(sequence.addAndFetch(1L), kind, message, attributes)
         return if (entry.sequence % sampleInterval.toLong() == 0L) {
             entry.also(entries::append)
         } else {
@@ -257,7 +259,7 @@ public class KineticaRuntime(
         message: String,
         attributes: Map<String, String> = emptyMap(),
     ): RuntimeWarning =
-        RuntimeWarning(warningSequence.incrementAndGet(), code, message, attributes).also(warnings::append)
+        RuntimeWarning(warningSequence.addAndFetch(1L), code, message, attributes).also(warnings::append)
 
     public fun journal(): List<JournalEntry> = entries.entries()
 
@@ -312,10 +314,10 @@ public class KineticaRuntime(
      * the observers this runtime established) and cancels [effectScope]. Idempotent.
      */
     public fun dispose() {
-        if (!disposed.compareAndSet(expect = false, update = true)) {
+        if (!disposed.compareAndSet(false, true)) {
             return
         }
-        synchronized(runtimeLock) {
+        synchronizedOn(runtimeLock) {
             renderSubscriptions.values.forEach(Disposable::dispose)
             renderSubscriptions.clear()
         }
@@ -333,7 +335,7 @@ public data class RenderResult(
 internal class RuntimeTaskHandle(
     private val markIdleCallback: () -> Unit,
 ) {
-    private val active = atomic(true)
+    private val active = AtomicBoolean(true)
     private var job: Job? = null
 
     fun attach(job: Job) {
@@ -341,7 +343,7 @@ internal class RuntimeTaskHandle(
     }
 
     fun markIdle() {
-        if (active.compareAndSet(expect = true, update = false)) {
+        if (active.compareAndSet(true, false)) {
             markIdleCallback()
         }
     }

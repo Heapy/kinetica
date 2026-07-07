@@ -1,6 +1,7 @@
 package io.heapy.kinetica.browser
 
 import io.heapy.kinetica.ClientRef
+import io.heapy.kinetica.ChildRegion
 import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.FragmentNode
 import io.heapy.kinetica.HostNode
@@ -147,13 +148,10 @@ public class BrowserKineticaApp(
             if (mounted != null && dispatchTo(mounted.hostNode, element, event)) {
                 return
             }
-            val templateEvents = candidate as? MountedTemplateEvents
-            if (templateEvents != null) {
-                val propName = DelegatedEventPropNames[event.type]
-                val templateEvent = if (propName == null) null else templateEvents.byPropName[propName]
-                if (templateEvent != null && dispatchTo(templateEvent, element, event)) {
-                    return
-                }
+            val propName = DelegatedEventPropNames[event.type]
+            val templateEvent = templateEventBinding(candidate, propName)
+            if (templateEvent != null && dispatchTo(templateEvent, element, event)) {
+                return
             }
             if (element == rootElement) {
                 return
@@ -234,7 +232,9 @@ public class BrowserKineticaApp(
                 node.children.forEachIndexed { index, child ->
                     children.add(mount(child, parent, anchor, childPathOf(path, index)))
                 }
-                MountedFragment(node, children)
+                MountedFragment(node, children).also { mounted ->
+                    mounted.refreshContainsControlledInputHost()
+                }
             }
             is HostNode -> mountHost(node, parent, anchor, path)
             is TemplateNode -> mountTemplate(node, parent, anchor, path)
@@ -289,6 +289,7 @@ public class BrowserKineticaApp(
         node.children.forEachIndexed { index, child ->
             mounted.children.add(mount(child, element, anchor = null, path = childPathOf(path, index)))
         }
+        mounted.refreshContainsControlledInputHost()
         parent.insertBefore(element, anchor)
         return mounted
     }
@@ -309,7 +310,7 @@ public class BrowserKineticaApp(
             templateNode = node,
             root = root,
             holeDoms = arrayOfNulls(node.definition.holes.size),
-            eventBindings = arrayOfNulls(node.definition.holes.size),
+            containsControlledInputHost = node.definition.skeleton.containsControlledInputHost(),
         )
         patchTemplateValues(mounted, previousValues = emptyList(), nextValues = node.values)
         parent.insertBefore(root, anchor)
@@ -348,7 +349,7 @@ public class BrowserKineticaApp(
     // --- patching ---
 
     private fun patch(mounted: Mounted, next: Node, parent: Element, path: String): Mounted {
-        if (mounted.currentNode === next) {
+        if (mounted.currentNode === next && !mounted.containsControlledInputHost) {
             return mounted
         }
         return when {
@@ -441,6 +442,7 @@ public class BrowserKineticaApp(
             next.flags and NodeFlags.CHILDREN_SINGLE_TEXT != 0 &&
             patchSingleTextChild(mounted, next)
         ) {
+            mounted.refreshContainsControlledInputHost()
             return
         }
         patchChildren(
@@ -451,8 +453,11 @@ public class BrowserKineticaApp(
             parentPath = path,
             prevFlags = previous.flags,
             nextFlags = next.flags,
+            prevRegions = previous.regions,
+            nextRegions = next.regions,
             ownsParent = true,
         )
+        mounted.refreshContainsControlledInputHost()
     }
 
     private fun patchProps(element: Element, tag: String, old: Map<String, String>, new: Map<String, String>) {
@@ -537,7 +542,16 @@ public class BrowserKineticaApp(
     private fun patchFragment(mounted: MountedFragment, next: FragmentNode, parent: Element, path: String) {
         val anchor = domAfter(mounted)
         mounted.fragmentNode = next
-        patchChildren(parent, mounted.children, next.children, appendAnchor = anchor, parentPath = path)
+        patchChildren(
+            parent,
+            mounted.children,
+            next.children,
+            appendAnchor = anchor,
+            parentPath = path,
+            prevRegions = emptyList(),
+            nextRegions = emptyList(),
+        )
+        mounted.refreshContainsControlledInputHost()
     }
 
     private fun patchClientRef(mounted: MountedClientRef, next: ClientRef) {
@@ -622,14 +636,14 @@ public class BrowserKineticaApp(
                 TemplateHoleKinds.EventProp -> {
                     val element = dom as Element
                     val propName = hole.propName ?: return@forEachIndexed
-                    val binding = mounted.eventBindings[index] ?: MountedTemplateEvent(
-                        element = element,
-                        propName = propName,
-                        eventId = nextValue,
-                    ).also { created ->
-                        mounted.eventBindings[index] = created
-                        templateEventContainer(element).byPropName[propName] = created
-                    }
+                    val binding = templateEventBinding(element.asDynamic().__kinetica, propName)
+                        ?: MountedTemplateEvent(
+                            element = element,
+                            propName = propName,
+                            eventId = nextValue,
+                        ).also { created ->
+                            storeTemplateEventBinding(created)
+                        }
                     binding.eventId = nextValue
                 }
             }
@@ -659,6 +673,8 @@ public class BrowserKineticaApp(
         parentPath: String,
         prevFlags: Int = 0,
         nextFlags: Int = 0,
+        prevRegions: List<ChildRegion> = emptyList(),
+        nextRegions: List<ChildRegion> = emptyList(),
         ownsParent: Boolean = false,
     ) {
         if (next.isEmpty() && ownsParent && appendAnchor == null && mounted.isNotEmpty()) {
@@ -673,6 +689,8 @@ public class BrowserKineticaApp(
             mounted.isNotEmpty() && next.isNotEmpty()
         if (certifiedKeyed || shouldReconcileKeyed(mounted, next)) {
             patchKeyedChildren(parent, mounted, next, appendAnchor, parentPath, ownsParent)
+        } else if (prevRegions.isNotEmpty() || nextRegions.isNotEmpty()) {
+            patchRegionedChildren(parent, mounted, next, prevRegions, nextRegions, appendAnchor, parentPath)
         } else {
             patchPositionalChildren(parent, mounted, next, appendAnchor, parentPath)
         }
@@ -696,19 +714,461 @@ public class BrowserKineticaApp(
         appendAnchor: DomNode?,
         parentPath: String,
     ) {
-        val common = minOf(mounted.size, next.size)
-        for (index in 0 until common) {
-            mounted[index] = patch(mounted[index], next[index], parent, childPathOf(parentPath, index))
+        val result = arrayOfNulls<Mounted>(next.size)
+        patchStaticRange(
+            parent = parent,
+            mounted = mounted,
+            next = next,
+            result = result,
+            oldStart = 0,
+            oldEnd = mounted.size,
+            newStart = 0,
+            newEnd = next.size,
+            endAnchor = appendAnchor,
+            parentPath = parentPath,
+        )
+        mounted.clear()
+        for (index in next.indices) {
+            mounted.add(result[index]!!)
         }
-        if (mounted.size > next.size) {
-            for (index in mounted.size - 1 downTo next.size) {
-                unmount(mounted.removeAt(index), parent)
+    }
+
+    private data class RegionSegment(
+        val ordinal: Int,
+        val start: Int,
+        val end: Int,
+    )
+
+    private data class StaticGap(
+        val start: Int,
+        val end: Int,
+    )
+
+    private sealed class ChildPlan {
+        abstract val oldStart: Int
+        abstract val oldEnd: Int
+        abstract val newStart: Int
+        abstract val newEnd: Int
+    }
+
+    private data class StaticPlan(
+        override val oldStart: Int,
+        override val oldEnd: Int,
+        override val newStart: Int,
+        override val newEnd: Int,
+    ) : ChildPlan()
+
+    private data class RegionPlan(
+        val ordinal: Int,
+        override val oldStart: Int,
+        override val oldEnd: Int,
+        override val newStart: Int,
+        override val newEnd: Int,
+    ) : ChildPlan()
+
+    private fun patchRegionedChildren(
+        parent: Element,
+        mounted: MutableList<Mounted>,
+        next: List<Node>,
+        prevRegions: List<ChildRegion>,
+        nextRegions: List<ChildRegion>,
+        appendAnchor: DomNode?,
+        parentPath: String,
+    ) {
+        val oldRegionSegments = regionSegments(prevRegions, mounted.size)
+        val newRegionSegments = regionSegments(nextRegions, next.size)
+        val oldRegionByOrdinal = HashMap<Int, RegionSegment>(oldRegionSegments.size)
+        oldRegionSegments.forEach { region ->
+            oldRegionByOrdinal[region.ordinal] = region
+        }
+        val matchedRegionOrdinals = HashSet<Int>(newRegionSegments.size)
+        val oldGaps = staticGaps(oldRegionSegments, mounted.size)
+        val matchedGapIndexes = HashSet<Int>(newRegionSegments.size + 1)
+        val newGaps = staticGaps(newRegionSegments, next.size)
+        val plans = ArrayList<ChildPlan>(newRegionSegments.size * 2 + 1)
+        for (index in 0..newRegionSegments.size) {
+            val newGap = newGaps[index]
+            val oldGap = oldGaps.getOrNull(index)
+            if (oldGap != null) {
+                matchedGapIndexes += index
             }
-        } else if (next.size > mounted.size) {
-            for (index in mounted.size until next.size) {
-                mounted.add(mount(next[index], parent, appendAnchor, childPathOf(parentPath, index)))
+            plans += StaticPlan(
+                oldStart = oldGap?.start ?: 0,
+                oldEnd = oldGap?.end ?: 0,
+                newStart = newGap.start,
+                newEnd = newGap.end,
+            )
+            if (index < newRegionSegments.size) {
+                val newRegion = newRegionSegments[index]
+                val oldRegion = oldRegionByOrdinal[newRegion.ordinal]
+                if (oldRegion != null) {
+                    matchedRegionOrdinals += newRegion.ordinal
+                }
+                plans += RegionPlan(
+                    ordinal = newRegion.ordinal,
+                    oldStart = oldRegion?.start ?: 0,
+                    oldEnd = oldRegion?.end ?: 0,
+                    newStart = newRegion.start,
+                    newEnd = newRegion.end,
+                )
             }
         }
+
+        val result = arrayOfNulls<Mounted>(next.size)
+        for (index in plans.lastIndex downTo 0) {
+            val plan = plans[index]
+            val anchor = firstDomInResult(result, plan.newEnd, next.lastIndex, appendAnchor)
+            when (plan) {
+                is StaticPlan -> patchStaticRange(
+                    parent = parent,
+                    mounted = mounted,
+                    next = next,
+                    result = result,
+                    oldStart = plan.oldStart,
+                    oldEnd = plan.oldEnd,
+                    newStart = plan.newStart,
+                    newEnd = plan.newEnd,
+                    endAnchor = anchor,
+                    parentPath = parentPath,
+                )
+                is RegionPlan -> patchRegionRange(
+                    parent = parent,
+                    mounted = mounted,
+                    next = next,
+                    result = result,
+                    oldStart = plan.oldStart,
+                    oldEnd = plan.oldEnd,
+                    newStart = plan.newStart,
+                    newEnd = plan.newEnd,
+                    endAnchor = anchor,
+                    parentPath = parentPath,
+                )
+            }
+        }
+
+        oldRegionSegments.forEach { region ->
+            if (region.ordinal !in matchedRegionOrdinals) {
+                unmountRange(parent, mounted, region.start, region.end - 1)
+            }
+        }
+        oldGaps.forEachIndexed { index, gap ->
+            if (index !in matchedGapIndexes) {
+                unmountRange(parent, mounted, gap.start, gap.end - 1)
+            }
+        }
+
+        mounted.clear()
+        for (index in next.indices) {
+            mounted.add(result[index]!!)
+        }
+    }
+
+    private fun regionSegments(regions: List<ChildRegion>, childCount: Int): List<RegionSegment> {
+        if (regions.isEmpty()) {
+            return emptyList()
+        }
+        return regions
+            .sortedWith(compareBy<ChildRegion> { it.start }.thenBy { it.end }.thenBy { it.ordinal })
+            .map { region ->
+                val start = region.start.coerceIn(0, childCount)
+                val end = region.end.coerceIn(start, childCount)
+                RegionSegment(region.ordinal, start, end)
+            }
+    }
+
+    private fun staticGaps(regions: List<RegionSegment>, childCount: Int): List<StaticGap> {
+        val gaps = ArrayList<StaticGap>(regions.size + 1)
+        var cursor = 0
+        regions.forEach { region ->
+            gaps += StaticGap(
+                start = cursor,
+                end = region.start,
+            )
+            cursor = region.end
+        }
+        gaps += StaticGap(
+            start = cursor,
+            end = childCount,
+        )
+        return gaps
+    }
+
+    private fun patchStaticRange(
+        parent: Element,
+        mounted: List<Mounted>,
+        next: List<Node>,
+        result: Array<Mounted?>,
+        oldStart: Int,
+        oldEnd: Int,
+        newStart: Int,
+        newEnd: Int,
+        endAnchor: DomNode?,
+        parentPath: String,
+    ) {
+        var leftOld = oldStart
+        var rightOld = oldEnd - 1
+        var leftNew = newStart
+        var rightNew = newEnd - 1
+
+        while (leftOld <= rightOld && leftNew <= rightNew && hasSamePatchTarget(mounted[leftOld], next[leftNew])) {
+            result[leftNew] = patch(mounted[leftOld], next[leftNew], parent, childPathOf(parentPath, leftNew))
+            leftOld++
+            leftNew++
+        }
+        while (leftOld <= rightOld && leftNew <= rightNew && hasSamePatchTarget(mounted[rightOld], next[rightNew])) {
+            result[rightNew] = patch(mounted[rightOld], next[rightNew], parent, childPathOf(parentPath, rightNew))
+            rightOld--
+            rightNew--
+        }
+        val rangeEndAnchor = firstDomInResult(result, rightNew + 1, newEnd - 1, endAnchor)
+
+        when {
+            leftOld > rightOld && leftNew > rightNew -> {}
+            leftOld > rightOld -> {
+                mountRange(parent, next, result, leftNew, rightNew, rangeEndAnchor, parentPath)
+            }
+            leftNew > rightNew -> {
+                unmountRange(parent, mounted, leftOld, rightOld)
+            }
+            else -> {
+                patchPositionalRange(
+                    parent,
+                    mounted,
+                    next,
+                    result,
+                    leftOld,
+                    rightOld,
+                    leftNew,
+                    rightNew,
+                    rangeEndAnchor,
+                    parentPath,
+                )
+            }
+        }
+    }
+
+    private fun patchRegionRange(
+        parent: Element,
+        mounted: List<Mounted>,
+        next: List<Node>,
+        result: Array<Mounted?>,
+        oldStart: Int,
+        oldEnd: Int,
+        newStart: Int,
+        newEnd: Int,
+        endAnchor: DomNode?,
+        parentPath: String,
+    ) {
+        val oldLast = oldEnd - 1
+        val newLast = newEnd - 1
+        when {
+            oldStart > oldLast && newStart > newLast -> {}
+            oldStart > oldLast -> {
+                mountRange(parent, next, result, newStart, newLast, endAnchor, parentPath)
+            }
+            newStart > newLast -> {
+                unmountRange(parent, mounted, oldStart, oldLast)
+            }
+            shouldReconcileKeyedRange(mounted, next, oldStart, oldLast, newStart, newLast) -> {
+                patchKeyedRange(
+                    parent,
+                    mounted,
+                    next,
+                    result,
+                    oldStart,
+                    oldLast,
+                    newStart,
+                    newLast,
+                    endAnchor,
+                    parentPath,
+                )
+            }
+            else -> {
+                patchStaticRange(parent, mounted, next, result, oldStart, oldEnd, newStart, newEnd, endAnchor, parentPath)
+            }
+        }
+    }
+
+    private fun hasSamePatchTarget(mounted: Mounted, next: Node): Boolean {
+        val oldKey = mounted.reconcileKey()
+        val newKey = next.reconcileKey
+        if (oldKey != null || newKey != null) {
+            return oldKey != null && oldKey == newKey
+        }
+        return when {
+            mounted is MountedHost && next is HostNode -> mounted.hostNode.tag == next.tag
+            mounted is MountedTemplate && next is TemplateNode ->
+                mounted.templateNode.definition.id == next.definition.id
+            mounted is MountedText && next is TextNode ->
+                textNeedsElement(mounted.textNode) == textNeedsElement(next) &&
+                    mounted.textNode.semantics == next.semantics
+            mounted is MountedFragment && next is FragmentNode -> true
+            mounted is MountedClientRef && next is ClientRef -> mounted.refNode.componentId == next.componentId
+            else -> false
+        }
+    }
+
+    private fun mountRange(
+        parent: Element,
+        next: List<Node>,
+        result: Array<Mounted?>,
+        newStart: Int,
+        newEnd: Int,
+        endAnchor: DomNode?,
+        parentPath: String,
+    ) {
+        if (newStart > newEnd) {
+            return
+        }
+        for (index in newEnd downTo newStart) {
+            val anchor = firstDomInResult(result, index + 1, newEnd, endAnchor)
+            result[index] = mount(next[index], parent, anchor, childPathOf(parentPath, index))
+        }
+    }
+
+    private fun unmountRange(
+        parent: Element,
+        mounted: List<Mounted>,
+        oldStart: Int,
+        oldEnd: Int,
+    ) {
+        if (oldStart > oldEnd) {
+            return
+        }
+        for (index in oldStart..oldEnd) {
+            unmount(mounted[index], parent)
+        }
+    }
+
+    private fun replaceRange(
+        parent: Element,
+        mounted: List<Mounted>,
+        next: List<Node>,
+        result: Array<Mounted?>,
+        oldStart: Int,
+        oldEnd: Int,
+        newStart: Int,
+        newEnd: Int,
+        endAnchor: DomNode?,
+        parentPath: String,
+    ) {
+        unmountRange(parent, mounted, oldStart, oldEnd)
+        mountRange(parent, next, result, newStart, newEnd, endAnchor, parentPath)
+    }
+
+    private fun patchPositionalRange(
+        parent: Element,
+        mounted: List<Mounted>,
+        next: List<Node>,
+        result: Array<Mounted?>,
+        oldStart: Int,
+        oldEnd: Int,
+        newStart: Int,
+        newEnd: Int,
+        endAnchor: DomNode?,
+        parentPath: String,
+    ) {
+        val common = minOf(oldEnd - oldStart + 1, newEnd - newStart + 1)
+        for (offset in 0 until common) {
+            val newIndex = newStart + offset
+            result[newIndex] = patch(
+                mounted[oldStart + offset],
+                next[newIndex],
+                parent,
+                childPathOf(parentPath, newIndex),
+            )
+        }
+        val oldTailStart = oldStart + common
+        val newTailStart = newStart + common
+        if (newTailStart <= newEnd) {
+            mountRange(parent, next, result, newTailStart, newEnd, endAnchor, parentPath)
+        } else if (oldTailStart <= oldEnd) {
+            unmountRange(parent, mounted, oldTailStart, oldEnd)
+        }
+    }
+
+    private fun patchKeyedRange(
+        parent: Element,
+        mounted: List<Mounted>,
+        next: List<Node>,
+        result: Array<Mounted?>,
+        oldStart: Int,
+        oldEnd: Int,
+        newStart: Int,
+        newEnd: Int,
+        endAnchor: DomNode?,
+        parentPath: String,
+    ) {
+        val middleCount = newEnd - newStart + 1
+        val keyToNewIndex = HashMap<String, Int>(middleCount)
+        for (index in newStart..newEnd) {
+            keyToNewIndex[next[index].reconcileKey!!] = index
+        }
+        val sourceOldIndex = IntArray(middleCount) { -1 }
+        for (oldIndex in oldStart..oldEnd) {
+            val child = mounted[oldIndex]
+            val newIndex = keyToNewIndex[child.reconcileKey()]
+            if (newIndex == null) {
+                unmount(child, parent)
+            } else {
+                sourceOldIndex[newIndex - newStart] = oldIndex
+                result[newIndex] = patch(child, next[newIndex], parent, childPathOf(parentPath, newIndex))
+            }
+        }
+        val lis = LongestIncreasingSubsequenceScratch()
+        val stableSize = longestIncreasingSubsequenceIndices(sourceOldIndex, middleCount, lis)
+        val stable = lis.result
+        val inStableRun = BooleanArray(middleCount)
+        for (position in 0 until stableSize) {
+            inStableRun[stable[position]] = true
+        }
+        for (middleIndex in middleCount - 1 downTo 0) {
+            val newIndex = newStart + middleIndex
+            val anchor = firstDomInResult(result, newIndex + 1, newEnd, endAnchor)
+            if (sourceOldIndex[middleIndex] < 0) {
+                result[newIndex] = mount(next[newIndex], parent, anchor, childPathOf(parentPath, newIndex))
+            } else if (!inStableRun[middleIndex]) {
+                moveDom(result[newIndex]!!, parent, anchor)
+            }
+        }
+    }
+
+    private fun firstDomInResult(
+        result: Array<Mounted?>,
+        start: Int,
+        end: Int,
+        fallback: DomNode?,
+    ): DomNode? {
+        var index = start
+        while (index <= end) {
+            val dom = result[index]?.let(::firstDomOf)
+            if (dom != null) {
+                return dom
+            }
+            index++
+        }
+        return fallback
+    }
+
+    private fun shouldReconcileKeyedRange(
+        mounted: List<Mounted>,
+        next: List<Node>,
+        oldStart: Int,
+        oldEnd: Int,
+        newStart: Int,
+        newEnd: Int,
+    ): Boolean {
+        val oldKeys = HashSet<String>(oldEnd - oldStart + 1)
+        for (index in oldStart..oldEnd) {
+            val key = mounted[index].reconcileKey() ?: return false
+            if (!oldKeys.add(key)) return false
+        }
+        val newKeys = HashSet<String>(newEnd - newStart + 1)
+        for (index in newStart..newEnd) {
+            val key = next[index].reconcileKey ?: return false
+            if (!newKeys.add(key)) return false
+        }
+        return true
     }
 
     private fun shouldReconcileKeyed(mounted: List<Mounted>, next: List<Node>): Boolean {
@@ -893,16 +1353,21 @@ public class BrowserKineticaApp(
                 mounted.children.forEach(::detach)
                 mounted.element.asDynamic().__kinetica = null
             }
-            is MountedTemplate -> {
-                mounted.eventBindings.forEach { binding ->
-                    if (binding != null) {
-                        removeTemplateEventBinding(binding)
-                    }
-                }
-            }
+            is MountedTemplate -> detachTemplate(mounted)
             is MountedText -> {}
             is MountedFragment -> mounted.children.forEach(::detach)
             is MountedClientRef -> clientRefCount--
+        }
+    }
+
+    private fun detachTemplate(mounted: MountedTemplate) {
+        mounted.templateNode.definition.holes.forEachIndexed { index, hole ->
+            if (hole.kind != TemplateHoleKinds.EventProp) {
+                return@forEachIndexed
+            }
+            val propName = hole.propName ?: return@forEachIndexed
+            val element = (mounted.holeDoms[index] ?: templateDomAt(mounted.root, hole.path)) as Element
+            removeTemplateEventBinding(element, propName)
         }
     }
 
@@ -972,6 +1437,7 @@ public class BrowserKineticaApp(
 
 private sealed class Mounted {
     abstract val currentNode: Node
+    abstract val containsControlledInputHost: Boolean
 }
 
 private class MountedHost(
@@ -980,13 +1446,14 @@ private class MountedHost(
     val children: MutableList<Mounted>,
 ) : Mounted() {
     override val currentNode: Node get() = hostNode
+    override var containsControlledInputHost: Boolean = false
 }
 
 private class MountedTemplate(
     var templateNode: TemplateNode,
     val root: Element,
     val holeDoms: Array<DomNode?>,
-    val eventBindings: Array<MountedTemplateEvent?>,
+    override val containsControlledInputHost: Boolean,
 ) : Mounted() {
     override val currentNode: Node get() = templateNode
 }
@@ -1008,6 +1475,7 @@ private class MountedText(
     val wrapped: Boolean,
 ) : Mounted() {
     override val currentNode: Node get() = textNode
+    override val containsControlledInputHost: Boolean get() = false
 }
 
 private class MountedFragment(
@@ -1015,6 +1483,7 @@ private class MountedFragment(
     val children: MutableList<Mounted>,
 ) : Mounted() {
     override val currentNode: Node get() = fragmentNode
+    override var containsControlledInputHost: Boolean = false
 }
 
 private class MountedClientRef(
@@ -1022,7 +1491,33 @@ private class MountedClientRef(
     val element: Element,
 ) : Mounted() {
     override val currentNode: Node get() = refNode
+    override val containsControlledInputHost: Boolean get() = false
 }
+
+private fun MountedHost.refreshContainsControlledInputHost() {
+    containsControlledInputHost = hostNode.isControlledInputHost() ||
+        children.any { child -> child.containsControlledInputHost }
+}
+
+private fun MountedFragment.refreshContainsControlledInputHost() {
+    containsControlledInputHost = children.any { child -> child.containsControlledInputHost }
+}
+
+private fun Node.containsControlledInputHost(): Boolean =
+    when (this) {
+        is HostNode -> containsControlledInputHost()
+        is FragmentNode -> children.any { child -> child.containsControlledInputHost() }
+        is TemplateNode -> definition.skeleton.containsControlledInputHost()
+        is TextNode,
+        is ClientRef,
+        -> false
+    }
+
+private fun HostNode.containsControlledInputHost(): Boolean =
+    isControlledInputHost() || children.any { child -> child.containsControlledInputHost() }
+
+private fun HostNode.isControlledInputHost(): Boolean =
+    tag == "textInput" || tag == "checkbox"
 
 private class TemplatePrototype(
     val root: Element,
@@ -1092,25 +1587,51 @@ private fun moveDom(mounted: Mounted, parent: Element, anchor: DomNode?) {
     }
 }
 
-private fun templateEventContainer(element: Element): MountedTemplateEvents {
-    val candidate: Any? = element.asDynamic().__kinetica
-    val existing = candidate as? MountedTemplateEvents
-    if (existing != null) {
-        return existing
+private fun templateEventBinding(candidate: Any?, propName: String?): MountedTemplateEvent? {
+    if (propName == null) {
+        return null
     }
-    return MountedTemplateEvents(element, mutableMapOf()).also { created ->
-        element.asDynamic().__kinetica = created
+    return when (candidate) {
+        is MountedTemplateEvent ->
+            if (candidate.propName == propName) candidate else null
+        is MountedTemplateEvents -> candidate.byPropName[propName]
+        else -> null
     }
 }
 
-private fun removeTemplateEventBinding(binding: MountedTemplateEvent) {
-    val candidate: Any? = binding.element.asDynamic().__kinetica
-    val container = candidate as? MountedTemplateEvents ?: return
-    if (container.byPropName[binding.propName] === binding) {
-        container.byPropName.remove(binding.propName)
+private fun storeTemplateEventBinding(binding: MountedTemplateEvent) {
+    val element = binding.element
+    when (val candidate: Any? = element.asDynamic().__kinetica) {
+        is MountedTemplateEvent ->
+            if (candidate.propName == binding.propName) {
+                element.asDynamic().__kinetica = binding
+            } else {
+                element.asDynamic().__kinetica = MountedTemplateEvents(
+                    element = element,
+                    byPropName = mutableMapOf(
+                        candidate.propName to candidate,
+                        binding.propName to binding,
+                    ),
+                )
+            }
+        is MountedTemplateEvents -> candidate.byPropName[binding.propName] = binding
+        else -> element.asDynamic().__kinetica = binding
     }
-    if (container.byPropName.isEmpty()) {
-        container.element.asDynamic().__kinetica = null
+}
+
+private fun removeTemplateEventBinding(element: Element, propName: String) {
+    when (val candidate: Any? = element.asDynamic().__kinetica) {
+        is MountedTemplateEvent ->
+            if (candidate.propName == propName) {
+                element.asDynamic().__kinetica = null
+            }
+        is MountedTemplateEvents -> {
+            candidate.byPropName.remove(propName)
+            when (candidate.byPropName.size) {
+                0 -> candidate.element.asDynamic().__kinetica = null
+                1 -> candidate.element.asDynamic().__kinetica = candidate.byPropName.values.first()
+            }
+        }
     }
 }
 

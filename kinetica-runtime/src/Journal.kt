@@ -1,21 +1,19 @@
 package io.heapy.kinetica
 
-import kotlinx.atomicfu.locks.SynchronizedObject
-import kotlinx.atomicfu.locks.synchronized
 import kotlinx.serialization.Serializable
 
 public class JournalBuffer<T>(
     public val capacity: Int,
 ) {
     private val entries = ArrayDeque<T>()
-    private val lock = SynchronizedObject()
+    private val lock = platformLock()
 
     init {
         require(capacity > 0) { "Journal buffer capacity must be positive." }
     }
 
     public fun append(entry: T) {
-        synchronized(lock) {
+        synchronizedOn(lock) {
             if (entries.size == capacity) {
                 entries.removeFirst()
             }
@@ -23,12 +21,12 @@ public class JournalBuffer<T>(
         }
     }
 
-    public fun entries(): List<T> = synchronized(lock) {
+    public fun entries(): List<T> = synchronizedOn(lock) {
         entries.toList()
     }
 
     public fun clear() {
-        synchronized(lock) {
+        synchronizedOn(lock) {
             entries.clear()
         }
     }
