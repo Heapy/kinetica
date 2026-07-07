@@ -29,7 +29,15 @@ by the rework), line anchors refreshed against the current tree (drift was 1-6 l
 serializes the raw chunk into the signed wrapper); Order-of-work flipped to publish-then-test
 (ci.yml:26-30); KNT-0009/0017 aligned on empty props (both shapes template); KNT-0016 reworded
 (the runtime helper survives as a branch-free `frameEvent` delegate); stale README/docs
-pointers to the retired perf-rewrite-design.md repointed at plan.md.
+pointers to the retired perf-rewrite-design.md repointed at plan.md. Execution (2026-07-07):
+the whole review stream landed via a codex-TDD pipeline — KNT-0008, 0001, 0004, 0010,
+0014+0006, 0007, 0011+0012, 0013+0019, 0020, 0002+0003, 0009+0017, 0021, plus the
+newly-surfaced KNT-0032 (real JS klib collision, confirmed and fixed); one ticket commit each,
+every one red-green verified by codex and independently re-verified before commit. Final
+sweep green: all 12 ci.yml JVM modules, browser JS suite, plugin-built bench bundle, 13-op
+bench + tree smoke (per-op medians flat-to-better vs the recorded numbers; remove10k
+53.9ms vs 59.8ms recorded at 3 samples), verify-browser 15 self-tests + counter/todo flows
+in Chromium, size report worst +1.6% vs the +10% tolerance.
 
 **Perf stream (KNT-0023–0031).** Status 2026-07-07: P0–P4 landed (registry eviction,
 retained renderer with keyed LIS diff + event delegation, each-row memoization, allocation
@@ -151,7 +159,7 @@ history of `perf-rewrite-design.md` (up to commit `7cfde69`).
 - (A#4): after cloning under `runtime.debug`, strip or rewrite descendant `data-kinetica-path`/`tag` attrs (they're stale copies of the prototype's paths and corrupt path-based focus fallback); simplest: remove those attrs from the prototype after `templatePrototype` builds it, since per-instance paths were never correct for clones.
 
 ### KNT-0032 — Template static field names are file-ordinal-only (latent JS klib collision)
-**Status:** Open — surfaced during the KNT-0009/0017 review (pre-existing, unchanged by that pass). `addTemplateField` names fields `kineticaTemplate$<ordinal>` with a per-FILE ordinal, while the hoister's fields use `<prefix>$<fileUniqueTag>$<n>` precisely because "JS klib signatures are package-scoped" (its own comment). Two files in the same package that each emit templates would both declare `kineticaTemplate$0` — a plausible JS klib signature clash. Verify with a two-file same-package JS compile in the harness/annotated-js; if real, switch template field naming to the shared `fileUniqueTag` scheme (via `nextStaticFieldName`-style helper in KineticaIrShared.kt).
+**Status:** Done (2026-07-07, codex verify-first) — collision CONFIRMED: two same-package templating files fail the JS link with `IrFieldSymbolImpl is already bound. Signature: app.annotatedjs/kineticaTemplate$0|[0]`. Fix: `staticFieldName(prefix, file, ordinal)` + `fileUniqueTag()` moved to KineticaIrShared.kt; template fields now use the package-unique scheme (hoist scheme unchanged, now via the same helper). Permanent two-file canary in samples/annotated-js (`SecondaryTemplate.kt`) asserts both rendered outputs. Compiler 68/68, annotated JVM+JS green.
 
 ### KNT-0021 — Harness/test dedup (opportunistic)
 **Status:** Done (2026-07-07, codex) — `KineticaCompilerTestUtilities.kt` (`withKotlinCoreEnvironment`, `RecordingMessageCollector`, property-restore helper) consumed by harness + wiring test; `invokeRender`/`assertFileField` on `CompiledKineticaModule`, five compile-test files migrated; shared `scripts/lib/run.mjs` replaced the four spawnSync copies (verify-js-samples, bundle-docs, jvm-coverage, bench/build-kinetica) with per-script behavior preserved via options. Compiler 68/68 identical before/after; verify-js-samples ran end-to-end green.
@@ -207,7 +215,7 @@ history of `perf-rewrite-design.md` (up to commit `7cfde69`).
 
 - Full sweeps: `./kotlin test -m kinetica-runtime --platform jvm` (151+ tests incl. new KNT-0001/0008/0010 cases), `./kotlin test -m kinetica-compiler --platform jvm`, kinetica-browser build + `node build/tasks/_kinetica-browser_linkJsTest/kinetica-browser_test.mjs`, both annotated samples (JVM + JS).
 - Renderer behavior: browser-bench 13-op + tree smoke through the plugin-built bundle (`node bench/build-kinetica.mjs`, then `node bench/driver/bench.mjs --frameworks=kinetica --samples=3` and `driver/tree.mjs`) — all assertions green.
-- Perf-backlog changes (KNT-0024+): `./kotlin build -m browser-bench && cd bench && node run-all.mjs --frameworks=kinetica`, then `node scripts/verify-browser.mjs` from the repo root — the script lives in root `scripts/`, not `bench/` (15 self-tests must stay green).
+- Perf-backlog changes (KNT-0024+): `./kotlin build -m browser-bench && cd bench && node run-all.mjs --frameworks=kinetica`, then `node scripts/verify-browser.mjs` from the repo root — the script lives in root `scripts/`, not `bench/` (15 self-tests must stay green). Locally it needs what ci.yml:99-103 provides: a static server first (`node -e 'import("./bench/driver/server.mjs").then(m => m.startServer(process.cwd(), 4173))' &`) and `PLAYWRIGHT_IMPORT=.tools/playwright/node_modules/playwright/index.mjs` (the script, unlike bench/driver/common.mjs, has no vendored-playwright fallback), plus built browser-tests/counter/todo samples.
 - Gate integrity: KNT-0010 must restore certification without the HashSet fallback — re-run the select10k/update10k A/B numbers and the K5 gate ops (pre-review plan.md, in git history) afterward (these fixes should only help); dom-count for the bulk-clear path (KNT-0012) — clear10k removeChild ~1.
 - Wire format: serialize a template-bearing tree — no `"template"` discriminator, including via `encodeSignedChunk` (KNT-0004).
 - Size check: `node scripts/size-report.mjs` within baseline tolerance.

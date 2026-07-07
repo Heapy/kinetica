@@ -250,8 +250,7 @@ internal class KineticaHoistTransformer(
     }
 
     private fun nextStaticFieldName(prefix: String): Name =
-        // Package-unique, not just file-unique: JS klib signatures are package-scoped.
-        Name.identifier("$prefix\$${file.fileUniqueTag()}\$${internedProps.size + hoistedHosts.size}")
+        staticFieldName(prefix, file, internedProps.size + hoistedHosts.size)
 
     private fun IrExpression.isEmptyLambda(): Boolean =
         this is IrFunctionExpression && (function.body?.let { body ->

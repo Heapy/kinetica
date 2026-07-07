@@ -132,7 +132,7 @@ internal class KineticaTemplateTransformer(
         return addStaticFileField(
             file = file,
             pluginContext = pluginContext,
-            name = Name.identifier("kineticaTemplate\$$ordinal"),
+            name = staticFieldName("kineticaTemplate", file, ordinal),
             type = symbols.templateDefinitionType,
         ) { fieldBuilder ->
             fieldBuilder.irCall(symbols.singleTextTemplateDefinition).apply {

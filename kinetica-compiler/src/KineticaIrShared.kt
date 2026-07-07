@@ -78,5 +78,21 @@ internal fun addStaticFileField(
     return field
 }
 
+/** Package-unique generated field name; JS klib signatures are package-scoped. */
+internal fun staticFieldName(
+    prefix: String,
+    file: IrFile,
+    ordinal: Int,
+): Name =
+    Name.identifier("$prefix\$${file.fileUniqueTag()}\$$ordinal")
+
+/** Stable per-file tag for package-unique generated names. */
+internal fun IrFile.fileUniqueTag(): String {
+    val base = fileEntry.name.substringAfterLast('/').substringBeforeLast('.')
+        .replace(Regex("[^A-Za-z0-9]"), "_")
+    val hash = fileEntry.name.hashCode().toUInt().toString(16)
+    return "$base\$$hash"
+}
+
 internal fun IrExpression.isNullConst(): Boolean =
     this is IrConst && kind == IrConstKind.Null
