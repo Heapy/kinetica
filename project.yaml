@@ -16,6 +16,7 @@ modules:
   - ./samples/annotated
   - ./samples/annotated-js
   - ./samples/browser-bench
+  - ./samples/browser-bench-compose
   - ./samples/browser-counter
   - ./samples/browser-tests
   - ./samples/browser-todo
