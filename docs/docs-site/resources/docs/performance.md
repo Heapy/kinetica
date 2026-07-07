@@ -42,7 +42,7 @@ remove-10k still scale with row count, and **startup regressed** — 32.6 ms aga
 
 ## How it got there
 
-<!-- code: kinetica-browser/src@js/BrowserKineticaApp.kt (retained renderer), kinetica-runtime/src/Frames.kt (frame ordinals), kinetica-runtime/src/ComponentScope.kt (each memoization), kinetica-compiler/src/KineticaIrFrames.kt -->
+<!-- code: kinetica-browser/src@js/BrowserKineticaApp.kt (retained renderer), kinetica-runtime/src/Frames.kt (frame ordinals), kinetica-runtime/src/ComponentScope.kt (each memoization), kinetica-runtime/src/Node.kt (ChildRegion), kinetica-compiler/src/KineticaIrFrames.kt -->
 
 The July 2026 rewrite moved the original 9-op geometric mean from **15.2× to roughly 1.1×**;
 frame ordinals then took the 13-op headline below React for the first time, where it remains
@@ -77,11 +77,15 @@ frame ordinals then took the 13-op headline below React for the first time, wher
    first time: swap1k 0.36×, swap10k 0.77×, replace1k 0.88× and create10k 0.94×; remove10k
    (1.31×) and update-every-10th-10k (1.24×) are the remaining DOM open items.
 
-The soundness fixes that followed (segmented child diff for mixed static/keyed lists,
-controlled-input resync on memoized rows, unified cell listener registries) traded roughly
-8 ms of startup and 1.9 MB of after-1k heap for correctness — regaining that is tracked as an
-open item, and the DOM-operation geomean was unaffected. The full root-cause analysis, per-step
-measurements and methodology live in the repository's git history.
+The soundness fixes that followed traded roughly 8 ms of startup and 1.9 MB of after-1k heap
+for correctness. The cost is on the **mount path**, not the child diff: the mixed static/keyed
+reconciler runs only while patching updates, and reworking it from a browser-side heuristic into
+runtime-declared region spans (the runtime marks each `each`/conditional region; the browser
+reconciles by those boundaries) measured startup- and heap-neutral in a same-branch A/B. The
+regression is the mount-time work the other fixes added — per-subscription cell-listener holders
+and cumulative bundle growth — and regaining it is tracked as an open item. The DOM-operation
+geomean was unaffected. The full root-cause analysis, per-step measurements and methodology live
+in the repository's git history.
 
 ## What the suite measures
 
