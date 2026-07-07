@@ -22,8 +22,8 @@ wasted. `renderEachRegion` (kinetica-runtime/src/ComponentScope.kt:676-695) flat
 the parent with no region boundary, so the browser side has nothing to anchor a region diff on.
 
 Fix direction: per-`each`-region boundary markers plus placeholder nodes for empty conditional
-branches (frame ordinals can supply stable slot identity for both). Untracked in plan.md, which
-only defers a "unified keyed reconciler" for fully-keyed lists.
+branches (frame ordinals can supply stable slot identity for both). Not yet tracked anywhere;
+existing backlogs only defer a "unified keyed reconciler" for fully-keyed lists.
 
 ### 2. Identity short-circuit skips controlled-input resync on memoized rows
 

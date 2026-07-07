@@ -69,7 +69,7 @@ settling — the browser-level complement to the [headless harness](/docs/testin
 
 ## History
 
-<!-- code: plan.md (perf stream context), bench/results/results.json -->
+<!-- code: bench/results/results.json -->
 
 The renderer became retained-mode in the July 2026 performance rewrite — previously every event
 rebuilt the whole DOM. The numbers and the root-cause story are in

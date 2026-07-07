@@ -281,7 +281,7 @@ class BrowserHostPropPatchTest {
     }
 
     /**
-     * KSND-135 (sources: KNT-0010, SVL-049).
+     * KSND-135 (sources: SVL-049).
      */
     // KSND-135: Prop-hole null removal is pinned to patchTemplateValues nextValue == null removeAttribute (BrowserKineticaApp.kt:613-616); key holes patch the effective template reconcile key in patchTemplate (BrowserKineticaApp.kt:550-562), so prop/key null fallback behavior intentionally differs.
     @Test

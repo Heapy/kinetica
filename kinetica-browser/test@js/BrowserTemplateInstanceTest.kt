@@ -106,7 +106,7 @@ class BrowserTemplateInstanceTest {
     }
 
     /**
-     * KSND-125 (sources: KNT-0006, INF-075).
+     * KSND-125 (sources: INF-075).
      */
     @Test
     fun perInstanceEventHolesDispatchToTheirOwnEventIds() {
@@ -138,7 +138,7 @@ class BrowserTemplateInstanceTest {
     }
 
     /**
-     * KSND-126 (sources: KNT-0007, KNT-0010, RCT-004, SVL-024).
+     * KSND-126 (sources: RCT-004, SVL-024).
      */
     @Test
     fun keyedTemplateRowsReorderPreservesIdentityAndHoleBindings() {
@@ -230,7 +230,7 @@ class BrowserTemplateInstanceTest {
     }
 
     /**
-     * KSND-128 (sources: KNT-0006).
+     * KSND-128.
      */
     @Test
     fun unmountingOneTemplateInstanceClearsOnlyItsEventBindings() {

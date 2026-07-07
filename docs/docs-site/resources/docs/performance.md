@@ -76,9 +76,8 @@ React):
    first time: swap1k 0.36×, swap10k 0.78×, replace1k and create10k 0.90×; remove10k (1.48×)
    and update-every-10th-10k (1.26×) are the remaining open items.
 
-The remaining open items are tracked as KNT tickets in `plan.md` at the repository root;
-the full root-cause analysis, phase gates and measurement methodology live in the git
-history of `perf-rewrite-design.md` (retired into `plan.md`, July 2026).
+The full root-cause analysis, per-step measurements and methodology live in the
+repository's git history.
 
 ## What the suite measures
 

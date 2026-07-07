@@ -48,7 +48,7 @@ import org.jetbrains.kotlin.name.Name
  *    `===` diff fast path.
  *
  * Hoists are deduplicated structurally per file; anything not provably constant is left
- * untouched (invariant 3 of compiler-perf-design.md).
+ * untouched — when in doubt, don't hoist.
  */
 internal class KineticaHoistSymbols private constructor(
     val emit: IrSimpleFunctionSymbol,

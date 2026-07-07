@@ -47,7 +47,7 @@ class BrowserMountResidueTest {
     }
 
     /**
-     * KSND-101 (sources: SOL-086, KNT-0014).
+     * KSND-101 (sources: SOL-086).
      */
     @Test
     fun disposeRemovesDelegatedListenersAndPostDisposeClickIsInert() {
@@ -151,7 +151,7 @@ class BrowserMountResidueTest {
     }
 
     /**
-     * KSND-104 (sources: KNT-0011, SVL-115, INF-113).
+     * KSND-104 (sources: SVL-115, INF-113).
      */
     @Test
     fun removedKeyedSubtreeClearsBookkeeping() {
@@ -187,7 +187,7 @@ class BrowserMountResidueTest {
     }
 
     /**
-     * KSND-105 (sources: KNT-0012, SOL-090).
+     * KSND-105 (sources: SOL-090).
      */
     @Test
     fun bulkClearThenDisposeLeavesRootEmptyAndListenersBalanced() {

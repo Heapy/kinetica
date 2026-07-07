@@ -69,8 +69,8 @@ Status: K0–K3 implemented · 2026-07-06 · owner: kinetica-compiler
   hash work — for select10k (~10 ms vs vanilla's ~4.6 ms floor) the hit-path cost is roughly
   half of Kinetica's whole gap on that op. Attack that (pre-hashed row keys, batched event
   touch, or clock-stamped row caches) before anything else in this plan.
-Companion to `perf-rewrite-design.md` (since retired into `plan.md`; when this was written
-the renderer stood at P0–P3 done, 13-op geomean 1.35× — now P0–P4, 0.97×):
+Companion to the renderer-perf work (see git history for `perf-rewrite-design.md`; when this
+was written the renderer's 13-op geomean had improved from 1.35× to 0.97× vs React):
 every number in that story was measured **without** the plugin. This plan makes the compiler
 contribute, safely.
 

@@ -130,7 +130,6 @@ const heroChart = barChart({
   unit: "×",
 });
 
-// per-benchmark small multiples
 const smallMultiples = benches
   .map((b) => {
     const rows = FW_ORDER.map((f) => {
@@ -423,10 +422,9 @@ if (existsSync(beforePath) && data.results.kinetica) {
     <h2>One fix, measured</h2>
     <p class="section-sub">Profiling traced 60–67% of all CPU to <code>KineticaRuntime.registerEvent</code>:
     an O(n) linear scan of a never-evicted identity list, run once per handler per render — O(n²) per
-    operation and growing with app lifetime. Replacing the list with a hash map
-    (phase 0, part 1 of <code>perf-rewrite-design.md</code>, since retired into <code>plan.md</code>) produced the numbers used throughout this
-    report. The remaining gap versus the keyed frameworks is the full-DOM rebuild, addressed by the
-    retained-renderer phase.</p>
+    operation and growing with app lifetime. Replacing the list with a hash map produced the
+    numbers used throughout this report. The remaining gap versus the keyed frameworks was the
+    full-DOM rebuild, since addressed by the retained-mode renderer.</p>
     <div class="table-scroll">
       <table class="results fix-table">
         <thead>
@@ -703,17 +701,15 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
   <section>
     <h2>Reading the results</h2>
     <div class="callout">
-      <h3>Where Kinetica stands after the P0–P2 renderer rewrite</h3>
+      <h3>Where Kinetica stands after the renderer rewrite</h3>
       <p>The browser renderer is retained-mode: each dispatch diffs the fresh node tree against a
       mounted shadow tree and applies a minimal patch (keyed LIS reconciliation, delegated events,
       memoized <code>each</code> rows). Partial operations sit at the paint floor; the remaining gaps
       are create-op node construction and allocation pressure — visible directly in the
       <em>GC time inside operations</em> section — plus the Kotlin runtime payload that remains
       after the benchmark's esbuild bundling step.</p>
-      <p>History, phase gates and root-cause analysis live in the git history of
-      <code>perf-rewrite-design.md</code> (retired into <code>plan.md</code>);
-      the scaling-curve and 10k-table sections exist to catch complexity-class regressions before
-      they reach the headline numbers.</p>
+      <p>The scaling-curve and 10k-table sections exist to catch complexity-class regressions
+      before they reach the headline numbers.</p>
     </div>
   </section>
 

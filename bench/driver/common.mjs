@@ -52,7 +52,6 @@ export function resolveVersion(spec) {
   return "n/a";
 }
 
-// Per-framework selector helpers derived from the config entry.
 export function frameworkSelectors(fw) {
   const button = fw.buttons === "testid" ? (name) => `[data-testid="${name}"]` : (id) => `#${id}`;
   return {

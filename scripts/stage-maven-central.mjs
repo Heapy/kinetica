@@ -2,7 +2,7 @@
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { execFileSync } from "node:child_process";
+import { run as runCommand } from "./lib/run.mjs";
 
 const modules = {
   "kinetica-compiler": {
@@ -22,7 +22,7 @@ const names = selected.length > 0 ? selected : Object.keys(modules);
 const stagingRoot = join("build", "staging-maven-central");
 
 function run(args) {
-  execFileSync("./kotlin", args, { stdio: "inherit" });
+  runCommand("./kotlin", args);
 }
 
 function copyRequired(from, to) {
