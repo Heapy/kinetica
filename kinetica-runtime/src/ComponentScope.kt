@@ -723,13 +723,18 @@ public class ComponentScope public constructor(
             seen += keyed.key
             val rowKey = keyed.key.toString()
             val rowFrame = currentFrame.enterKeyedChild(ordinal, keyed.key, table = rowTable, generation = slotGeneration)
-            val hit = if (memoize) frameSkipHit(rowFrame, listOf(keyed.item)) else null
+            val rowInputs = listOf(keyed.item)
+            val previousCache = rowFrame.skipCache
+            val hit = if (memoize) frameSkipHit(rowFrame, rowInputs) else null
             val rowCertified: Boolean
             if (hit != null) {
                 outFrame += hit.nodes
                 rowFrame.markKept(slotGeneration)
                 rowFrame.markContentsKept(slotGeneration)
                 hit.recordDependencies()
+                if (rowFrame.partialRenderTargetId == NO_PARTIAL_RENDER_TARGET) {
+                    registerPartialEachRowTarget(rowFrame, hit, keyed.item, rowKey, memoize, content)
+                }
                 reused += 1
                 rowCertified = hit.certifiedKeyedHost
             } else {
@@ -744,7 +749,7 @@ public class ComponentScope public constructor(
                     captured.nodes[0].reconcileKey == rowKey
                 rowFrame.skipCache = if (memoize && captured.memoizable) {
                     FrameSkipCache(
-                        inputs = listOf(keyed.item),
+                        inputs = rowInputs,
                         nodes = captured.nodes,
                         dependencyCells = captured.dependencyCells,
                         dependencyVersions = captured.dependencyVersions,
@@ -753,6 +758,12 @@ public class ComponentScope public constructor(
                     )
                 } else {
                     null
+                }
+                if (previousCache != null && previousCache.inputs != rowInputs) {
+                    runtime.removePartialRenderTarget(rowFrame.partialRenderTargetId)
+                    rowFrame.partialRenderTargetId = NO_PARTIAL_RENDER_TARGET
+                } else {
+                    registerPartialEachRowTarget(rowFrame, rowFrame.skipCache, keyed.item, rowKey, memoize, content)
                 }
             }
             allCertified = allCertified && rowCertified
@@ -771,6 +782,67 @@ public class ComponentScope public constructor(
                 mapOf("reused" to reused.toString(), "total" to snapshot.size.toString()),
             )
         }
+    }
+
+    private fun <T> registerPartialEachRowTarget(
+        rowFrame: Frame,
+        cache: FrameSkipCache?,
+        item: T,
+        rowKey: String,
+        memoize: Boolean,
+        content: ComponentScope.(T) -> Unit,
+    ) {
+        if (!memoize || cache == null || !cache.certifiedKeyedHost || cache.nodes.size != 1) {
+            runtime.removePartialRenderTarget(rowFrame.partialRenderTargetId)
+            rowFrame.partialRenderTargetId = NO_PARTIAL_RENDER_TARGET
+            return
+        }
+        val targetId = if (rowFrame.partialRenderTargetId == NO_PARTIAL_RENDER_TARGET) {
+            runtime.allocatePartialRenderTargetId().also { rowFrame.partialRenderTargetId = it }
+        } else {
+            rowFrame.partialRenderTargetId
+        }
+        runtime.registerPartialRenderTarget(
+            PartialRenderTarget(
+                id = targetId,
+                reconcileKey = rowKey,
+                renderNode = {
+                    partialRenderEachRow(rowFrame, item, rowKey, memoize, content)
+                },
+            ),
+            cache.dependencyCells,
+        )
+    }
+
+    private fun <T> partialRenderEachRow(
+        rowFrame: Frame,
+        item: T,
+        rowKey: String,
+        memoize: Boolean,
+        content: ComponentScope.(T) -> Unit,
+    ): Node? {
+        enterFrame(rowFrame)
+        val captured = try {
+            captureRender { collect { content(item) } }
+        } finally {
+            exitFrame()
+        }
+        val rowCertified = captured.nodes.size == 1 &&
+            captured.nodes[0].reconcileKey == rowKey
+        rowFrame.skipCache = if (memoize && captured.memoizable) {
+            FrameSkipCache(
+                inputs = listOf(item),
+                nodes = captured.nodes,
+                dependencyCells = captured.dependencyCells,
+                dependencyVersions = captured.dependencyVersions,
+                contextReads = captured.contextReads,
+                certifiedKeyedHost = rowCertified,
+            )
+        } else {
+            null
+        }
+        registerPartialEachRowTarget(rowFrame, rowFrame.skipCache, item, rowKey, memoize, content)
+        return captured.nodes.singleOrNull()
     }
 
     private fun recordKeyedEmission(frame: MutableList<Node>, frameStart: Int, certified: Boolean) {
@@ -900,7 +972,7 @@ private class StateCellImpl<T>(
                 ),
             )
         }
-        scope.runtime.invalidate("cell write")
+        scope.runtime.invalidateCell(this, "cell write")
     }
 }
 

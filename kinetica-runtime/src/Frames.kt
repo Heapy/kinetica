@@ -98,6 +98,7 @@ internal class Frame(
 
     /** Memoized output of this frame's subtree (skippable component / each row). */
     internal var skipCache: FrameSkipCache? = null
+    internal var partialRenderTargetId: Long = NO_PARTIAL_RENDER_TARGET
     internal var keptGeneration: Int = -1
         private set
     internal var deactivated: Boolean = false
@@ -377,6 +378,8 @@ internal class Frame(
     internal fun deactivate(runtime: KineticaRuntime) {
         if (deactivated) return
         deactivated = true
+        runtime.removePartialRenderTarget(partialRenderTargetId)
+        partialRenderTargetId = NO_PARTIAL_RENDER_TARGET
         skipCache = null
         val transientFlags = growableTransient
         if (transientFlags != null) {
@@ -399,6 +402,8 @@ internal class Frame(
     }
 
     internal fun dispose(runtime: KineticaRuntime) {
+        runtime.removePartialRenderTarget(partialRenderTargetId)
+        partialRenderTargetId = NO_PARTIAL_RENDER_TARGET
         skipCache = null
         forEachChildFrame { it.dispose(runtime) }
         children = null
@@ -516,6 +521,7 @@ internal class Frame(
 
 internal const val EVENT_ROLE_PRIMARY: Int = 0
 internal const val EVENT_ROLE_SECONDARY: Int = 1
+internal const val NO_PARTIAL_RENDER_TARGET: Long = -1L
 
 internal fun disposeFrameSlotValue(value: Any?) {
     when (value) {

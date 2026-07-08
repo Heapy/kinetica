@@ -9,6 +9,7 @@ import io.heapy.kinetica.KineticaJson
 import io.heapy.kinetica.KineticaRuntime
 import io.heapy.kinetica.Node
 import io.heapy.kinetica.NodeFlags
+import io.heapy.kinetica.PartialRenderTarget
 import io.heapy.kinetica.Semantics
 import io.heapy.kinetica.TemplateDefinition
 import io.heapy.kinetica.TemplateHoleKinds
@@ -44,6 +45,7 @@ public class BrowserKineticaApp(
     private var clientRefCount = 0
     private val keyedPatchScratchPool = ArrayList<KeyedPatchScratchFrame>(KEYED_PATCH_SCRATCH_DEPTH)
     private val templatePrototypes = HashMap<String, TemplatePrototype>()
+    private val keyedMounts = HashMap<String, Mounted>()
 
     private val delegatedListener: (Event) -> Unit = { event -> handleDelegatedEvent(event) }
 
@@ -220,7 +222,44 @@ public class BrowserKineticaApp(
 
     private fun dispatchAndRender(eventId: String, payload: Any?) {
         runtime.dispatch(eventId, payload)
-        render(restoredFocus = null)
+        val partialBatch = runtime.consumePartialRenderBatch()
+        if (!runtime.debug &&
+            !partialBatch.requiresFullRender &&
+            partialBatch.targets.isNotEmpty() &&
+            patchPartialTargets(partialBatch.targets)
+        ) {
+            runtime.completePartialRender()
+        } else {
+            render(restoredFocus = null)
+        }
+    }
+
+    private fun patchPartialTargets(targets: List<PartialRenderTarget>): Boolean {
+        val focus = BrowserFocus.capture()
+        val previouslyActive = browserDocument.activeElement
+        for (target in targets) {
+            val mounted = keyedMounts[target.reconcileKey] ?: return false
+            val next = target.render() ?: return false
+            if (!hasSamePatchTarget(mounted, next)) {
+                return false
+            }
+            val parent = firstDomOf(mounted)?.parentElement ?: return false
+            val patched = patch(mounted, next, parent, path = "")
+            if (patched !== mounted) {
+                return false
+            }
+        }
+        if (runtime.debug || clientRefCount > 0) {
+            refreshGeneratedAttributes()
+        }
+        if (focus != null &&
+            previouslyActive != null &&
+            previouslyActive != browserDocument.body &&
+            previouslyActive.asDynamic().isConnected != true
+        ) {
+            focus.restore(rootElement)
+        }
+        return true
     }
 
     // --- mounting ---
@@ -286,6 +325,7 @@ public class BrowserKineticaApp(
 
         val mounted = MountedHost(node, element, mutableListOf())
         element.asDynamic().__kinetica = mounted
+        rememberMountedKey(mounted)
         node.children.forEachIndexed { index, child ->
             mounted.children.add(mount(child, element, anchor = null, path = childPathOf(path, index)))
         }
@@ -314,6 +354,7 @@ public class BrowserKineticaApp(
         )
         patchTemplateValues(mounted, previousValues = emptyList(), nextValues = node.values)
         parent.insertBefore(root, anchor)
+        rememberMountedKey(mounted)
         return mounted
     }
 
@@ -416,6 +457,7 @@ public class BrowserKineticaApp(
             } else {
                 element.removeAttribute(DATA_KINETICA_KEY)
             }
+            refreshMountedKey(mounted, previous.reconcileKey)
         }
         if (previous.props != next.props) {
             patchProps(element, next.tag, previous.props, next.props)
@@ -575,6 +617,7 @@ public class BrowserKineticaApp(
             } else {
                 mounted.root.removeAttribute(DATA_KINETICA_KEY)
             }
+            refreshMountedKey(mounted, previous.reconcileKey)
         }
         if (runtime.debug) {
             mounted.root.setAttribute(DATA_KINETICA_PATH, path)
@@ -1338,7 +1381,7 @@ public class BrowserKineticaApp(
     }
 
     private fun clearOwnedChildren(parent: Element, mounted: MutableList<Mounted>) {
-        if (clientRefCount > 0) {
+        if (clientRefCount > 0 || keyedMounts.isNotEmpty()) {
             mounted.forEach(::detach)
         }
         mounted.clear()
@@ -1351,6 +1394,7 @@ public class BrowserKineticaApp(
         when (mounted) {
             is MountedHost -> {
                 mounted.children.forEach(::detach)
+                forgetMountedKey(mounted)
                 mounted.element.asDynamic().__kinetica = null
             }
             is MountedTemplate -> detachTemplate(mounted)
@@ -1361,6 +1405,7 @@ public class BrowserKineticaApp(
     }
 
     private fun detachTemplate(mounted: MountedTemplate) {
+        forgetMountedKey(mounted)
         mounted.templateNode.definition.holes.forEachIndexed { index, hole ->
             if (hole.kind != TemplateHoleKinds.EventProp) {
                 return@forEachIndexed
@@ -1426,7 +1471,27 @@ public class BrowserKineticaApp(
         )
     }
 
+    private fun rememberMountedKey(mounted: Mounted) {
+        mounted.reconcileKey()?.let { key -> keyedMounts[key] = mounted }
+    }
+
+    private fun forgetMountedKey(mounted: Mounted) {
+        mounted.reconcileKey()?.let { key ->
+            if (keyedMounts[key] === mounted) {
+                keyedMounts.remove(key)
+            }
+        }
+    }
+
+    private fun refreshMountedKey(mounted: Mounted, previousKey: String?) {
+        if (previousKey != null && keyedMounts[previousKey] === mounted) {
+            keyedMounts.remove(previousKey)
+        }
+        rememberMountedKey(mounted)
+    }
+
     private fun clearRoot() {
+        keyedMounts.clear()
         while (rootElement.firstChild != null) {
             rootElement.removeChild(rootElement.firstChild!!)
         }

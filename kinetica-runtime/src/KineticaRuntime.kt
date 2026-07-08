@@ -15,6 +15,19 @@ import kotlin.concurrent.atomics.AtomicLong
 
 private val nextRuntimeResourceCacheId = AtomicLong(0L)
 
+public class PartialRenderTarget internal constructor(
+    public val id: Long,
+    public val reconcileKey: String,
+    private val renderNode: () -> Node?,
+) {
+    public fun render(): Node? = renderNode()
+}
+
+public data class PartialRenderBatch(
+    val requiresFullRender: Boolean,
+    val targets: List<PartialRenderTarget>,
+)
+
 public class KineticaRuntime(
     public val debug: Boolean = true,
     journalCapacity: Int = 1_024,
@@ -35,6 +48,12 @@ public class KineticaRuntime(
     private val renderSnapshots = JournalBuffer<RenderSnapshot>(journalCapacity)
     private val pendingRenderCauses = linkedSetOf<String>()
     private val renderSubscriptions = mutableMapOf<ObservableCell<*>, Disposable>()
+    private var nextPartialRenderTargetId = 0L
+    private val partialRenderTargets = mutableMapOf<Long, PartialRenderTarget>()
+    private val partialTargetCells = mutableMapOf<Long, Array<ObservableCell<*>>>()
+    private val partialTargetsByCell = mutableMapOf<ObservableCell<*>, MutableSet<Long>>()
+    private val dirtyPartialTargetIds = linkedSetOf<Long>()
+    private var partialRenderFallbackRequired = false
     private var hasRendered = false
     private var invalidated = false
     private val disposed = AtomicBoolean(false)
@@ -113,6 +132,8 @@ public class KineticaRuntime(
         val cause = synchronizedOn(runtimeLock) {
             val consumedCause = consumeRenderCauseLocked()
             invalidated = false
+            partialRenderFallbackRequired = false
+            dirtyPartialTargetIds.clear()
             consumedCause
         }
         record(JournalKind.RenderStarted, "render started", mapOf("cause" to cause))
@@ -146,7 +167,7 @@ public class KineticaRuntime(
             }
             dependencies.filterNot(renderSubscriptions::containsKey).forEach { dependency ->
                 renderSubscriptions[dependency] = dependency.observe {
-                    invalidate("cell write")
+                    invalidateCell(dependency, "cell write")
                 }
             }
         }
@@ -191,8 +212,98 @@ public class KineticaRuntime(
     public fun invalidate(cause: String = "manual") {
         synchronizedOn(runtimeLock) {
             invalidated = true
+            partialRenderFallbackRequired = true
             pendingRenderCauses += cause
         }
+    }
+
+    internal fun invalidateCell(cell: ObservableCell<*>, cause: String = "cell write") {
+        synchronizedOn(runtimeLock) {
+            invalidated = true
+            pendingRenderCauses += cause
+            val targets = partialTargetsByCell[cell]
+            if (targets.isNullOrEmpty()) {
+                partialRenderFallbackRequired = true
+            } else {
+                dirtyPartialTargetIds += targets
+            }
+        }
+    }
+
+    internal fun allocatePartialRenderTargetId(): Long =
+        synchronizedOn(runtimeLock) { nextPartialRenderTargetId++ }
+
+    internal fun registerPartialRenderTarget(
+        target: PartialRenderTarget,
+        dependencies: Array<ObservableCell<*>>,
+    ) {
+        synchronizedOn(runtimeLock) {
+            val previousDependencies = partialTargetCells[target.id]
+            partialRenderTargets[target.id] = target
+            if (previousDependencies != null && samePartialDependencies(previousDependencies, dependencies)) {
+                partialTargetCells[target.id] = dependencies
+                return@synchronizedOn
+            }
+            previousDependencies?.forEach { cell ->
+                val targets = partialTargetsByCell[cell] ?: return@forEach
+                targets.remove(target.id)
+                if (targets.isEmpty()) {
+                    partialTargetsByCell.remove(cell)
+                }
+            }
+            partialTargetCells[target.id] = dependencies
+            dependencies.forEach { cell ->
+                partialTargetsByCell.getOrPut(cell) { linkedSetOf() } += target.id
+            }
+        }
+    }
+
+    private fun samePartialDependencies(
+        previous: Array<ObservableCell<*>>,
+        next: Array<ObservableCell<*>>,
+    ): Boolean {
+        if (previous.size != next.size) return false
+        for (index in previous.indices) {
+            if (previous[index] !== next[index]) return false
+        }
+        return true
+    }
+
+    internal fun removePartialRenderTarget(targetId: Long) {
+        if (targetId < 0L) return
+        synchronizedOn(runtimeLock) {
+            removePartialRenderTargetLocked(targetId)
+        }
+    }
+
+    private fun removePartialRenderTargetLocked(targetId: Long) {
+        partialRenderTargets.remove(targetId)
+        partialTargetCells.remove(targetId)?.forEach { cell ->
+            val targets = partialTargetsByCell[cell] ?: return@forEach
+            targets.remove(targetId)
+            if (targets.isEmpty()) {
+                partialTargetsByCell.remove(cell)
+            }
+        }
+        dirtyPartialTargetIds.remove(targetId)
+    }
+
+    public fun consumePartialRenderBatch(): PartialRenderBatch =
+        synchronizedOn(runtimeLock) {
+            PartialRenderBatch(
+                requiresFullRender = partialRenderFallbackRequired,
+                targets = dirtyPartialTargetIds.mapNotNull(partialRenderTargets::get),
+            )
+        }
+
+    public fun completePartialRender() {
+        synchronizedOn(runtimeLock) {
+            invalidated = false
+            partialRenderFallbackRequired = false
+            dirtyPartialTargetIds.clear()
+            pendingRenderCauses.clear()
+        }
+        record(JournalKind.RenderCommitted, "partial render committed")
     }
 
     public suspend fun awaitIdle() {
