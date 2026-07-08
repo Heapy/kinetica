@@ -59,7 +59,7 @@ frameworks/shared/      ← data.mjs + tree-data.mjs (generators), styles.css (s
 driver/common.mjs       ← shared machinery: args, Playwright, trace parsing (incl. GC), stats
 driver/bench.mjs        ← main driver: 13 ops + startup + memory churn + animation
 driver/tree.mjs         ← deep-tree driver (create/update/reverse/no-op on 1,555 nodes)
-driver/scaling.mjs      ← scaling curves: ops at 1k–20k rows, log-log slope fit
+driver/scaling.mjs      ← scaling curves: ops at 1k–50k rows, log-log slope fit
 driver/server.mjs       ← static file server rooted at the REPO ROOT (port 4573)
 driver/merge.mjs        ← merges part files → merged results JSON (generic per-section)
 results/part-<name>.json       ← canonical per-framework results (kept between runs)
@@ -171,7 +171,7 @@ user-land memoization (no `React.memo` etc.) — framework-internal reuse is the
 
 ### Scaling curves (driver/scaling.mjs, run-all --scaling)
 
-Select / swap / update measured at 1k, 2k, 5k, 10k, 20k rows (sizes reached through the
+Select / swap / update measured at 1k, 2k, 5k, 10k, 20k, 50k rows (sizes reached through the
 standard buttons: `run`/`runlots` + repeated `add`; sizes must be multiples of 1,000), then
 fitted as duration ∝ n^exponent (log-log least squares). Select/swap should be near-flat
 (threshold 0.6), update near-linear (threshold 1.3); exceeding the threshold flags the op

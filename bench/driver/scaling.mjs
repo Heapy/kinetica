@@ -36,7 +36,7 @@ const args = parseArgs();
 const WARMUP = Number(args.warmup ?? 1);
 const SAMPLES = Number(args.samples ?? 5);
 const THROTTLE = Number(args.throttle ?? 0);
-const SIZES = (args.sizes ?? "1000,2000,5000,10000,20000").split(",").map(Number);
+const SIZES = (args.sizes ?? "1000,2000,5000,10000,20000,50000").split(",").map(Number);
 const OUT = args.out ?? join(driverDir, "..", "results", "scaling", "part-scaling.json");
 
 if (SIZES.some((s) => s < 1000 || s % 1000 !== 0)) {
