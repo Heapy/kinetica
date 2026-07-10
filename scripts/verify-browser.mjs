@@ -12,6 +12,7 @@ const browser = await chromium.launch({
 try {
   await verifyBrowserTests();
   await verifyCounter();
+  await verifyGameOfLife();
   await verifyTodo();
   if (serverComponentsUrl) {
     await verifyServerComponents();
@@ -61,6 +62,55 @@ async function verifyCounter() {
   await page.close();
 }
 
+async function verifyGameOfLife() {
+  const page = await newPage("browser-game-of-life");
+  await page.goto(`${baseUrl}/samples/browser-game-of-life/web/index.html`, { waitUntil: "networkidle" });
+  await page.locator('[data-testid="life-grid"]').waitFor({ timeout: 5_000 });
+  await page.getByText("72 × 48 universe", { exact: true }).waitFor({ timeout: 5_000 });
+
+  const cellCount = await page.locator(".life-cell").count();
+  if (cellCount !== 72 * 48) {
+    throw new Error(`Game of Life rendered ${cellCount} cells instead of 3456`);
+  }
+  const scrollPosition = await page.locator(".board-scroll").evaluate((viewport) => ({
+    actual: viewport.scrollLeft,
+    centered: (viewport.scrollWidth - viewport.clientWidth) / 2,
+  }));
+  if (Math.abs(scrollPosition.actual - scrollPosition.centered) > 2) {
+    throw new Error(`Game of Life board was not centered: ${JSON.stringify(scrollPosition)}`);
+  }
+
+  await page.locator('[data-testid="preset-glider"]').click();
+  await waitForText(page, "population-value", "5");
+  await waitForText(page, "generation-value", "0");
+
+  await page.locator('[data-testid="step"]').click();
+  await waitForText(page, "generation-value", "1");
+
+  const editableCell = page.locator('[data-testid="cell-0-0"]');
+  if (await editableCell.getAttribute("aria-pressed") !== "false") {
+    throw new Error("Expected the corner cell to start dead");
+  }
+  await editableCell.click();
+  if (await editableCell.getAttribute("aria-pressed") !== "true") {
+    throw new Error("Clicking a dead cell did not make it alive");
+  }
+
+  await page.locator('[data-testid="preset-beacon"]').click();
+  await page.locator('[data-testid="speed-fast"]').click();
+  await page.locator('[data-testid="toggle-running"]').click();
+  await page.waitForFunction(
+    () => Number(document.querySelector('[data-testid="generation-value"]')?.textContent ?? "0") >= 2,
+    undefined,
+    { timeout: 5_000 },
+  );
+  await page.locator('[data-testid="toggle-running"]').click();
+  await page.getByText("Paused", { exact: true }).waitFor({ timeout: 5_000 });
+
+  assertNoPageErrors(page, "browser-game-of-life");
+  await page.close();
+}
+
 async function verifyTodo() {
   const page = await newPage("browser-todo");
   await page.goto(`${baseUrl}/samples/browser-todo/web/index.html`, { waitUntil: "networkidle" });
@@ -76,6 +126,14 @@ async function verifyTodo() {
   await page.getByText("Ship browser renderer").waitFor({ timeout: 5_000 });
   assertNoPageErrors(page, "browser-todo");
   await page.close();
+}
+
+async function waitForText(page, testTag, expected) {
+  await page.waitForFunction(
+    ({ testTag, expected }) => document.querySelector(`[data-testid="${testTag}"]`)?.textContent === expected,
+    { testTag, expected },
+    { timeout: 5_000 },
+  );
 }
 
 async function verifyServerComponents() {

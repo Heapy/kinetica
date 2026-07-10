@@ -18,6 +18,7 @@ modules:
   - ./samples/browser-bench
   - ./samples/browser-bench-compose
   - ./samples/browser-counter
+  - ./samples/browser-game-of-life
   - ./samples/browser-tests
   - ./samples/browser-todo
   - ./samples/server-components
