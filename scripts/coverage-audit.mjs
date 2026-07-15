@@ -14,6 +14,7 @@ const externalCoverage = new Map([
   ["./samples/annotated-js", verifier("scripts/verify-js-samples.mjs", "annotated-js")],
   ["./samples/browser-bench", verifier("bench/driver/bench.mjs", "01_run1k")],
   ["./samples/browser-counter", verifier("scripts/verify-browser.mjs", "function verifyCounter(")],
+  ["./samples/browser-game-of-life", verifier("scripts/verify-browser.mjs", "function verifyGameOfLife(")],
   ["./samples/browser-tests", verifier("scripts/verify-browser.mjs", "function verifyBrowserTests(")],
   ["./samples/browser-todo", verifier("scripts/verify-browser.mjs", "function verifyTodo(")],
   ["./samples/server-components-client", verifier("scripts/verify-browser.mjs", "function verifyServerComponents(")],

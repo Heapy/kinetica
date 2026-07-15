@@ -1,0 +1,10 @@
+product: js/app
+
+apply:
+  - ../../common.module-template.yaml
+
+dependencies:
+  - ../../kinetica-browser
+  - ../../kinetica-runtime
+
+description: "Interactive Conway's Game of Life browser demo with standard presets."
