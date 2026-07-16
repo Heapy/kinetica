@@ -20,6 +20,7 @@ server.
 cd bench && npm install && cd ..
 ./kotlin publish mavenLocal -m kinetica-compiler   # mandatory plugin, resolved via mavenLocal
 node scripts/bundle-docs.mjs
+node scripts/build-game-of-life.mjs
 PORT=8080 ./kotlin run -m docs-site
 open http://127.0.0.1:8080/
 ```
@@ -29,7 +30,8 @@ Bundled outputs under `_docs-client_bundle` and `_server-components-client_bundl
 raw Kotlin/JS link outputs remain a fallback for local development. `node scripts/bundle-docs.mjs`
 also writes Brotli sidecars and a generated `_docs-site_assets/site.css`; the server emits
 hash-query asset URLs, immutable caching for matching hashes, ETags, and `Content-Encoding: br`
-when the browser requests it.
+when the browser requests it. `node scripts/build-game-of-life.mjs` stages the four Game of Life
+apps, their trace report, and raw results under `/game-of-life/`.
 
 ## Docker
 

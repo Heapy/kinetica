@@ -11,6 +11,8 @@ val DocPages: List<DocPage> = listOf(
     DocPage("index", "Kinetica", "Start"),
     DocPage("getting-started", "Getting started", "Start"),
 
+    DocPage("game-of-life", "Game of Life comparison", "Examples"),
+
     DocPage("state", "State & reactivity", "Core"),
     DocPage("ui-dsl", "UI DSL & semantics", "Core"),
     DocPage("lists-and-keys", "Lists & keys", "Core"),

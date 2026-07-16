@@ -55,7 +55,7 @@ jobs:
       - name: Build JS modules
         run: |
           set -euo pipefail
-          for module in kinetica-browser browser-tests browser-counter browser-game-of-life browser-todo \
+          for module in kinetica-browser browser-tests browser-counter browser-game-of-life browser-game-of-life-compose browser-todo \
                         browser-bench docs-client server-components-client; do
             echo "=== $module"
             ./kotlin build -m "$module"
@@ -65,7 +65,13 @@ jobs:
         run: node build/tasks/_kinetica-browser_linkJsTest/kinetica-browser_test.mjs
 
       - name: Game of Life model tests
-        run: node build/tasks/_browser-game-of-life_linkJsTest/browser-game-of-life_test.mjs
+        run: |
+          set -euo pipefail
+          ./kotlin test -m game-of-life-model --platform jvm
+          ./kotlin build -m game-of-life-model --platform js
+          node build/tasks/_game-of-life-model_linkJsTest/game-of-life-model_test.mjs
+          node samples/game-of-life-shared/life-core.test.mjs
+          node bench/game-of-life/validate-results.mjs
 
       # Frame storage and the IR ordinal emission must behave identically on the JS
       # backend, so the runtime and test-kit suites run on Node too.
@@ -102,6 +108,7 @@ jobs:
           PLAYWRIGHT_IMPORT: ${{ github.workspace }}/.tools/playwright/node_modules/playwright/index.mjs
         run: |
           set -euo pipefail
+          node scripts/build-game-of-life.mjs --skip-kotlin-build
           node -e 'import("./bench/driver/server.mjs").then(m => m.startServer(process.cwd(), 4173))' &
           SERVER_PID=$!
           sleep 1

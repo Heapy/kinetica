@@ -80,7 +80,7 @@ try {
   }
   const slugs = ["getting-started", "state", "ui-dsl", "lists-and-keys", "effects", "resources",
     "router", "forms", "motion", "data", "persist", "markdown", "server-components",
-    "browser-renderer", "performance", "compiler-plugin", "testing"];
+    "browser-renderer", "performance", "compiler-plugin", "testing", "game-of-life"];
   for (const slug of slugs) {
     const res = await fetch(`${base}/docs/${slug}`);
     if (!res.ok) throw new Error(`/docs/${slug} -> ${res.status}`);
@@ -91,6 +91,13 @@ try {
     }
   }
   console.log(`OK   ${slugs.length + 1} pages server-render, source-link comments stay invisible`);
+
+  for (const path of ["/game-of-life/", "/game-of-life/kinetica/", "/game-of-life/react/",
+    "/game-of-life/compose-html/", "/game-of-life/vanilla/", "/game-of-life/results.json"]) {
+    const response = await fetch(`${base}${path}`);
+    if (!response.ok) throw new Error(`${path} -> ${response.status}`);
+  }
+  console.log("OK   Game of Life report, apps, and raw results are published");
 
   const demoHtml = await fetch(`${base}/examples/server-components`).then((r) => r.text());
   await verifyStaticAsset(extractAsset(home, /href="([^"]*\/assets\/site\.css\?hash=[0-9a-f]+)"/, "site.css"));

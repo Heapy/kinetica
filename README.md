@@ -34,6 +34,7 @@ docs/docker-build.sh && docker run --rm -p 8080:8080 kinetica-docs
 # or locally:
 cd bench && npm install && cd ..
 node scripts/bundle-docs.mjs
+node scripts/build-game-of-life.mjs
 PORT=8080 ./kotlin run -m docs-site
 ```
 
@@ -48,7 +49,7 @@ See [`docs/README.md`](docs/README.md).
 | `kinetica-router` / `-forms` / `-motion` / `-data` / `-persist` / `-theme` / `-markdown` | first-party batteries |
 | `kinetica-test` | headless component test harness |
 | `kinetica-compiler` | K2 compiler plugin — mandatory: frame/slot ordinals, skip transform, FIR authoring rules, server/client boundary |
-| `samples/` | browser apps, server-components demo, annotated (compiler-plugin) sample |
+| `samples/` | browser apps, four-way Game of Life comparison, server-components demo, annotated (compiler-plugin) sample |
 | `docs/` | the documentation site + Docker packaging |
 | `bench/` | js-framework-benchmark harness vs React/Preact/Vue/Svelte/vanilla — 13 keyed-table ops, GC accounting, scaling curves, sustained updates, deep-tree suite, memory/leak probes ([guide](bench/README.md)) |
 | `bench-jvm/` | JVM microbenchmarks: reactive core, render pipeline, markdown SSR (`./kotlin run -m bench-jvm`) |

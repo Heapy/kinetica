@@ -15,6 +15,9 @@ cd "$repo_root"
 ./kotlin package -m docs-site
 node scripts/bundle-docs.mjs
 
+# Behavior-identical Game of Life apps + committed trace report/results.
+node scripts/build-game-of-life.mjs
+
 # Benchmark demo pages + report, published alongside the docs site (see performance.md).
 node bench/build.mjs
 node bench/build-kinetica.mjs
@@ -28,6 +31,7 @@ cp -R build/tasks/_docs-site_assets "$stage/bundles/_docs-site_assets"
 cp -R build/tasks/_docs-client_bundle "$stage/bundles/_docs-client_bundle"
 cp -R build/tasks/_server-components-client_bundle "$stage/bundles/_server-components-client_bundle"
 cp -R build/tasks/_bench_dist "$stage/bundles/_bench_dist"
+cp -R build/tasks/_game-of-life_dist "$stage/bundles/_game-of-life_dist"
 cp docs/Dockerfile "$stage/Dockerfile"
 
 if [[ "${STAGE_ONLY:-0}" == "1" ]]; then

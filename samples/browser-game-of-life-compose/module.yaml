@@ -1,0 +1,16 @@
+product: js/app
+
+settings:
+  kotlin:
+    version: 2.4.0
+    languageVersion: 2.4
+    apiVersion: 2.4
+  compose:
+    enabled: true
+    version: 1.11.1
+
+dependencies:
+  - ../game-of-life-model
+  - org.jetbrains.compose.html:html-core:1.11.1
+
+description: "Conway's Game of Life implemented with Compose HTML."

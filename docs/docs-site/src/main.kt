@@ -139,6 +139,12 @@ class DocsServer(
                 exchange.requestMethod == "GET" && path.startsWith("/bench/") ->
                     respondBenchAsset(exchange, path.removePrefix("/bench/"))
 
+                exchange.requestMethod == "GET" && (path == "/game-of-life" || path.startsWith("/game-of-life/")) ->
+                    respondGameOfLifeAsset(
+                        exchange,
+                        path.removePrefix("/game-of-life").removePrefix("/"),
+                    )
+
                 exchange.requestMethod == "GET" && path == "/examples/server-components" ->
                     exchange.respondText(contentType = "text/html", body = renderDemoDocument())
 
@@ -403,6 +409,26 @@ class DocsServer(
                 status = 404,
                 contentType = "text/plain",
                 body = "Missing bench asset $relative under $bundlesDir. Build with node scripts/bundle-bench-static.mjs, or set KINETICA_BUNDLES_DIR.",
+            )
+            return
+        }
+        exchange.respondStaticAsset(asset)
+    }
+
+    // The behavior-identical Game of Life apps, their trace report, and raw samples are
+    // staged by scripts/build-game-of-life.mjs into bundlesDir/_game-of-life_dist.
+    private fun respondGameOfLifeAsset(exchange: HttpExchange, relativeRaw: String) {
+        val relative = when {
+            relativeRaw.isEmpty() -> "benchmark.html"
+            relativeRaw.endsWith("/") -> "${relativeRaw}index.html"
+            else -> relativeRaw
+        }
+        val asset = bundleCandidate("_game-of-life_dist", relative)
+        if (asset == null) {
+            exchange.respondText(
+                status = 404,
+                contentType = "text/plain",
+                body = "Missing Game of Life asset $relative under $bundlesDir. Build with node scripts/build-game-of-life.mjs, or set KINETICA_BUNDLES_DIR.",
             )
             return
         }

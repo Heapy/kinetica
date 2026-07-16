@@ -2,6 +2,8 @@ package app.browser.gameoflife
 
 import kotlin.random.Random
 
+// Shared by the Kinetica and Compose HTML browser implementations.
+
 data class GridPoint(
     val column: Int,
     val row: Int,
@@ -58,6 +60,29 @@ data class LifeBoard(
         return copy(livingCells = nextCells, generation = 0)
     }
 
+    /** Cross-language deterministic variant used by every browser implementation and benchmark. */
+    fun randomized(
+        seed: Int,
+        density: Double = 0.24,
+    ): LifeBoard {
+        require(density in 0.0..1.0) { "Density must be between 0 and 1." }
+        var state = seed
+        fun nextDouble(): Double {
+            state = state * 1_664_525 + 1_013_904_223
+            return state.toUInt().toDouble() / 4_294_967_296.0
+        }
+        val nextCells = buildSet {
+            for (row in 0 until rows) {
+                for (column in 0 until columns) {
+                    if (nextDouble() < density) {
+                        add(GridPoint(column, row))
+                    }
+                }
+            }
+        }
+        return copy(livingCells = nextCells, generation = 0)
+    }
+
     fun load(preset: LifePreset): LifeBoard {
         require(preset.columns <= columns && preset.rows <= rows) {
             "${preset.displayName} (${preset.columns}x${preset.rows}) does not fit on a ${columns}x$rows board."
@@ -97,6 +122,19 @@ data class LifeBoard(
             }
         }
         return copy(livingCells = nextCells, generation = generation + 1)
+    }
+}
+
+/** Produces a different, reproducible board seed for each Randomize click. */
+class LifeSeedSequence(
+    seed: Int = 0x13579BDF,
+) {
+    private var nextSeed = seed
+
+    fun take(): Int {
+        val current = nextSeed
+        nextSeed += -1_640_531_527 // 0x9E3779B9, the 32-bit golden-ratio increment.
+        return current
     }
 }
 

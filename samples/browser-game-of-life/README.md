@@ -1,9 +1,11 @@
-# Game of Life browser demo
+# Game of Life browser comparison
 
-Build the Kotlin/JS bundle from the repository root:
+The Kinetica version is one of four behavior- and design-matched implementations. Build
+Kinetica, React, Compose HTML, and Vanilla from the repository root:
 
 ```sh
-./kotlin build -m browser-game-of-life
+npm ci --prefix bench
+node scripts/build-game-of-life.mjs
 ```
 
 Serve the repository root (the shared benchmark server is convenient):
@@ -12,7 +14,13 @@ Serve the repository root (the shared benchmark server is convenient):
 node -e 'import("./bench/driver/server.mjs").then(m => m.startServer(process.cwd(), 4173))'
 ```
 
-Open <http://127.0.0.1:4173/samples/browser-game-of-life/web/index.html>.
+Open the production builds under <http://127.0.0.1:4173/build/tasks/_game-of-life_dist/>:
+
+- `kinetica/index.html`
+- `react/index.html`
+- `compose-html/index.html`
+- `vanilla/index.html`
 
 The demo uses a finite 72 × 48 B3/S23 board and includes Glider, Lightweight
-Spaceship, Beacon, and Pulsar presets. Click any cell to edit the current field.
+Spaceship, Beacon, and Pulsar presets. All implementations share the stylesheet, DOM/test
+contract, control timings, and model behavior. Click any cell to edit the current field.

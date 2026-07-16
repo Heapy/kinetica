@@ -4,6 +4,7 @@ apply:
   - ../../common.module-template.yaml
 
 dependencies:
+  - ../game-of-life-model
   - ../../kinetica-browser
   - ../../kinetica-runtime
 
