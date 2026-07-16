@@ -2,6 +2,8 @@ package app.browser.gameoflife
 
 import kotlin.random.Random
 
+// Shared by the Kinetica and Compose HTML browser implementations.
+
 data class GridPoint(
     val column: Int,
     val row: Int,
@@ -16,8 +18,15 @@ data class LifeBoard(
     init {
         require(columns > 0) { "Board columns must be positive." }
         require(rows > 0) { "Board rows must be positive." }
+        require(columns.toLong() * rows <= Int.MAX_VALUE) { "Board is too large to index." }
         require(generation >= 0) { "Generation must not be negative." }
         require(livingCells.all { it in this }) { "Every living cell must be inside the board." }
+    }
+
+    private val livingMask: BooleanArray = BooleanArray(columns * rows).also { mask ->
+        for (cell in livingCells) {
+            mask[cell.row * columns + cell.column] = true
+        }
     }
 
     val population: Int
@@ -27,7 +36,7 @@ data class LifeBoard(
         point.column in 0 until columns && point.row in 0 until rows
 
     operator fun get(column: Int, row: Int): Boolean =
-        GridPoint(column, row) in livingCells
+        column in 0 until columns && row in 0 until rows && livingMask[row * columns + column]
 
     fun toggle(point: GridPoint): LifeBoard {
         require(point in this) { "Cannot toggle a cell outside the board: $point" }
@@ -58,6 +67,29 @@ data class LifeBoard(
         return copy(livingCells = nextCells, generation = 0)
     }
 
+    /** Cross-language deterministic variant used by every browser implementation and benchmark. */
+    fun randomized(
+        seed: Int,
+        density: Double = 0.24,
+    ): LifeBoard {
+        require(density in 0.0..1.0) { "Density must be between 0 and 1." }
+        var state = seed
+        fun nextDouble(): Double {
+            state = state * 1_664_525 + 1_013_904_223
+            return state.toUInt().toDouble() / 4_294_967_296.0
+        }
+        val nextCells = buildSet {
+            for (row in 0 until rows) {
+                for (column in 0 until columns) {
+                    if (nextDouble() < density) {
+                        add(GridPoint(column, row))
+                    }
+                }
+            }
+        }
+        return copy(livingCells = nextCells, generation = 0)
+    }
+
     fun load(preset: LifePreset): LifeBoard {
         require(preset.columns <= columns && preset.rows <= rows) {
             "${preset.displayName} (${preset.columns}x${preset.rows}) does not fit on a ${columns}x$rows board."
@@ -73,30 +105,52 @@ data class LifeBoard(
     }
 
     fun step(): LifeBoard {
-        val neighborCounts = HashMap<GridPoint, Int>()
+        // The browser board is small and indexable: typed arrays avoid allocating a GridPoint
+        // and hashing it for every neighbor while the candidate list keeps sparse steps sparse.
+        val neighborCounts = IntArray(columns * rows)
+        val candidates = IntArray(neighborCounts.size)
+        var candidateCount = 0
         for (cell in livingCells) {
-            for (rowDelta in -1..1) {
-                for (columnDelta in -1..1) {
-                    if (columnDelta == 0 && rowDelta == 0) continue
-                    val neighbor = GridPoint(
-                        column = cell.column + columnDelta,
-                        row = cell.row + rowDelta,
-                    )
-                    if (neighbor in this) {
-                        neighborCounts[neighbor] = (neighborCounts[neighbor] ?: 0) + 1
+            val cellIndex = cell.row * columns + cell.column
+            val firstRow = maxOf(0, cell.row - 1)
+            val lastRow = minOf(rows - 1, cell.row + 1)
+            val firstColumn = maxOf(0, cell.column - 1)
+            val lastColumn = minOf(columns - 1, cell.column + 1)
+            for (neighborRow in firstRow..lastRow) {
+                for (neighborColumn in firstColumn..lastColumn) {
+                    val neighborIndex = neighborRow * columns + neighborColumn
+                    if (neighborIndex == cellIndex) continue
+                    if (neighborCounts[neighborIndex] == 0) {
+                        candidates[candidateCount++] = neighborIndex
                     }
+                    neighborCounts[neighborIndex] += 1
                 }
             }
         }
 
         val nextCells = buildSet {
-            for ((point, neighbors) in neighborCounts) {
-                if (neighbors == 3 || neighbors == 2 && point in livingCells) {
-                    add(point)
+            for (candidateIndex in 0 until candidateCount) {
+                val cellIndex = candidates[candidateIndex]
+                val neighbors = neighborCounts[cellIndex]
+                if (neighbors == 3 || neighbors == 2 && livingMask[cellIndex]) {
+                    add(GridPoint(column = cellIndex % columns, row = cellIndex / columns))
                 }
             }
         }
         return copy(livingCells = nextCells, generation = generation + 1)
+    }
+}
+
+/** Produces a different, reproducible board seed for each Randomize click. */
+class LifeSeedSequence(
+    seed: Int = 0x13579BDF,
+) {
+    private var nextSeed = seed
+
+    fun take(): Int {
+        val current = nextSeed
+        nextSeed += -1_640_531_527 // 0x9E3779B9, the 32-bit golden-ratio increment.
+        return current
     }
 }
 

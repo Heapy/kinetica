@@ -1,5 +1,6 @@
 const baseUrl = process.env.KINETICA_BROWSER_BASE_URL ?? "http://127.0.0.1:4173";
 const serverComponentsUrl = process.env.KINETICA_SERVER_COMPONENTS_URL;
+const gameOfLifeOnly = process.argv.includes("--game-of-life-only");
 const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE;
 const playwrightImport = process.env.PLAYWRIGHT_IMPORT ?? "playwright";
 const { chromium } = await import(playwrightImport);
@@ -10,12 +11,16 @@ const browser = await chromium.launch({
 });
 
 try {
-  await verifyBrowserTests();
-  await verifyCounter();
+  if (!gameOfLifeOnly) {
+    await verifyBrowserTests();
+    await verifyCounter();
+  }
   await verifyGameOfLife();
-  await verifyTodo();
-  if (serverComponentsUrl) {
-    await verifyServerComponents();
+  if (!gameOfLifeOnly) {
+    await verifyTodo();
+    if (serverComponentsUrl) {
+      await verifyServerComponents();
+    }
   }
   console.log("Browser verification passed");
 } finally {
@@ -63,8 +68,19 @@ async function verifyCounter() {
 }
 
 async function verifyGameOfLife() {
-  const page = await newPage("browser-game-of-life");
-  await page.goto(`${baseUrl}/samples/browser-game-of-life/web/index.html`, { waitUntil: "networkidle" });
+  const implementations = ["kinetica", "react", "compose-html", "vanilla"];
+  for (const implementation of implementations) {
+    await verifyGameOfLifeImplementation(implementation);
+  }
+}
+
+async function verifyGameOfLifeImplementation(implementation) {
+  const name = `browser-game-of-life-${implementation}`;
+  const page = await newPage(name);
+  await page.goto(
+    `${baseUrl}/build/tasks/_game-of-life_dist/${implementation}/index.html`,
+    { waitUntil: "networkidle" },
+  );
   await page.locator('[data-testid="life-grid"]').waitFor({ timeout: 5_000 });
   await page.getByText("72 × 48 universe", { exact: true }).waitFor({ timeout: 5_000 });
 
@@ -92,6 +108,11 @@ async function verifyGameOfLife() {
     throw new Error("Expected the corner cell to start dead");
   }
   await editableCell.click();
+  await page.waitForFunction(
+    () => document.querySelector('[data-testid="cell-0-0"]')?.getAttribute("aria-pressed") === "true",
+    undefined,
+    { timeout: 5_000 },
+  );
   if (await editableCell.getAttribute("aria-pressed") !== "true") {
     throw new Error("Clicking a dead cell did not make it alive");
   }
@@ -107,7 +128,7 @@ async function verifyGameOfLife() {
   await page.locator('[data-testid="toggle-running"]').click();
   await page.getByText("Paused", { exact: true }).waitFor({ timeout: 5_000 });
 
-  assertNoPageErrors(page, "browser-game-of-life");
+  assertNoPageErrors(page, name);
   await page.close();
 }
 

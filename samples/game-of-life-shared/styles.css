@@ -1,3 +1,4 @@
+/* Shared verbatim by Kinetica, React, Compose HTML, and Vanilla implementations. */
 :root {
   color-scheme: dark;
   font-family:
@@ -429,13 +430,15 @@ noscript {
   text-transform: uppercase;
 }
 
-.status-item strong {
+.status-item strong,
+.status-item .status-value {
   font-weight: 690;
   font-size: 15px;
   letter-spacing: -0.015em;
 }
 
-.pattern-status strong {
+.pattern-status strong,
+.pattern-status .status-value {
   overflow: hidden;
   color: var(--muted-bright);
   font-size: 12px;

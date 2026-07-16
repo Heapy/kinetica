@@ -19,8 +19,10 @@ modules:
   - ./samples/browser-bench-compose
   - ./samples/browser-counter
   - ./samples/browser-game-of-life
+  - ./samples/browser-game-of-life-compose
   - ./samples/browser-tests
   - ./samples/browser-todo
+  - ./samples/game-of-life-model
   - ./samples/server-components
   - ./samples/server-components-client
   - ./samples/server-components-shared

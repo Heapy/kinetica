@@ -14,6 +14,7 @@ import { run } from "./lib/run.mjs";
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..");
 const requireFromBench = createRequire(join(repoRoot, "bench", "package.json"));
+const skipKotlinBuild = process.argv.includes("--skip-kotlin-build");
 
 let build;
 try {
@@ -101,8 +102,10 @@ function writeBrotli(file) {
 }
 
 const kotlin = process.platform === "win32" ? "kotlin.bat" : "./kotlin";
-for (const target of targets) {
-  run(kotlin, ["build", "-m", target.module], { cwd: repoRoot });
+if (!skipKotlinBuild) {
+  for (const target of targets) {
+    run(kotlin, ["build", "-m", target.module], { cwd: repoRoot });
+  }
 }
 
 for (const target of targets) {

@@ -91,11 +91,21 @@ class LifeModelTest {
         val full = board.randomized(density = 1.0, random = Random(7))
         assertEquals(20, full.population)
         assertEquals(0, full.generation)
+
+        val seeds = LifeSeedSequence()
+        val seeded = LifeBoard(72, 48).randomized(seed = seeds.take())
+        assertEquals(847, seeded.population)
+        assertEquals(1_482_807, seeded.livingCells.sumOf { it.row * 72 + it.column })
+        val evolved = seeded.step()
+        assertEquals(963, evolved.population)
+        assertEquals(1_709_984, evolved.livingCells.sumOf { it.row * 72 + it.column })
+        assertEquals(-1_316_022_888, seeds.take())
     }
 
     @Test
     fun invalidBoardsAndOperationsAreRejected() {
         assertFailsWith<IllegalArgumentException> { LifeBoard(columns = 0, rows = 3) }
+        assertFailsWith<IllegalArgumentException> { LifeBoard(columns = Int.MAX_VALUE, rows = 2) }
         assertFailsWith<IllegalArgumentException> {
             LifeBoard(columns = 3, rows = 3, livingCells = points(3 to 0))
         }

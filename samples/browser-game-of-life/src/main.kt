@@ -43,6 +43,7 @@ fun ComponentScope.GameOfLifeApp(requestRender: () -> Unit = {}) {
     var running by state { false }
     var speed by state { SimulationSpeed.NORMAL }
     var selectedPreset: LifePreset? by state { LifePreset.PULSAR }
+    val randomSeeds = state { LifeSeedSequence() }.value
 
     val population by derived { board.population }
     val cells by derived {
@@ -82,7 +83,7 @@ fun ComponentScope.GameOfLifeApp(requestRender: () -> Unit = {}) {
     val randomize = event {
         running = false
         selectedPreset = null
-        board = board.randomized()
+        board = board.randomized(seed = randomSeeds.take())
     }
     val clear = event {
         running = false

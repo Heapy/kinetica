@@ -34,6 +34,9 @@ private fun ComponentScope.DocLayout(page: DocPage, source: String) {
                 text("Kinetica", semantics = null)
             }
             host("nav", props = mapOf("class" to "topnav")) {
+                host("a", props = mapOf("href" to "/docs/game-of-life")) {
+                    text("Game of Life", semantics = null)
+                }
                 host("a", props = mapOf("href" to "/examples/server-components")) {
                     text("Live demo", semantics = null)
                 }

@@ -1,0 +1,8 @@
+product:
+  type: kmp/lib
+  platforms: [jvm, js]
+
+apply:
+  - ../../common.module-template.yaml
+
+description: "Shared, tested Conway's Game of Life model for Kotlin browser demos."

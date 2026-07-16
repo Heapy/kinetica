@@ -81,6 +81,17 @@ class DocsServerTest {
         assertEquals(404, missingAsset.statusCode())
         assertTrue("Missing bundle asset missing.mjs" in missingAsset.body())
 
+        val gameOfLifePage = get("$baseUrl/docs/game-of-life")
+        assertTrue("Game of Life, four ways" in gameOfLifePage)
+        assertTrue("/game-of-life/compose-html/" in gameOfLifePage)
+        assertTrue("benchmark report" in get("$baseUrl/game-of-life/"))
+        assertTrue("react marker" in get("$baseUrl/game-of-life/react/main.js"))
+        assertTrue(getResponse("$baseUrl/game-of-life/results.json").headers()
+            .firstValue("Content-Type").orElse("").startsWith("application/json"))
+        val missingGame = getResponse("$baseUrl/game-of-life/no-such-app/")
+        assertEquals(404, missingGame.statusCode())
+        assertTrue("Missing Game of Life asset" in missingGame.body())
+
         val demo = get("$baseUrl/examples/server-components")
         assertTrue("id=\"kinetica-hydration-plan\"" in demo)
         assertTrue("/sc-client/server-components-client.mjs?hash=" in demo)
@@ -232,6 +243,12 @@ class DocsServerTest {
         bundlesDir.resolve("_server-components-client_bundle").createDirectories()
         bundlesDir.resolve("_server-components-client_bundle/server-components-client.mjs")
             .writeText("export const marker = 'server components marker';")
+
+        bundlesDir.resolve("_game-of-life_dist/react").createDirectories()
+        bundlesDir.resolve("_game-of-life_dist/benchmark.html").writeText("benchmark report")
+        bundlesDir.resolve("_game-of-life_dist/react/index.html").writeText("react game")
+        bundlesDir.resolve("_game-of-life_dist/react/main.js").writeText("react marker")
+        bundlesDir.resolve("_game-of-life_dist/results.json").writeText("""{"ok":true}""")
 
         val server = DocsServer(port = 0, bundlesDir = bundlesDir)
         server.start()

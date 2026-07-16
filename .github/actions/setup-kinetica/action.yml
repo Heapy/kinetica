@@ -1,6 +1,12 @@
 name: Setup Kinetica toolchain
 description: JDK, Node, Kotlin Toolchain CLI (SDKMAN) and project-local caches for building this repo.
 
+inputs:
+  setup-kotlin:
+    description: Restore and install Kotlin Toolchain; cached-artifact consumers can skip it.
+    required: false
+    default: "true"
+
 runs:
   using: composite
   steps:
@@ -14,12 +20,14 @@ runs:
         node-version: "22"
 
     - name: Cache Kotlin Toolchain CLI
+      if: inputs.setup-kotlin == 'true'
       uses: actions/cache@v4
       with:
         path: ~/.sdkman/candidates/kotlintoolchain
         key: kotlintoolchain-${{ hashFiles('kotlin') }}
 
     - name: Cache project toolchain state
+      if: inputs.setup-kotlin == 'true'
       uses: actions/cache@v4
       with:
         path: .kotlin
@@ -28,6 +36,7 @@ runs:
           kinetica-kotlin-${{ runner.os }}-
 
     - name: Install Kotlin Toolchain CLI
+      if: inputs.setup-kotlin == 'true'
       shell: bash
       run: |
         if [ ! -x "$HOME/.sdkman/candidates/kotlintoolchain/current/bin/kotlin" ]; then
