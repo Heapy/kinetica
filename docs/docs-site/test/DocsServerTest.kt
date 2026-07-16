@@ -7,6 +7,7 @@ import app.servercomponents.shared.DEMO_CAPABILITY_TOKEN
 import app.servercomponents.shared.DEMO_CSRF_TOKEN
 import io.heapy.kinetica.CapabilityToken
 import io.heapy.kinetica.CsrfToken
+import io.heapy.kinetica.DEFAULT_MAX_SERVER_ACTION_BODY_BYTES
 import io.heapy.kinetica.KineticaJson
 import io.heapy.kinetica.KineticaServerTransport
 import io.heapy.kinetica.ServerActionRequest
@@ -79,7 +80,10 @@ class DocsServerTest {
             .startsWith("text/plain"))
         val missingAsset = getResponse("$baseUrl/docs-client/missing.mjs")
         assertEquals(404, missingAsset.statusCode())
-        assertTrue("Missing bundle asset missing.mjs" in missingAsset.body())
+        // Hardened: the 404 body is generic and must not leak the requested path or the bundles
+        // dir (those are logged server-side only).
+        assertTrue("Bundle asset not found." in missingAsset.body())
+        assertTrue("missing.mjs" !in missingAsset.body())
 
         val demo = get("$baseUrl/examples/server-components")
         assertTrue("id=\"kinetica-hydration-plan\"" in demo)
@@ -128,7 +132,14 @@ class DocsServerTest {
                 .build(),
             HttpResponse.BodyHandlers.ofString(),
         )
-        assertEquals(500, malformedAction.statusCode())
+        // Hardened: a malformed action body is a client error (400) with a generic message, not a
+        // 500 that could bubble internal detail through the catch-all.
+        assertEquals(400, malformedAction.statusCode())
+        val malformedFailure = transport.decodeActionResponse(malformedAction.body())
+        assertEquals(
+            "Malformed server action request.",
+            assertIs<ServerActionResponse.Failure>(malformedFailure).message,
+        )
 
         val favicon = getResponse("$baseUrl/favicon.ico")
         assertEquals(204, favicon.statusCode())
@@ -179,6 +190,18 @@ class DocsServerTest {
         val expired = getDemoStack(baseUrl, "kinetica-demo-session=no-such-session")
         assertEquals(200, expired.statusCode())
         assertTrue(expired.headers().firstValue("Set-Cookie").isPresent)
+    }
+
+    @Test
+    fun demoStackRejectsOversizedBodiesWith413() = withDocsServer { baseUrl ->
+        val fresh = getResponse("$baseUrl/demo/api/stack")
+        val cookie = fresh.headers().firstValue("Set-Cookie").orElseThrow().substringBefore(";")
+        val oversized = postDemoStack(
+            baseUrl,
+            cookie,
+            "x".repeat(DEFAULT_MAX_SERVER_ACTION_BODY_BYTES + 256),
+        )
+        assertEquals(413, oversized.statusCode())
     }
 
     @Test

@@ -5,9 +5,9 @@ import io.heapy.kinetica.generated.KineticaGeneratedCompilerPluginVersion
 import io.heapy.kinetica.generated.KineticaGeneratedClientManifest
 import io.heapy.kinetica.generated.KineticaGeneratedComponentTransforms
 import io.heapy.kinetica.generated.KineticaGeneratedPreviews
-import io.heapy.kinetica.generated.KineticaGeneratedServerActionDispatcher
 import io.heapy.kinetica.generated.KineticaGeneratedServerActionStubs
 import io.heapy.kinetica.generated.KineticaGeneratedServerActions
+import io.heapy.kinetica.generated.kineticaGeneratedServerActionDispatcher
 import io.heapy.kinetica.testing.KineticaTest
 import io.heapy.kinetica.testing.hasText
 import kotlin.test.Test
@@ -22,7 +22,13 @@ class AnnotatedAppTest {
         assertEquals(emptyList(), KineticaGeneratedServerActionStubs)
         assertEquals(emptyList(), KineticaGeneratedClientManifest.components)
         assertEquals(KineticaGeneratedServerActions, KineticaGeneratedClientManifest.actions)
-        assertEquals(0, KineticaGeneratedServerActionDispatcher.actions.size)
+        assertEquals(
+            0,
+            kineticaGeneratedServerActionDispatcher(
+                verifyCapabilityToken = { true },
+                verifyCsrfToken = { true },
+            ).actions.size,
+        )
 
         assertEquals(emptyList(), KineticaGeneratedPreviews)
         assertEquals(emptyList(), KineticaGeneratedComponentTransforms)

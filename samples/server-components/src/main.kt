@@ -6,6 +6,7 @@ import app.servercomponents.shared.AddToCartInput
 import app.servercomponents.shared.AddToCartResult
 import app.servercomponents.shared.DEMO_CAPABILITY_TOKEN
 import app.servercomponents.shared.DEMO_CSRF_TOKEN
+import app.servercomponents.shared.validationError
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import io.heapy.kinetica.CapabilityToken
@@ -17,14 +18,18 @@ import io.heapy.kinetica.CsrfToken
 import io.heapy.kinetica.FragmentNode
 import io.heapy.kinetica.KineticaJson
 import io.heapy.kinetica.KineticaRuntime
+import io.heapy.kinetica.KineticaSecurityHeaders
 import io.heapy.kinetica.KineticaServerActionDispatcher
 import io.heapy.kinetica.KineticaServerTransport
 import io.heapy.kinetica.ServerActionRegistration
 import io.heapy.kinetica.ServerActionRequest
+import io.heapy.kinetica.ServerActionRejection
 import io.heapy.kinetica.ServerRenderDeferredSubtree
 import io.heapy.kinetica.TextNode
+import io.heapy.kinetica.dispatchHttp
 import io.heapy.kinetica.host
 import io.heapy.kinetica.hydrationPlan
+import io.heapy.kinetica.readBoundedRequestBody
 import io.heapy.kinetica.serverActionStub
 import io.heapy.kinetica.text
 import io.heapy.kinetica.toSafeHtml
@@ -37,6 +42,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 
@@ -121,7 +128,10 @@ internal class ServerComponentsDemoServer(
     private val projectRoot: Path = Path.of("").toAbsolutePath(),
 ) {
     private val transport = KineticaServerTransport()
-    private var cartCount = 0
+    // AtomicInteger so concurrent handler threads (see [executor]) never read-modify-write the
+    // cart count under a data race. Shared across all connections — fine for a demo; real apps
+    // would key this off the session, not the server.
+    private val cartCount = AtomicInteger(0)
     private val dispatcher = KineticaServerActionDispatcher(
         stubs = listOf(
             serverActionStub(
@@ -129,26 +139,29 @@ internal class ServerComponentsDemoServer(
                 inputSerializer = AddToCartInput.serializer(),
                 outputSerializer = AddToCartResult.serializer(),
             ) { input ->
-                cartCount += input.quantity
+                input.validationError()?.let { error -> throw ServerActionRejection(error) }
+                val updated = cartCount.addAndGet(input.quantity)
                 AddToCartResult(
                     message = "Added ${input.quantity} of ${input.productId}",
-                    cartCount = cartCount,
+                    cartCount = updated,
                 )
             },
         ),
         verifyCapabilityToken = { token -> token.value == DEMO_CAPABILITY_TOKEN },
         verifyCsrfToken = { token -> token?.value == DEMO_CSRF_TOKEN },
     )
+    private val executor = Executors.newFixedThreadPool(SERVER_THREAD_POOL_SIZE)
     private val http = HttpServer.create(InetSocketAddress("127.0.0.1", port), 0)
 
     fun start() {
         http.createContext("/") { exchange -> route(exchange) }
-        http.executor = null
+        http.executor = executor
         http.start()
     }
 
     fun stop() {
         http.stop(0)
+        executor.shutdownNow()
     }
 
     val boundPort: Int
@@ -183,9 +196,12 @@ internal class ServerComponentsDemoServer(
                     )
                 }
                 exchange.requestMethod == "POST" && exchange.requestURI.path == "/actions/$ADD_TO_CART_ACTION_ID" -> {
+                    val body = readBoundedRequestBody(exchange.requestBody)
+                    val response = runBlocking { dispatcher.dispatchHttp(transport, body) }
                     exchange.respondText(
+                        status = response.status,
                         contentType = "application/json",
-                        body = dispatchAction(exchange.requestBody.readAllBytes().decodeToString()),
+                        body = response.body,
                     )
                 }
                 else -> exchange.respondText(
@@ -195,10 +211,13 @@ internal class ServerComponentsDemoServer(
                 )
             }
         } catch (error: Throwable) {
+            // Log the full detail server-side; return only a generic message to the client so
+            // stack traces, internal paths, and library versions never reach a response body.
+            error.printStackTrace()
             exchange.respondText(
                 status = 500,
                 contentType = "text/plain",
-                body = error.stackTraceToString(),
+                body = "Internal server error.",
             )
         }
     }
@@ -308,12 +327,6 @@ internal class ServerComponentsDemoServer(
                 }
         }
 
-    private fun dispatchAction(body: String): String =
-        runBlocking {
-            val request = transport.decodeActionRequest(body)
-            transport.encodeActionResponse(dispatcher.dispatch(request))
-        }
-
     private fun clientBundle(): String {
         val bundle = clientBundleRoot().resolve("server-components-client.mjs")
         require(bundle.exists()) {
@@ -334,6 +347,10 @@ internal class ServerComponentsDemoServer(
 
     private fun clientBundleRoot(): Path =
         projectRoot.resolve("build/tasks/_server-components-client_linkJs").normalize()
+
+    internal companion object {
+        const val SERVER_THREAD_POOL_SIZE = 8
+    }
 }
 
 private fun printProtocolDemo() {
@@ -377,8 +394,15 @@ private fun HttpExchange.respondText(
     val bytes = body.encodeToByteArray()
     responseHeaders.set("Content-Type", "$contentType; charset=utf-8")
     responseHeaders.set("Cache-Control", "no-store")
+    applySecurityHeaders()
     sendResponseHeaders(status, bytes.size.toLong())
     responseBody.use { output -> output.write(bytes) }
+}
+
+private fun HttpExchange.applySecurityHeaders() {
+    // One hardened baseline shared with the runtime (and the docs server) so the header set and CSP
+    // can't drift per server; see KineticaSecurityHeaders for the directives and the style-src note.
+    KineticaSecurityHeaders.forEach { (name, value) -> responseHeaders.set(name, value) }
 }
 
 private fun String.escapeScriptJson(): String =

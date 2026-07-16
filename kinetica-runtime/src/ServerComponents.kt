@@ -6,6 +6,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.descriptors.PrimitiveKind
@@ -144,16 +145,29 @@ public data class CapabilityToken(val value: String)
 @Serializable
 public data class CsrfToken(val value: String)
 
+/**
+ * A non-cryptographic checksum (FNV-1a-64) over a chunk's encoded bytes.
+ *
+ * This detects *accidental* corruption — truncation, encoding drift, partial writes — between
+ * encode and decode. It is **not** a signature or MAC: FNV is not collision-resistant and the
+ * algorithm is keyless, so an attacker who can modify the bytes can recompute a matching
+ * checksum trivially. Do not rely on this for trust or tamper detection; for that, wrap the
+ * transport in an HMAC verified with a server-held secret.
+ */
 @Serializable
-public data class IntegrityHash(
+public data class ChunkChecksum(
     val algorithm: String,
     val value: String,
 )
 
+/**
+ * A [ServerRenderChunk] paired with a [ChunkChecksum] over its encoding. See [ChunkChecksum] for
+ * the threat model — corruption detection only, not tamper resistance.
+ */
 @Serializable
-public data class SignedServerRenderChunk(
+public data class ChecksummedServerRenderChunk(
     val chunk: ServerRenderChunk,
-    val integrity: IntegrityHash,
+    val checksum: ChunkChecksum,
 )
 
 @Serializable
@@ -190,6 +204,17 @@ public interface ServerActionStub {
     ): ServerActionResponse
 }
 
+/**
+ * Thrown by a server-action handler to reject an input with a specific, client-safe message.
+ *
+ * The dispatcher's serializer-derived schema only checks a payload's *shape*; it cannot express
+ * business invariants (range bounds, allowed enum values, cross-field rules). Handlers validate
+ * those themselves and throw this exception — its [message] is returned verbatim in the
+ * [ServerActionResponse.Failure], so it must not contain secrets or internals. Any other throwable
+ * surfaces only a generic "Server action failed." so server stack traces never leak.
+ */
+public class ServerActionRejection(override val message: String) : RuntimeException(message)
+
 public fun <I, O> serverActionStub(
     registration: ServerActionRegistration,
     inputSerializer: KSerializer<I>,
@@ -204,31 +229,45 @@ public fun <I, O> serverActionStub(
         override suspend fun dispatch(
             json: Json,
             payload: JsonElement,
-        ): ServerActionResponse =
-            try {
-                val validationErrors = inputSchema.validate(payload)
-                if (validationErrors.isNotEmpty()) {
-                    ServerActionResponse.Failure(
-                        message = "Invalid server action payload: ${validationErrors.joinToString(separator = "; ")}",
-                        retryable = false,
-                    )
-                } else {
-                    val input = json.decodeFromJsonElement(inputSerializer, payload)
-                    val output = handler(input)
-                    ServerActionResponse.Success(
-                        payload = json.encodeToJsonElement(outputSerializer, output),
-                        invalidated = registration.invalidates,
-                    )
-                }
+        ): ServerActionResponse {
+            val validationErrors = inputSchema.validate(payload)
+            if (validationErrors.isNotEmpty()) {
+                return ServerActionResponse.Failure(
+                    message = "Invalid server action payload: ${validationErrors.joinToString(separator = "; ")}",
+                    retryable = false,
+                )
+            }
+            val input = try {
+                json.decodeFromJsonElement(inputSerializer, payload)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                // Any failure decoding the client-supplied payload into the input type - a kotlinx
+                // SerializationException, or an IllegalArgumentException thrown by an @Serializable
+                // init/require block (which kotlinx does NOT wrap) - is a client input error, never a
+                // server fault, and must not escape dispatch() as a thrown exception.
+                return ServerActionResponse.Failure(
+                    message = "Invalid server action payload.",
+                    retryable = false,
+                )
+            }
+            return try {
+                ServerActionResponse.Success(
+                    payload = json.encodeToJsonElement(outputSerializer, handler(input)),
+                    invalidated = registration.invalidates,
+                )
             } catch (throwable: Throwable) {
                 if (throwable is CancellationException) {
                     throw throwable
                 }
+                // A handler-thrown ServerActionRejection surfaces its client-safe message; any other
+                // throwable stays generic so server internals never reach a response body.
                 ServerActionResponse.Failure(
-                    message = "Server action failed.",
+                    message = if (throwable is ServerActionRejection) throwable.message else "Server action failed.",
                     retryable = false,
                 )
             }
+        }
     }
 
 public fun serverActionPayloadSchema(serializer: KSerializer<*>): ServerActionPayloadSchema =
@@ -337,8 +376,11 @@ private fun JsonElement.matches(kind: JsonValueKind): Boolean =
 public class KineticaServerActionDispatcher(
     stubs: List<ServerActionStub>,
     private val json: Json = KineticaJson,
-    private val verifyCapabilityToken: (CapabilityToken) -> Boolean = { true },
-    private val verifyCsrfToken: (CsrfToken?) -> Boolean = { true },
+    // Fail closed by default: a dispatcher constructed without verifiers rejects every action
+    // rather than silently accepting unauthenticated ones. Real deployments must supply a
+    // capability verifier and a per-session CSRF verifier.
+    private val verifyCapabilityToken: (CapabilityToken) -> Boolean = { false },
+    private val verifyCsrfToken: (CsrfToken?) -> Boolean = { false },
 ) {
     private val stubsByActionId: Map<String, ServerActionStub> =
         stubs.associateBy { stub -> stub.registration.actionId }
@@ -368,6 +410,88 @@ public class KineticaServerActionDispatcher(
     }
 }
 
+/**
+ * The HTTP status and already-encoded JSON body for a server-action request, produced by
+ * [dispatchHttp].
+ *
+ * [status] is `200` when the request was dispatched — [body] then carries the handler's
+ * [ServerActionResponse], which may itself be a [ServerActionResponse.Failure] (an invalid token, a
+ * validation rejection). It is `400` for a malformed request envelope and `413` when the caller's
+ * bounded read rejected an oversized body. Unexpected server faults stay the caller's concern: log
+ * them server-side and return a generic `500`.
+ */
+public class ServerActionHttpResponse(
+    public val status: Int,
+    public val body: String,
+)
+
+/**
+ * Conservative default byte cap for a server-action request body. Action payloads are small JSON
+ * objects, so this bounds a single POST well below any legitimate request while stopping an oversized
+ * body from exhausting heap. Pair it with `readBoundedRequestBody` (JVM) or your HTTP stack's own
+ * bounded read, passing `null` to [dispatchHttp] when the limit is exceeded.
+ */
+public const val DEFAULT_MAX_SERVER_ACTION_BODY_BYTES: Int = 64 * 1024
+
+/**
+ * Maps a raw request [body] to a [ServerActionHttpResponse] so every server shares one
+ * decode → dispatch → encode path instead of re-deriving the status codes (and re-introducing the
+ * leaks that come with hand-rolling them):
+ *
+ * - `body == null` — the caller's bounded read rejected an oversized body — → **413**;
+ * - the body is not a decodable [ServerActionRequest] envelope → **400**, a client error that never
+ *   reaches the generic 500 catch-all, with a generic message so serializer internals never leak;
+ * - otherwise the request is dispatched → **200**, and [ServerActionHttpResponse.body] is the encoded
+ *   [ServerActionResponse] (a `Success`, or a `Failure` the dispatcher/handler produced).
+ *
+ * Read the body with a size-bounded reader (`readBoundedRequestBody` on the JVM) and pass `null` when
+ * it overflows; wrap the call in the caller's own try/catch for the unexpected-fault 500.
+ */
+public suspend fun KineticaServerActionDispatcher.dispatchHttp(
+    transport: KineticaServerTransport,
+    body: String?,
+): ServerActionHttpResponse {
+    fun failure(status: Int, message: String): ServerActionHttpResponse =
+        ServerActionHttpResponse(
+            status = status,
+            body = transport.encodeActionResponse(
+                ServerActionResponse.Failure(message = message, retryable = false),
+            ),
+        )
+
+    if (body == null) {
+        return failure(status = 413, message = "Request body too large.")
+    }
+    val request = try {
+        transport.decodeActionRequest(body)
+    } catch (error: SerializationException) {
+        return failure(status = 400, message = "Malformed server action request.")
+    }
+    return ServerActionHttpResponse(
+        status = 200,
+        body = transport.encodeActionResponse(dispatch(request)),
+    )
+}
+
+/**
+ * Response headers every Kinetica HTTP server should set, so the reference servers and adopters share
+ * one hardened baseline instead of hand-rolling — and drifting on — their own: `nosniff`, `DENY`
+ * framing, a `no-referrer` policy, and a strict same-origin [Content-Security-Policy].
+ *
+ * `style-src` deliberately keeps `'unsafe-inline'`: the Kinetica browser renderer applies layout via
+ * inline `style` attributes (`element.setAttribute("style", …)` for `row`/`column` flex), which a
+ * `style-src` without `'unsafe-inline'` blocks — silently breaking every hydrated island. Do not drop
+ * it without first moving the renderer off inline-style attributes.
+ */
+public val KineticaSecurityHeaders: Map<String, String> = mapOf(
+    "X-Content-Type-Options" to "nosniff",
+    "X-Frame-Options" to "DENY",
+    "Referrer-Policy" to "no-referrer",
+    "Content-Security-Policy" to
+        "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+        "img-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+)
+
 public class KineticaServerTransport(
     private val json: Json = KineticaJson,
 ) {
@@ -383,26 +507,26 @@ public class KineticaServerTransport(
     public fun decodeChunk(value: String): ServerRenderChunk =
         json.decodeFromString(ServerRenderChunk.serializer(), value)
 
-    public fun integrityForChunk(chunk: ServerRenderChunk): IntegrityHash =
-        integrityForPayload(encodeMaterializedChunk(chunk.materializeDeep()))
+    public fun checksumForChunk(chunk: ServerRenderChunk): ChunkChecksum =
+        checksumForPayload(encodeMaterializedChunk(chunk.materializeDeep()))
 
-    public fun encodeSignedChunk(chunk: ServerRenderChunk): String {
+    public fun encodeChecksummedChunk(chunk: ServerRenderChunk): String {
         val materialized = chunk.materializeDeep()
         return json.encodeToString(
-            SignedServerRenderChunk.serializer(),
-            SignedServerRenderChunk(
+            ChecksummedServerRenderChunk.serializer(),
+            ChecksummedServerRenderChunk(
                 chunk = materialized,
-                integrity = integrityForPayload(encodeMaterializedChunk(materialized)),
+                checksum = checksumForPayload(encodeMaterializedChunk(materialized)),
             ),
         )
     }
 
-    public fun decodeSignedChunk(value: String): ServerRenderChunk {
-        val signed = json.decodeFromString(SignedServerRenderChunk.serializer(), value)
-        val materialized = signed.chunk.materializeDeep()
-        val expected = integrityForPayload(encodeMaterializedChunk(materialized))
-        require(signed.integrity == expected) {
-            "Server render chunk integrity mismatch: expected $expected, got ${signed.integrity}."
+    public fun decodeChecksummedChunk(value: String): ServerRenderChunk {
+        val checksummed = json.decodeFromString(ChecksummedServerRenderChunk.serializer(), value)
+        val materialized = checksummed.chunk.materializeDeep()
+        val expected = checksumForPayload(encodeMaterializedChunk(materialized))
+        require(checksummed.checksum == expected) {
+            "Server render chunk checksum mismatch: expected $expected, got ${checksummed.checksum}."
         }
         return materialized
     }
@@ -425,9 +549,9 @@ public class KineticaServerTransport(
     public fun decodeActionResponse(value: String): ServerActionResponse =
         json.decodeFromString(ServerActionResponse.serializer(), value)
 
-    private fun integrityForPayload(payload: String): IntegrityHash =
-        IntegrityHash(
-            algorithm = INTEGRITY_ALGORITHM,
+    private fun checksumForPayload(payload: String): ChunkChecksum =
+        ChunkChecksum(
+            algorithm = CHECKSUM_ALGORITHM,
             value = fnv1a64(payload.encodeToByteArray()).toHex64(),
         )
 
@@ -538,10 +662,13 @@ public suspend fun Node.toServerRenderStream(
                 results.close(cancelled)
                 throw cancelled
             } catch (error: Throwable) {
+                // Log the detail server-side; stream only a generic message so a throwing subtree can never
+                // leak JDBC/credential/stack internals to a /stream client (mirrors the action-handler scrub).
+                error.printStackTrace()
                 results.send(
                     ServerRenderDeferredResult.Failed(
                         boundaryId = subtree.boundaryId,
-                        message = error.message ?: error.toString(),
+                        message = "Server render failed.",
                     ),
                 )
             }
@@ -599,7 +726,7 @@ public fun Node.collectClientIslands(): List<ClientIsland> {
     return islands
 }
 
-private const val INTEGRITY_ALGORITHM = "fnv1a64"
+private const val CHECKSUM_ALGORITHM = "fnv1a64"
 private const val FNV_64_OFFSET_BASIS: Long = -3750763034362895579L
 private const val FNV_64_PRIME: Long = 1099511628211L
 private const val HEX = "0123456789abcdef"

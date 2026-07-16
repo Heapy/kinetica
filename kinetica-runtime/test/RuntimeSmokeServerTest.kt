@@ -60,7 +60,8 @@ class RuntimeSmokeServerTest {
         assertEquals("Fast", assertIs<TextNode>(assertIs<ServerRenderChunk.Patch>(chunks[1]).node).value)
         val error = assertIs<ServerRenderChunk.BoundaryError>(chunks[2])
         assertEquals("failing", error.boundaryId)
-        assertEquals("broken subtree", error.message)
+        assertEquals("Server render failed.", error.message)
+        assertFalse("broken subtree" in error.message, "raw exception detail must not leak to the client")
         assertEquals(listOf(0), assertIs<ServerRenderChunk.Patch>(chunks[3]).path)
         assertEquals("Slow", assertIs<TextNode>(assertIs<ServerRenderChunk.Patch>(chunks[3]).node).value)
         assertIs<ServerRenderChunk.End>(chunks[4])
@@ -224,12 +225,12 @@ class RuntimeSmokeServerTest {
         val stream = decodedNode.toServerRenderStream(manifest)
         assertIs<ServerRenderChunk.Tree>(transport.decodeChunk(transport.encodeChunk(stream.first())))
         assertIs<ServerRenderChunk.End>(transport.decodeChunk(transport.encodeChunk(stream.last())))
-        assertEquals(stream.first(), transport.decodeSignedChunk(transport.encodeSignedChunk(stream.first())))
-        val tamperedSignedChunk = transport
-            .encodeSignedChunk(stream.first())
+        assertEquals(stream.first(), transport.decodeChecksummedChunk(transport.encodeChecksummedChunk(stream.first())))
+        val corruptedChecksummedChunk = transport
+            .encodeChecksummedChunk(stream.first())
             .replace("sku-1", "sku-2")
         assertFailsWith<IllegalArgumentException> {
-            transport.decodeSignedChunk(tamperedSignedChunk)
+            transport.decodeChecksummedChunk(corruptedChecksummedChunk)
         }
 
         val request = ServerActionRequest(
@@ -264,16 +265,16 @@ class RuntimeSmokeServerTest {
     }
 
     @Test
-    fun serverTransportEncodeSignedChunkMaterializesTemplateNodesBeforeHashing() {
+    fun serverTransportEncodeChecksummedChunkMaterializesTemplateNodesBeforeHashing() {
         val transport = KineticaServerTransport()
         val node = serverBoundaryTemplateNode(text = "Signed")
         val normalized = ServerRenderChunk.Tree(sequence = 8, node = node.materialize())
 
-        val encoded = transport.encodeSignedChunk(ServerRenderChunk.Tree(sequence = 8, node = node))
+        val encoded = transport.encodeChecksummedChunk(ServerRenderChunk.Tree(sequence = 8, node = node))
 
         assertEquals(1, encoded.countOccurrences("static-skeleton-marker"))
         assertFalse("\"type\":\"template\"" in encoded, encoded)
-        assertEquals(normalized, transport.decodeSignedChunk(encoded))
+        assertEquals(normalized, transport.decodeChecksummedChunk(encoded))
     }
 
     @Test
@@ -321,12 +322,12 @@ class RuntimeSmokeServerTest {
             transport.decodeActionResponse(transport.encodeActionResponse(ServerActionResponse.Failure("try again"))),
         )
 
-        val signed = SignedServerRenderChunk(
+        val checksummed = ChecksummedServerRenderChunk(
             chunk = ServerRenderChunk.End(sequence = 5),
-            integrity = IntegrityHash(algorithm = "manual", value = "hash"),
+            checksum = ChunkChecksum(algorithm = "manual", value = "hash"),
         )
-        assertEquals("manual", signed.integrity.algorithm)
-        assertEquals("hash", signed.integrity.value)
+        assertEquals("manual", checksummed.checksum.algorithm)
+        assertEquals("hash", checksummed.checksum.value)
         assertEquals("csrf", CsrfToken("csrf").value)
 
         val entry = JournalEntry(sequence = 1, kind = JournalKind.Event, message = "clicked")
@@ -731,6 +732,55 @@ class RuntimeSmokeServerTest {
         assertFalse("9bad=\"bad\"" in unsafeHtml)
         assertFalse("data bad=\"space\"" in unsafeHtml)
 
+        // Well-formed but executable tag names must be neutralized to a div —
+        // text inside a real <script> would execute even though it's entity-escaped on the way out.
+        listOf("script", "iframe", "object", "embed", "svg", "style", "template").forEach { dangerousTag ->
+            val neutralized = HostNode(
+                tag = dangerousTag,
+                children = listOf(TextNode("payload")),
+            ).toSafeHtml()
+            assertEquals(
+                "<div data-kinetica-tag=\"$dangerousTag\">payload</div>",
+                neutralized,
+                "tag '$dangerousTag' should be neutralized to div",
+            )
+        }
+
+        assertEquals(
+            "<div data-kinetica-tag=\"SCRIPT\">x</div>",
+            HostNode(
+                tag = "SCRIPT",
+                children = listOf(TextNode("x")),
+            ).toSafeHtml(),
+            "dangerous tag denylisting must be case-insensitive",
+        )
+        assertEquals(
+            "<select><option>One</option></select>",
+            HostNode(
+                tag = "select",
+                children = listOf(
+                    HostNode(
+                        tag = "option",
+                        children = listOf(TextNode("One")),
+                    ),
+                ),
+            ).toSafeHtml(),
+            "legitimate HTML tags should render verbatim",
+        )
+        assertEquals(
+            "<column><row>payload</row></column>",
+            HostNode(
+                tag = "column",
+                children = listOf(
+                    HostNode(
+                        tag = "row",
+                        children = listOf(TextNode("payload")),
+                    ),
+                ),
+            ).toSafeHtml(),
+            "layout DSL tags should render verbatim in SSR snapshots",
+        )
+
         assertTrue(isPublicHtmlAttribute("aria-label", "Kept"))
         assertFalse(isPublicHtmlAttribute("event:onClick", "event-0"))
         assertFalse(isPublicHtmlAttribute("frame:translateX", "frame-0"))
@@ -936,6 +986,17 @@ class RuntimeSmokeServerTest {
                 ),
                 serverActionStub(
                     registration = ServerActionRegistration(
+                        actionId = "cart.reject",
+                        functionFqName = "app.server.reject",
+                    ),
+                    inputSerializer = String.serializer(),
+                    outputSerializer = String.serializer(),
+                    handler = {
+                        throw ServerActionRejection("quantity must be in 1..999.")
+                    },
+                ),
+                serverActionStub(
+                    registration = ServerActionRegistration(
                         actionId = "cart.cancel",
                         functionFqName = "app.server.cancel",
                     ),
@@ -1069,6 +1130,19 @@ class RuntimeSmokeServerTest {
                 ),
             ),
         )
+        // A ServerActionRejection surfaces its client-safe message verbatim — handlers use it to
+        // reject bad input (e.g. out-of-range quantities) with a specific Failure.
+        assertEquals(
+            ServerActionResponse.Failure("quantity must be in 1..999."),
+            dispatcher.dispatch(
+                ServerActionRequest(
+                    actionId = "cart.reject",
+                    payload = JsonPrimitive("sku-1"),
+                    token = CapabilityToken("valid"),
+                    csrfToken = CsrfToken("csrf"),
+                ),
+            ),
+        )
         val cancellation = assertFailsWith<CancellationException> {
             dispatcher.dispatch(
                 ServerActionRequest(
@@ -1112,6 +1186,165 @@ class RuntimeSmokeServerTest {
                     csrfToken = CsrfToken("csrf"),
                 ),
             ),
+        )
+    }
+
+    @Test
+    fun serverActionDispatcherReportsTypeInvalidPayloadAsClientError() = runTest {
+        val dispatcher = KineticaServerActionDispatcher(
+            stubs = listOf(
+                serverActionStub(
+                    registration = ServerActionRegistration(
+                        actionId = "count.set",
+                        functionFqName = "app.server.setCount",
+                    ),
+                    inputSerializer = Int.serializer(),
+                    outputSerializer = Int.serializer(),
+                    handler = { input -> input },
+                ),
+            ),
+            verifyCapabilityToken = { true },
+            verifyCsrfToken = { true },
+        )
+        // 3.5 passes the Number-kind schema check but cannot decode into Int.
+        val response = dispatcher.dispatch(
+            ServerActionRequest(
+                actionId = "count.set",
+                payload = JsonPrimitive(3.5),
+                token = CapabilityToken("valid"),
+                csrfToken = CsrfToken("valid"),
+            ),
+        )
+
+        assertEquals(
+            ServerActionResponse.Failure("Invalid server action payload."),
+            response,
+        )
+    }
+
+    @Test
+    fun serverActionDispatcherConvertsInitBlockFailureToClientError() = runTest {
+        val dispatcher = KineticaServerActionDispatcher(
+            stubs = listOf(
+                serverActionStub(
+                    registration = ServerActionRegistration(
+                        actionId = "guarded.set",
+                        functionFqName = "app.server.guardedSet",
+                    ),
+                    inputSerializer = InitGuardedInput.serializer(),
+                    outputSerializer = Int.serializer(),
+                    handler = { input -> input.n },
+                ),
+            ),
+            verifyCapabilityToken = { true },
+            verifyCsrfToken = { true },
+        )
+        // {"n":-5} is a shape-valid object (n is a Number) but violates the init require, so
+        // decode throws IllegalArgumentException (NOT a SerializationException).
+        val response = dispatcher.dispatch(
+            ServerActionRequest(
+                actionId = "guarded.set",
+                payload = JsonObject(mapOf("n" to JsonPrimitive(-5))),
+                token = CapabilityToken("valid"),
+                csrfToken = CsrfToken("valid"),
+            ),
+        )
+
+        assertEquals(ServerActionResponse.Failure("Invalid server action payload."), response)
+    }
+
+    @Test
+    fun serverActionDispatcherFailsClosedWithoutExplicitVerifiers() = runTest {
+        // A dispatcher constructed without verifiers must reject every action rather than silently
+        // accept unauthenticated ones — the safe default for a public API.
+        val dispatcher = KineticaServerActionDispatcher(
+            stubs = listOf(
+                serverActionStub(
+                    registration = ServerActionRegistration(
+                        actionId = "cart.add",
+                        functionFqName = "app.server.addToCart",
+                    ),
+                    inputSerializer = String.serializer(),
+                    outputSerializer = String.serializer(),
+                    handler = { _ -> "should not run" },
+                ),
+            ),
+        )
+        assertEquals(
+            ServerActionResponse.Failure("Invalid capability token."),
+            dispatcher.dispatch(
+                ServerActionRequest(
+                    actionId = "cart.add",
+                    payload = JsonPrimitive("sku-1"),
+                    token = CapabilityToken("anything"),
+                    csrfToken = CsrfToken("anything"),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun dispatchHttpMapsRequestBodyToHttpStatusCodes() = runTest {
+        val transport = KineticaServerTransport()
+        val dispatcher = KineticaServerActionDispatcher(
+            stubs = listOf(
+                serverActionStub(
+                    registration = ServerActionRegistration(
+                        actionId = "cart.add",
+                        functionFqName = "app.server.addToCart",
+                    ),
+                    inputSerializer = String.serializer(),
+                    outputSerializer = String.serializer(),
+                    handler = { input -> "added $input" },
+                ),
+            ),
+            verifyCapabilityToken = { true },
+            verifyCsrfToken = { true },
+        )
+
+        // Oversized body (the caller's bounded read returned null) -> 413.
+        val tooLarge = dispatcher.dispatchHttp(transport, body = null)
+        assertEquals(413, tooLarge.status)
+        assertEquals(
+            ServerActionResponse.Failure("Request body too large."),
+            transport.decodeActionResponse(tooLarge.body),
+        )
+
+        // Undecodable envelope -> 400 (a client error, never the 500 catch-all) with a generic message.
+        val malformed = dispatcher.dispatchHttp(transport, body = "not a valid envelope {")
+        assertEquals(400, malformed.status)
+        assertEquals(
+            ServerActionResponse.Failure("Malformed server action request."),
+            transport.decodeActionResponse(malformed.body),
+        )
+
+        // A decodable, authorized request is dispatched -> 200 with the handler's success payload.
+        val encoded = transport.encodeActionRequest(
+            ServerActionRequest(
+                actionId = "cart.add",
+                payload = JsonPrimitive("sku-1"),
+                token = CapabilityToken("valid"),
+                csrfToken = CsrfToken("valid"),
+            ),
+        )
+        val ok = dispatcher.dispatchHttp(transport, body = encoded)
+        assertEquals(200, ok.status)
+        assertIs<ServerActionResponse.Success>(transport.decodeActionResponse(ok.body))
+
+        // A dispatched rejection (unknown action) is still HTTP 200 — the failure travels in the body.
+        val unknown = transport.encodeActionRequest(
+            ServerActionRequest(
+                actionId = "cart.nope",
+                payload = JsonPrimitive("x"),
+                token = CapabilityToken("valid"),
+                csrfToken = CsrfToken("valid"),
+            ),
+        )
+        val unknownResponse = dispatcher.dispatchHttp(transport, body = unknown)
+        assertEquals(200, unknownResponse.status)
+        assertEquals(
+            ServerActionResponse.Failure("Unknown server action."),
+            transport.decodeActionResponse(unknownResponse.body),
         )
     }
 
@@ -1397,3 +1630,10 @@ private data class SmokeCartStatusPatch(
     val productId: String,
     val status: SmokeCartStatus,
 )
+
+@Serializable
+private data class InitGuardedInput(val n: Int) {
+    init {
+        require(n in 0..100) { "n out of range" }
+    }
+}

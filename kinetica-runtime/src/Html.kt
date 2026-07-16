@@ -45,7 +45,7 @@ private fun StringBuilder.appendSafeHtml(node: Node) {
 }
 
 private fun StringBuilder.appendHostNode(node: HostNode) {
-    val tagName = node.tag.takeIf(::isSafeHtmlName) ?: "div"
+    val tagName = safeHtmlTagName(node.tag)
     append('<')
     append(tagName)
     if (tagName != node.tag) {
@@ -134,6 +134,29 @@ private fun isSafeHtmlName(name: String): Boolean =
                 character == ':' ||
                 character == '.'
         }
+
+/**
+ * Maps a [HostNode] tag to the concrete HTML element name emitted by [toSafeHtml].
+ *
+ * Well-formed tag names render verbatim so SSR snapshots preserve the DSL tree: layout tags like
+ * `column`/`row`, form controls, media tags, canvas, dialog, and custom elements keep their
+ * original names, matching pre-existing SSR behavior. Malformed names still fall back to `div`
+ * through the character gate.
+ *
+ * The security boundary is a denylist for executable or document-mutating elements, checked
+ * case-insensitively before the character gate. A hand-built `HostNode(tag = "script")` serializes
+ * as `<div data-kinetica-tag="script">…</div>` rather than a live element, so SSR cannot introduce
+ * a script-injection sink even if attacker-influenced data ever reaches a tag name.
+ */
+internal fun safeHtmlTagName(tag: String): String =
+    if (tag.lowercase() in DangerousHtmlTags) "div"
+    else tag.takeIf(::isSafeHtmlName) ?: "div"
+
+private val DangerousHtmlTags: Set<String> = setOf(
+    "script", "iframe", "object", "embed", "svg", "math", "template",
+    "style", "link", "meta", "base", "frame", "frameset", "applet",
+    "noscript", "foreignobject", "portal", "xmp", "noembed",
+)
 
 private val UrlValuedAttributes = setOf(
     "action",
