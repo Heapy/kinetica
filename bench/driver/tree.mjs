@@ -137,9 +137,17 @@ const TREE_BENCHMARKS = [
   },
 ];
 
-const selectedBenchmarks = args.bench
-  ? TREE_BENCHMARKS.filter((b) => b.id.includes(args.bench))
+const benchPatterns = args.bench
+  ? args.bench.split(",").map((value) => value.trim()).filter(Boolean)
+  : [];
+const selectedBenchmarks = benchPatterns.length > 0
+  ? TREE_BENCHMARKS.filter((b) => benchPatterns.some((pattern) => b.id.includes(pattern)))
   : TREE_BENCHMARKS;
+
+if (selectedBenchmarks.length === 0) {
+  console.error(`error: no tree benchmark matches: ${args.bench}`);
+  process.exit(1);
+}
 
 const server = await startServer(repoRoot, PORT);
 const browser = await launchChromium();
@@ -207,7 +215,7 @@ const out = {
     totalNodes: TOTAL_NODES,
     cpuThrottle: THROTTLE > 1 ? THROTTLE : null,
   },
-  treeBenchmarks: TREE_BENCHMARKS.map(({ id, label }) => ({ id, label })),
+  treeBenchmarks: selectedBenchmarks.map(({ id, label }) => ({ id, label })),
   tree,
 };
 mkdirSync(dirname(OUT), { recursive: true });

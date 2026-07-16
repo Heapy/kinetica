@@ -1,0 +1,2495 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark">
+<title>Kinetica benchmark comparison</title><style>
+:root{--bg:#f8f8f5;--surface:#fff;--ink:#171715;--muted:#65645e;--line:#deddd5;--blue:#2a78d6;--orange:#d56a22;--soft-blue:#dceafa;--soft-orange:#f9e5d5}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,sans-serif}.page{max-width:1180px;margin:auto;padding:42px 24px 80px}h1{font-size:30px;margin:0 0 6px}h2{font-size:20px;margin:40px 0 8px}h3{font-size:16px;margin:28px 0 6px}.sub{color:var(--muted);margin:0}.banner{margin:20px 0;padding:13px 15px;border:1px solid;border-radius:8px}.banner.ok{border-color:#8fb7e5;background:var(--soft-blue)}.banner.warn{border-color:#dd9a68;background:var(--soft-orange)}.kpis{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0}.kpi{min-width:150px;padding:12px 14px;background:var(--surface);border:1px solid var(--line);border-radius:8px}.kpi strong{display:block;font:700 23px ui-monospace,monospace}.kpi span{color:var(--muted)}.delta-chart{padding:18px;background:var(--surface);border:1px solid var(--line);border-radius:8px}.delta-row{display:grid;grid-template-columns:120px minmax(220px,1fr) 70px;gap:12px;align-items:center;margin:9px 0}.delta-name{text-align:right}.delta-track{height:14px;position:relative;background:linear-gradient(90deg,transparent 49.8%,#888 49.8%,#888 50.2%,transparent 50.2%)}.delta-bar{position:absolute;height:10px;top:2px}.delta-bar.left{right:50%;background:var(--blue)}.delta-bar.right{left:50%;background:var(--orange)}.delta-value{font-family:ui-monospace,monospace}.improvement{color:#1c65af}.regression{color:#a64b13}.stable{color:var(--muted)}.table-scroll{overflow:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}table{border-collapse:collapse;width:100%;min-width:780px}th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}th{font-size:12px;color:var(--muted);background:color-mix(in srgb,var(--surface),var(--line) 18%)}td.num{text-align:right;font-family:ui-monospace,monospace}.status{font-size:11px;text-transform:uppercase;letter-spacing:.04em}code{font:12px ui-monospace,monospace}details{margin:12px 0}summary{cursor:pointer;font-weight:650;padding:8px 0}.split{display:grid;grid-template-columns:1fr 1fr;gap:18px}.list{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 16px}.list ol{padding-left:22px}.list li{margin:6px 0}.meta{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px}.meta dt{font-weight:650}.meta dd{margin:0;color:var(--muted);overflow-wrap:anywhere}@media(max-width:760px){.split{grid-template-columns:1fr}.delta-row{grid-template-columns:82px minmax(130px,1fr) 58px}.page{padding:24px 14px}}
+@media(prefers-color-scheme:dark){:root{--bg:#151514;--surface:#1d1d1b;--ink:#efeee9;--muted:#aaa9a1;--line:#3b3a36;--soft-blue:#182c42;--soft-orange:#3c281b;--blue:#5da2ed;--orange:#ef9254}}
+</style></head><body><main class="page">
+<header><h1>Kinetica benchmark comparison</h1><p class="sub">Current 20260716T215731619Z against accepted (no complete versioned run yet) · generated 2026-07-16T23:26:56.667Z</p></header>
+<div class="banner warn"><strong>Environment mismatch explicitly overridden.</strong> browser.scaling.chromium: 150.0.7871.100 → 149.0.7827.55</div>
+<section><h2>Technical summary</h2><p>The runs differ in recorded environment metadata; the comparison was explicitly allowed and must be interpreted with that caveat. A change is classified when its direction-adjusted magnitude is at least 5%.</p>
+<div class="kpis"><div class="kpi"><strong>346</strong><span>common metrics</span></div><div class="kpi"><strong class="regression">70</strong><span>regressions</span></div><div class="kpi"><strong class="improvement">102</strong><span>improvements</span></div><div class="kpi"><strong>174</strong><span>within threshold</span></div></div></section>
+<section><h2>Browser aggregate change</h2><p>Each bar is the geometric mean of current/baseline median ratios over common browser operations. Left/blue is faster; right/orange is slower. This comparison is descriptive and does not estimate statistical significance.</p><div class="delta-chart" role="img" aria-label="Geometric mean browser performance change by framework">
+    <div class="delta-row">
+        <span class="delta-name">kinetica</span>
+        <span class="delta-track"><span class="zero"></span><span class="delta-bar left" style="width:0.3854497306723638%"></span></span>
+        <span class="delta-value stable">-0.1%</span>
+      </div><div class="delta-row">
+        <span class="delta-name">react</span>
+        <span class="delta-track"><span class="zero"></span><span class="delta-bar right" style="width:48%"></span></span>
+        <span class="delta-value regression">+8.4%</span>
+      </div><div class="delta-row">
+        <span class="delta-name">preact</span>
+        <span class="delta-track"><span class="zero"></span><span class="delta-bar left" style="width:10.208247074736033%"></span></span>
+        <span class="delta-value stable">-1.8%</span>
+      </div><div class="delta-row">
+        <span class="delta-name">vue</span>
+        <span class="delta-track"><span class="zero"></span><span class="delta-bar left" style="width:10.38692858138331%"></span></span>
+        <span class="delta-value stable">-1.8%</span>
+      </div><div class="delta-row">
+        <span class="delta-name">svelte</span>
+        <span class="delta-track"><span class="zero"></span><span class="delta-bar left" style="width:23.262690391698438%"></span></span>
+        <span class="delta-value stable">-4.1%</span>
+      </div><div class="delta-row">
+        <span class="delta-name">vanilla</span>
+        <span class="delta-track"><span class="zero"></span><span class="delta-bar left" style="width:10.568259634849134%"></span></span>
+        <span class="delta-value stable">-1.8%</span>
+      </div><div class="delta-row">
+        <span class="delta-name">compose-web</span>
+        <span class="delta-track"><span class="zero"></span><span class="delta-bar left" style="width:36.035806435981485%"></span></span>
+        <span class="delta-value improvement">-6.3%</span>
+      </div>
+  </div></section>
+<section><h2>Largest movements</h2><div class="split"><div class="list"><h3>Regressions</h3><ol><li><strong>+354.4%</strong> vanilla · mount time</li><li><strong>+251.9%</strong> preact · mount time</li><li><strong>+217.2%</strong> svelte · mount time</li><li><strong>+177.8%</strong> vue · mount time</li><li><strong>+119.5%</strong> react · mount time</li><li><strong>+89.1%</strong> preact · script compile + evaluate</li><li><strong>+35.4%</strong> preact · reverse top-level subtrees</li><li><strong>+32.7%</strong> react · select row at 1,000 rows</li></ol></div><div class="list"><h3>Improvements</h3><ol><li><strong>-150.0%</strong> svelte · select row exponent</li><li><strong>-91.4%</strong> write + lazy read through 1,000-deep derived chain</li><li><strong>-68.8%</strong> re-render 1,000-row table after updating every 10th row</li><li><strong>-65.2%</strong> write + recompute through 10,000-wide derived fan</li><li><strong>-60.6%</strong> SSR: render parsed docs markdown to HTML string</li><li><strong>-56.3%</strong> react · select row exponent</li><li><strong>-56.2%</strong> parse all docs-site markdown (80 KB)</li><li><strong>-56.1%</strong> render 1,000-row table Node tree (fresh runtime)</li></ol></div></div></section>
+<section><h2>Metric-level evidence</h2><p>Exact baseline/current values and raw percentage changes. For higher-is-better metrics such as FPS, status classification reverses the raw percentage direction.</p><details open><summary>Browser operations (91)</summary><div class="table-scroll"><table>
+    <thead><tr><th>Scope</th><th>Metric</th><th>Baseline</th><th>Current</th><th>Change</th><th>Status</th></tr></thead>
+    <tbody><tr>
+      <td>kinetica · create 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">34.44 ms</td>
+      <td class="num">39.17 ms</td>
+      <td class="num regression">+13.7%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>kinetica · replace all 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">39.21 ms</td>
+      <td class="num">41.49 ms</td>
+      <td class="num regression">+5.8%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>kinetica · partial update (every 10th row)</td>
+      <td><code>median</code></td>
+      <td class="num">7.700 ms</td>
+      <td class="num">7.730 ms</td>
+      <td class="num stable">+0.4%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>kinetica · select row</td>
+      <td><code>median</code></td>
+      <td class="num">7.490 ms</td>
+      <td class="num">6.830 ms</td>
+      <td class="num improvement">-8.8%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>kinetica · swap two rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.400 ms</td>
+      <td class="num">7.400 ms</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>kinetica · remove one row</td>
+      <td><code>median</code></td>
+      <td class="num">8.250 ms</td>
+      <td class="num">8.520 ms</td>
+      <td class="num stable">+3.3%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>kinetica · create 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">308.7 ms</td>
+      <td class="num">278.4 ms</td>
+      <td class="num improvement">-9.8%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>kinetica · append 1,000 rows to 1,000</td>
+      <td><code>median</code></td>
+      <td class="num">34.89 ms</td>
+      <td class="num">41.70 ms</td>
+      <td class="num regression">+19.5%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>kinetica · clear 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">6.610 ms</td>
+      <td class="num">6.480 ms</td>
+      <td class="num stable">-2.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>kinetica · select row (10k table)</td>
+      <td><code>median</code></td>
+      <td class="num">7.750 ms</td>
+      <td class="num">8.160 ms</td>
+      <td class="num regression">+5.3%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>kinetica · swap two rows (10k table)</td>
+      <td><code>median</code></td>
+      <td class="num">45.68 ms</td>
+      <td class="num">42.51 ms</td>
+      <td class="num improvement">-6.9%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>kinetica · remove one row (10k table)</td>
+      <td><code>median</code></td>
+      <td class="num">57.43 ms</td>
+      <td class="num">51.82 ms</td>
+      <td class="num improvement">-9.8%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>kinetica · partial update (every 10th of 10k)</td>
+      <td><code>median</code></td>
+      <td class="num">45.23 ms</td>
+      <td class="num">42.18 ms</td>
+      <td class="num improvement">-6.7%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>react · create 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">33.17 ms</td>
+      <td class="num">36.95 ms</td>
+      <td class="num regression">+11.4%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>react · replace all 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">34.67 ms</td>
+      <td class="num">40.14 ms</td>
+      <td class="num regression">+15.8%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>react · partial update (every 10th row)</td>
+      <td><code>median</code></td>
+      <td class="num">7.250 ms</td>
+      <td class="num">7.020 ms</td>
+      <td class="num stable">-3.2%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>react · select row</td>
+      <td><code>median</code></td>
+      <td class="num">6.600 ms</td>
+      <td class="num">6.890 ms</td>
+      <td class="num stable">+4.4%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>react · swap two rows</td>
+      <td><code>median</code></td>
+      <td class="num">27.15 ms</td>
+      <td class="num">34.77 ms</td>
+      <td class="num regression">+28.1%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>react · remove one row</td>
+      <td><code>median</code></td>
+      <td class="num">7.240 ms</td>
+      <td class="num">7.210 ms</td>
+      <td class="num stable">-0.4%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>react · create 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">328.1 ms</td>
+      <td class="num">327.7 ms</td>
+      <td class="num stable">-0.1%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>react · append 1,000 rows to 1,000</td>
+      <td><code>median</code></td>
+      <td class="num">30.50 ms</td>
+      <td class="num">37.21 ms</td>
+      <td class="num regression">+22.0%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>react · clear 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.050 ms</td>
+      <td class="num">7.180 ms</td>
+      <td class="num stable">+1.8%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>react · select row (10k table)</td>
+      <td><code>median</code></td>
+      <td class="num">7.670 ms</td>
+      <td class="num">8.320 ms</td>
+      <td class="num regression">+8.5%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>react · swap two rows (10k table)</td>
+      <td><code>median</code></td>
+      <td class="num">50.96 ms</td>
+      <td class="num">57.56 ms</td>
+      <td class="num regression">+13.0%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>react · remove one row (10k table)</td>
+      <td><code>median</code></td>
+      <td class="num">40.73 ms</td>
+      <td class="num">43.41 ms</td>
+      <td class="num regression">+6.6%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>react · partial update (every 10th of 10k)</td>
+      <td><code>median</code></td>
+      <td class="num">34.87 ms</td>
+      <td class="num">36.90 ms</td>
+      <td class="num regression">+5.8%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>preact · create 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">34.08 ms</td>
+      <td class="num">38.54 ms</td>
+      <td class="num regression">+13.1%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>preact · replace all 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">36.87 ms</td>
+      <td class="num">40.02 ms</td>
+      <td class="num regression">+8.5%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>preact · partial update (every 10th row)</td>
+      <td><code>median</code></td>
+      <td class="num">8.170 ms</td>
+      <td class="num">7.280 ms</td>
+      <td class="num improvement">-10.9%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>preact · select row</td>
+      <td><code>median</code></td>
+      <td class="num">8.370 ms</td>
+      <td class="num">7.550 ms</td>
+      <td class="num improvement">-9.8%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>preact · swap two rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.340 ms</td>
+      <td class="num">8.030 ms</td>
+      <td class="num regression">+9.4%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>preact · remove one row</td>
+      <td><code>median</code></td>
+      <td class="num">7.870 ms</td>
+      <td class="num">7.100 ms</td>
+      <td class="num improvement">-9.8%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>preact · create 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">260.4 ms</td>
+      <td class="num">256.0 ms</td>
+      <td class="num stable">-1.7%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>preact · append 1,000 rows to 1,000</td>
+      <td><code>median</code></td>
+      <td class="num">36.10 ms</td>
+      <td class="num">37.31 ms</td>
+      <td class="num stable">+3.4%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>preact · clear 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.540 ms</td>
+      <td class="num">6.890 ms</td>
+      <td class="num improvement">-8.6%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>preact · select row (10k table)</td>
+      <td><code>median</code></td>
+      <td class="num">9.230 ms</td>
+      <td class="num">7.940 ms</td>
+      <td class="num improvement">-14.0%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>preact · swap two rows (10k table)</td>
+      <td><code>median</code></td>
+      <td class="num">33.09 ms</td>
+      <td class="num">33.77 ms</td>
+      <td class="num stable">+2.1%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>preact · remove one row (10k table)</td>
+      <td><code>median</code></td>
+      <td class="num">42.68 ms</td>
+      <td class="num">43.54 ms</td>
+      <td class="num stable">+2.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>preact · partial update (every 10th of 10k)</td>
+      <td><code>median</code></td>
+      <td class="num">38.10 ms</td>
+      <td class="num">37.22 ms</td>
+      <td class="num stable">-2.3%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · create 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">29.28 ms</td>
+      <td class="num">29.87 ms</td>
+      <td class="num stable">+2.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · replace all 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">31.13 ms</td>
+      <td class="num">32.17 ms</td>
+      <td class="num stable">+3.3%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · partial update (every 10th row)</td>
+      <td><code>median</code></td>
+      <td class="num">8.330 ms</td>
+      <td class="num">7.850 ms</td>
+      <td class="num improvement">-5.8%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vue · select row</td>
+      <td><code>median</code></td>
+      <td class="num">7.800 ms</td>
+      <td class="num">7.310 ms</td>
+      <td class="num improvement">-6.3%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vue · swap two rows</td>
+      <td><code>median</code></td>
+      <td class="num">8.930 ms</td>
+      <td class="num">8.250 ms</td>
+      <td class="num improvement">-7.6%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vue · remove one row</td>
+      <td><code>median</code></td>
+      <td class="num">7.880 ms</td>
+      <td class="num">7.460 ms</td>
+      <td class="num improvement">-5.3%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vue · create 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">249.1 ms</td>
+      <td class="num">232.8 ms</td>
+      <td class="num improvement">-6.5%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vue · append 1,000 rows to 1,000</td>
+      <td><code>median</code></td>
+      <td class="num">29.10 ms</td>
+      <td class="num">27.83 ms</td>
+      <td class="num stable">-4.4%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · clear 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.240 ms</td>
+      <td class="num">7.220 ms</td>
+      <td class="num stable">-0.3%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · select row (10k table)</td>
+      <td><code>median</code></td>
+      <td class="num">15.22 ms</td>
+      <td class="num">14.68 ms</td>
+      <td class="num stable">-3.5%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · swap two rows (10k table)</td>
+      <td><code>median</code></td>
+      <td class="num">44.17 ms</td>
+      <td class="num">45.33 ms</td>
+      <td class="num stable">+2.6%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · remove one row (10k table)</td>
+      <td><code>median</code></td>
+      <td class="num">52.93 ms</td>
+      <td class="num">56.53 ms</td>
+      <td class="num regression">+6.8%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>vue · partial update (every 10th of 10k)</td>
+      <td><code>median</code></td>
+      <td class="num">46.00 ms</td>
+      <td class="num">47.24 ms</td>
+      <td class="num stable">+2.7%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>svelte · create 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">28.54 ms</td>
+      <td class="num">23.85 ms</td>
+      <td class="num improvement">-16.4%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>svelte · replace all 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">32.24 ms</td>
+      <td class="num">27.63 ms</td>
+      <td class="num improvement">-14.3%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>svelte · partial update (every 10th row)</td>
+      <td><code>median</code></td>
+      <td class="num">8.060 ms</td>
+      <td class="num">7.280 ms</td>
+      <td class="num improvement">-9.7%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>svelte · select row</td>
+      <td><code>median</code></td>
+      <td class="num">7.250 ms</td>
+      <td class="num">7.260 ms</td>
+      <td class="num stable">+0.1%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>svelte · swap two rows</td>
+      <td><code>median</code></td>
+      <td class="num">8.010 ms</td>
+      <td class="num">7.140 ms</td>
+      <td class="num improvement">-10.9%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>svelte · remove one row</td>
+      <td><code>median</code></td>
+      <td class="num">7.580 ms</td>
+      <td class="num">7.110 ms</td>
+      <td class="num improvement">-6.2%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>svelte · create 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">220.1 ms</td>
+      <td class="num">272.6 ms</td>
+      <td class="num regression">+23.8%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>svelte · append 1,000 rows to 1,000</td>
+      <td><code>median</code></td>
+      <td class="num">30.57 ms</td>
+      <td class="num">32.35 ms</td>
+      <td class="num regression">+5.8%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>svelte · clear 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.390 ms</td>
+      <td class="num">7.040 ms</td>
+      <td class="num stable">-4.7%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>svelte · select row (10k table)</td>
+      <td><code>median</code></td>
+      <td class="num">8.460 ms</td>
+      <td class="num">8.150 ms</td>
+      <td class="num stable">-3.7%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>svelte · swap two rows (10k table)</td>
+      <td><code>median</code></td>
+      <td class="num">30.81 ms</td>
+      <td class="num">30.95 ms</td>
+      <td class="num stable">+0.5%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>svelte · remove one row (10k table)</td>
+      <td><code>median</code></td>
+      <td class="num">43.35 ms</td>
+      <td class="num">40.79 ms</td>
+      <td class="num improvement">-5.9%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>svelte · partial update (every 10th of 10k)</td>
+      <td><code>median</code></td>
+      <td class="num">31.79 ms</td>
+      <td class="num">30.09 ms</td>
+      <td class="num improvement">-5.3%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vanilla · create 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">29.53 ms</td>
+      <td class="num">31.77 ms</td>
+      <td class="num regression">+7.6%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>vanilla · replace all 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">32.11 ms</td>
+      <td class="num">29.82 ms</td>
+      <td class="num improvement">-7.1%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vanilla · partial update (every 10th row)</td>
+      <td><code>median</code></td>
+      <td class="num">7.820 ms</td>
+      <td class="num">7.190 ms</td>
+      <td class="num improvement">-8.1%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vanilla · select row</td>
+      <td><code>median</code></td>
+      <td class="num">6.990 ms</td>
+      <td class="num">7.470 ms</td>
+      <td class="num regression">+6.9%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>vanilla · swap two rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.370 ms</td>
+      <td class="num">7.940 ms</td>
+      <td class="num regression">+7.7%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>vanilla · remove one row</td>
+      <td><code>median</code></td>
+      <td class="num">7.560 ms</td>
+      <td class="num">7.150 ms</td>
+      <td class="num improvement">-5.4%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vanilla · create 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">210.5 ms</td>
+      <td class="num">203.0 ms</td>
+      <td class="num stable">-3.5%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · append 1,000 rows to 1,000</td>
+      <td><code>median</code></td>
+      <td class="num">31.35 ms</td>
+      <td class="num">28.22 ms</td>
+      <td class="num improvement">-10.0%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vanilla · clear 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">6.790 ms</td>
+      <td class="num">6.710 ms</td>
+      <td class="num stable">-1.2%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · select row (10k table)</td>
+      <td><code>median</code></td>
+      <td class="num">8.800 ms</td>
+      <td class="num">8.170 ms</td>
+      <td class="num improvement">-7.2%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vanilla · swap two rows (10k table)</td>
+      <td><code>median</code></td>
+      <td class="num">28.11 ms</td>
+      <td class="num">27.72 ms</td>
+      <td class="num stable">-1.4%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · remove one row (10k table)</td>
+      <td><code>median</code></td>
+      <td class="num">42.97 ms</td>
+      <td class="num">45.18 ms</td>
+      <td class="num regression">+5.1%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>vanilla · partial update (every 10th of 10k)</td>
+      <td><code>median</code></td>
+      <td class="num">32.60 ms</td>
+      <td class="num">30.96 ms</td>
+      <td class="num improvement">-5.0%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>compose-web · create 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">238.6 ms</td>
+      <td class="num">226.6 ms</td>
+      <td class="num improvement">-5.0%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>compose-web · replace all 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">360.9 ms</td>
+      <td class="num">337.5 ms</td>
+      <td class="num improvement">-6.5%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>compose-web · partial update (every 10th row)</td>
+      <td><code>median</code></td>
+      <td class="num">13.34 ms</td>
+      <td class="num">12.47 ms</td>
+      <td class="num improvement">-6.5%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>compose-web · select row</td>
+      <td><code>median</code></td>
+      <td class="num">12.05 ms</td>
+      <td class="num">10.38 ms</td>
+      <td class="num improvement">-13.9%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>compose-web · swap two rows</td>
+      <td><code>median</code></td>
+      <td class="num">554.0 ms</td>
+      <td class="num">553.1 ms</td>
+      <td class="num stable">-0.2%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>compose-web · remove one row</td>
+      <td><code>median</code></td>
+      <td class="num">507.2 ms</td>
+      <td class="num">507.1 ms</td>
+      <td class="num stable">-0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>compose-web · create 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7516.8 ms</td>
+      <td class="num">7356.1 ms</td>
+      <td class="num stable">-2.1%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>compose-web · append 1,000 rows to 1,000</td>
+      <td><code>median</code></td>
+      <td class="num">240.7 ms</td>
+      <td class="num">226.6 ms</td>
+      <td class="num improvement">-5.9%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>compose-web · clear 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">21.97 ms</td>
+      <td class="num">25.38 ms</td>
+      <td class="num regression">+15.5%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>compose-web · select row (10k table)</td>
+      <td><code>median</code></td>
+      <td class="num">23.55 ms</td>
+      <td class="num">22.30 ms</td>
+      <td class="num improvement">-5.3%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>compose-web · swap two rows (10k table)</td>
+      <td><code>median</code></td>
+      <td class="num">9270.0 ms</td>
+      <td class="num">9170.7 ms</td>
+      <td class="num stable">-1.1%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>compose-web · remove one row (10k table)</td>
+      <td><code>median</code></td>
+      <td class="num">49225.7 ms</td>
+      <td class="num">48296.7 ms</td>
+      <td class="num stable">-1.9%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>compose-web · partial update (every 10th of 10k)</td>
+      <td><code>median</code></td>
+      <td class="num">112.4 ms</td>
+      <td class="num">69.07 ms</td>
+      <td class="num improvement">-38.6%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr></tbody>
+  </table></div></details><details ><summary>Deep tree (28)</summary><div class="table-scroll"><table>
+    <thead><tr><th>Scope</th><th>Metric</th><th>Baseline</th><th>Current</th><th>Change</th><th>Status</th></tr></thead>
+    <tbody><tr>
+      <td>kinetica · create tree (1555 nodes)</td>
+      <td><code>median</code></td>
+      <td class="num">20.02 ms</td>
+      <td class="num">18.81 ms</td>
+      <td class="num improvement">-6.0%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>kinetica · update every 10th leaf</td>
+      <td><code>median</code></td>
+      <td class="num">7.070 ms</td>
+      <td class="num">7.240 ms</td>
+      <td class="num stable">+2.4%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>kinetica · reverse top-level subtrees</td>
+      <td><code>median</code></td>
+      <td class="num">9.860 ms</td>
+      <td class="num">11.15 ms</td>
+      <td class="num regression">+13.1%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>kinetica · no-op re-render (data unchanged)</td>
+      <td><code>median</code></td>
+      <td class="num">6.910 ms</td>
+      <td class="num">7.410 ms</td>
+      <td class="num regression">+7.2%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>react · create tree (1555 nodes)</td>
+      <td><code>median</code></td>
+      <td class="num">15.45 ms</td>
+      <td class="num">16.81 ms</td>
+      <td class="num regression">+8.8%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>react · update every 10th leaf</td>
+      <td><code>median</code></td>
+      <td class="num">6.930 ms</td>
+      <td class="num">6.910 ms</td>
+      <td class="num stable">-0.3%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>react · reverse top-level subtrees</td>
+      <td><code>median</code></td>
+      <td class="num">8.760 ms</td>
+      <td class="num">11.33 ms</td>
+      <td class="num regression">+29.3%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>react · no-op re-render (data unchanged)</td>
+      <td><code>median</code></td>
+      <td class="num">6.780 ms</td>
+      <td class="num">5.420 ms</td>
+      <td class="num improvement">-20.1%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>preact · create tree (1555 nodes)</td>
+      <td><code>median</code></td>
+      <td class="num">15.50 ms</td>
+      <td class="num">16.48 ms</td>
+      <td class="num regression">+6.3%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>preact · update every 10th leaf</td>
+      <td><code>median</code></td>
+      <td class="num">6.600 ms</td>
+      <td class="num">5.940 ms</td>
+      <td class="num improvement">-10.0%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>preact · reverse top-level subtrees</td>
+      <td><code>median</code></td>
+      <td class="num">7.370 ms</td>
+      <td class="num">9.980 ms</td>
+      <td class="num regression">+35.4%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>preact · no-op re-render (data unchanged)</td>
+      <td><code>median</code></td>
+      <td class="num">6.490 ms</td>
+      <td class="num">6.030 ms</td>
+      <td class="num improvement">-7.1%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vue · create tree (1555 nodes)</td>
+      <td><code>median</code></td>
+      <td class="num">18.97 ms</td>
+      <td class="num">21.42 ms</td>
+      <td class="num regression">+12.9%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>vue · update every 10th leaf</td>
+      <td><code>median</code></td>
+      <td class="num">7.150 ms</td>
+      <td class="num">7.110 ms</td>
+      <td class="num stable">-0.6%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · reverse top-level subtrees</td>
+      <td><code>median</code></td>
+      <td class="num">8.560 ms</td>
+      <td class="num">10.03 ms</td>
+      <td class="num regression">+17.2%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>vue · no-op re-render (data unchanged)</td>
+      <td><code>median</code></td>
+      <td class="num">6.730 ms</td>
+      <td class="num">6.850 ms</td>
+      <td class="num stable">+1.8%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>svelte · create tree (1555 nodes)</td>
+      <td><code>median</code></td>
+      <td class="num">20.16 ms</td>
+      <td class="num">19.86 ms</td>
+      <td class="num stable">-1.5%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>svelte · update every 10th leaf</td>
+      <td><code>median</code></td>
+      <td class="num">6.990 ms</td>
+      <td class="num">7.130 ms</td>
+      <td class="num stable">+2.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>svelte · reverse top-level subtrees</td>
+      <td><code>median</code></td>
+      <td class="num">8.940 ms</td>
+      <td class="num">9.600 ms</td>
+      <td class="num regression">+7.4%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>svelte · no-op re-render (data unchanged)</td>
+      <td><code>median</code></td>
+      <td class="num">6.270 ms</td>
+      <td class="num">6.090 ms</td>
+      <td class="num stable">-2.9%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · create tree (1555 nodes)</td>
+      <td><code>median</code></td>
+      <td class="num">14.67 ms</td>
+      <td class="num">15.94 ms</td>
+      <td class="num regression">+8.7%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>vanilla · update every 10th leaf</td>
+      <td><code>median</code></td>
+      <td class="num">6.680 ms</td>
+      <td class="num">6.100 ms</td>
+      <td class="num improvement">-8.7%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vanilla · reverse top-level subtrees</td>
+      <td><code>median</code></td>
+      <td class="num">8.770 ms</td>
+      <td class="num">10.78 ms</td>
+      <td class="num regression">+22.9%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>vanilla · no-op re-render (data unchanged)</td>
+      <td><code>median</code></td>
+      <td class="num">6.440 ms</td>
+      <td class="num">5.660 ms</td>
+      <td class="num improvement">-12.1%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>compose-web · create tree (1555 nodes)</td>
+      <td><code>median</code></td>
+      <td class="num">54.39 ms</td>
+      <td class="num">54.46 ms</td>
+      <td class="num stable">+0.1%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>compose-web · update every 10th leaf</td>
+      <td><code>median</code></td>
+      <td class="num">14.78 ms</td>
+      <td class="num">15.77 ms</td>
+      <td class="num regression">+6.7%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>compose-web · reverse top-level subtrees</td>
+      <td><code>median</code></td>
+      <td class="num">22.10 ms</td>
+      <td class="num">22.45 ms</td>
+      <td class="num stable">+1.6%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>compose-web · no-op re-render (data unchanged)</td>
+      <td><code>median</code></td>
+      <td class="num">8.150 ms</td>
+      <td class="num">6.160 ms</td>
+      <td class="num improvement">-24.4%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr></tbody>
+  </table></div></details><details ><summary>Startup and payload (28)</summary><div class="table-scroll"><table>
+    <thead><tr><th>Scope</th><th>Metric</th><th>Baseline</th><th>Current</th><th>Change</th><th>Status</th></tr></thead>
+    <tbody><tr>
+      <td>kinetica · mount time</td>
+      <td><code>median</code></td>
+      <td class="num">45.00 ms</td>
+      <td class="num">34.40 ms</td>
+      <td class="num improvement">-23.6%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>kinetica · script compile + evaluate</td>
+      <td><code>scriptMs</code></td>
+      <td class="num">9.610 ms</td>
+      <td class="num">8.960 ms</td>
+      <td class="num improvement">-6.8%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>kinetica · total blocking time</td>
+      <td><code>tbtMs</code></td>
+      <td class="num">0.000 ms</td>
+      <td class="num">0.000 ms</td>
+      <td class="num stable">—</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>kinetica · JavaScript payload</td>
+      <td><code>gzipBytes</code></td>
+      <td class="num">86.0 KB</td>
+      <td class="num">86.1 KB</td>
+      <td class="num stable">+0.1%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>react · mount time</td>
+      <td><code>median</code></td>
+      <td class="num">18.50 ms</td>
+      <td class="num">40.60 ms</td>
+      <td class="num regression">+119.5%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>react · script compile + evaluate</td>
+      <td><code>scriptMs</code></td>
+      <td class="num">13.41 ms</td>
+      <td class="num">14.53 ms</td>
+      <td class="num regression">+8.4%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>react · total blocking time</td>
+      <td><code>tbtMs</code></td>
+      <td class="num">0.000 ms</td>
+      <td class="num">0.000 ms</td>
+      <td class="num stable">—</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>react · JavaScript payload</td>
+      <td><code>gzipBytes</code></td>
+      <td class="num">60.3 KB</td>
+      <td class="num">60.3 KB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>preact · mount time</td>
+      <td><code>median</code></td>
+      <td class="num">7.700 ms</td>
+      <td class="num">27.10 ms</td>
+      <td class="num regression">+251.9%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>preact · script compile + evaluate</td>
+      <td><code>scriptMs</code></td>
+      <td class="num">4.660 ms</td>
+      <td class="num">8.810 ms</td>
+      <td class="num regression">+89.1%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>preact · total blocking time</td>
+      <td><code>tbtMs</code></td>
+      <td class="num">0.000 ms</td>
+      <td class="num">0.000 ms</td>
+      <td class="num stable">—</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>preact · JavaScript payload</td>
+      <td><code>gzipBytes</code></td>
+      <td class="num">8.6 KB</td>
+      <td class="num">8.6 KB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · mount time</td>
+      <td><code>median</code></td>
+      <td class="num">13.50 ms</td>
+      <td class="num">37.50 ms</td>
+      <td class="num regression">+177.8%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>vue · script compile + evaluate</td>
+      <td><code>scriptMs</code></td>
+      <td class="num">11.66 ms</td>
+      <td class="num">9.450 ms</td>
+      <td class="num improvement">-19.0%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vue · total blocking time</td>
+      <td><code>tbtMs</code></td>
+      <td class="num">0.000 ms</td>
+      <td class="num">0.000 ms</td>
+      <td class="num stable">—</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · JavaScript payload</td>
+      <td><code>gzipBytes</code></td>
+      <td class="num">65.2 KB</td>
+      <td class="num">65.2 KB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>svelte · mount time</td>
+      <td><code>median</code></td>
+      <td class="num">8.700 ms</td>
+      <td class="num">27.60 ms</td>
+      <td class="num regression">+217.2%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>svelte · script compile + evaluate</td>
+      <td><code>scriptMs</code></td>
+      <td class="num">8.950 ms</td>
+      <td class="num">5.090 ms</td>
+      <td class="num improvement">-43.1%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>svelte · total blocking time</td>
+      <td><code>tbtMs</code></td>
+      <td class="num">0.000 ms</td>
+      <td class="num">0.000 ms</td>
+      <td class="num stable">—</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>svelte · JavaScript payload</td>
+      <td><code>gzipBytes</code></td>
+      <td class="num">20.8 KB</td>
+      <td class="num">20.8 KB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · mount time</td>
+      <td><code>median</code></td>
+      <td class="num">5.700 ms</td>
+      <td class="num">25.90 ms</td>
+      <td class="num regression">+354.4%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>vanilla · script compile + evaluate</td>
+      <td><code>scriptMs</code></td>
+      <td class="num">7.080 ms</td>
+      <td class="num">6.920 ms</td>
+      <td class="num stable">-2.3%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · total blocking time</td>
+      <td><code>tbtMs</code></td>
+      <td class="num">0.000 ms</td>
+      <td class="num">0.000 ms</td>
+      <td class="num stable">—</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · JavaScript payload</td>
+      <td><code>gzipBytes</code></td>
+      <td class="num">1.2 KB</td>
+      <td class="num">1.2 KB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>compose-web · mount time</td>
+      <td><code>median</code></td>
+      <td class="num">44.50 ms</td>
+      <td class="num">41.50 ms</td>
+      <td class="num improvement">-6.7%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>compose-web · script compile + evaluate</td>
+      <td><code>scriptMs</code></td>
+      <td class="num">17.20 ms</td>
+      <td class="num">16.76 ms</td>
+      <td class="num stable">-2.6%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>compose-web · total blocking time</td>
+      <td><code>tbtMs</code></td>
+      <td class="num">0.000 ms</td>
+      <td class="num">0.000 ms</td>
+      <td class="num stable">—</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>compose-web · JavaScript payload</td>
+      <td><code>gzipBytes</code></td>
+      <td class="num">171.6 KB</td>
+      <td class="num">171.6 KB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr></tbody>
+  </table></div></details><details ><summary>Memory (42)</summary><div class="table-scroll"><table>
+    <thead><tr><th>Scope</th><th>Metric</th><th>Baseline</th><th>Current</th><th>Change</th><th>Status</th></tr></thead>
+    <tbody><tr>
+      <td>kinetica · heap after load</td>
+      <td><code>afterLoadMb</code></td>
+      <td class="num">1.990 MB</td>
+      <td class="num">1.990 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>kinetica · heap after 1k rows</td>
+      <td><code>after1kMb</code></td>
+      <td class="num">4.960 MB</td>
+      <td class="num">4.950 MB</td>
+      <td class="num stable">-0.2%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>kinetica · heap after 5× replace</td>
+      <td><code>after5xReplaceMb</code></td>
+      <td class="num">5.180 MB</td>
+      <td class="num">5.180 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>kinetica · heap after 10× create/clear</td>
+      <td><code>afterCreateClear10Mb</code></td>
+      <td class="num">3.670 MB</td>
+      <td class="num">3.680 MB</td>
+      <td class="num stable">+0.3%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>kinetica · heap after unmount</td>
+      <td><code>afterUnmountMb</code></td>
+      <td class="num">3.540 MB</td>
+      <td class="num">3.540 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>kinetica · heap after 5× remount</td>
+      <td><code>after5xRemountMb</code></td>
+      <td class="num">3.630 MB</td>
+      <td class="num">3.630 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>react · heap after load</td>
+      <td><code>afterLoadMb</code></td>
+      <td class="num">1.620 MB</td>
+      <td class="num">1.620 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>react · heap after 1k rows</td>
+      <td><code>after1kMb</code></td>
+      <td class="num">4.400 MB</td>
+      <td class="num">4.400 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>react · heap after 5× replace</td>
+      <td><code>after5xReplaceMb</code></td>
+      <td class="num">4.990 MB</td>
+      <td class="num">4.990 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>react · heap after 10× create/clear</td>
+      <td><code>afterCreateClear10Mb</code></td>
+      <td class="num">3.170 MB</td>
+      <td class="num">3.170 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>react · heap after unmount</td>
+      <td><code>afterUnmountMb</code></td>
+      <td class="num">2.850 MB</td>
+      <td class="num">2.850 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>react · heap after 5× remount</td>
+      <td><code>after5xRemountMb</code></td>
+      <td class="num">2.840 MB</td>
+      <td class="num">2.840 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>preact · heap after load</td>
+      <td><code>afterLoadMb</code></td>
+      <td class="num">1.270 MB</td>
+      <td class="num">1.270 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>preact · heap after 1k rows</td>
+      <td><code>after1kMb</code></td>
+      <td class="num">4.280 MB</td>
+      <td class="num">4.280 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>preact · heap after 5× replace</td>
+      <td><code>after5xReplaceMb</code></td>
+      <td class="num">4.390 MB</td>
+      <td class="num">4.390 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>preact · heap after 10× create/clear</td>
+      <td><code>afterCreateClear10Mb</code></td>
+      <td class="num">2.170 MB</td>
+      <td class="num">2.170 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>preact · heap after unmount</td>
+      <td><code>afterUnmountMb</code></td>
+      <td class="num">2.140 MB</td>
+      <td class="num">2.100 MB</td>
+      <td class="num stable">-1.9%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>preact · heap after 5× remount</td>
+      <td><code>after5xRemountMb</code></td>
+      <td class="num">2.120 MB</td>
+      <td class="num">2.110 MB</td>
+      <td class="num stable">-0.5%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · heap after load</td>
+      <td><code>afterLoadMb</code></td>
+      <td class="num">1.850 MB</td>
+      <td class="num">1.850 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · heap after 1k rows</td>
+      <td><code>after1kMb</code></td>
+      <td class="num">4.430 MB</td>
+      <td class="num">4.430 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · heap after 5× replace</td>
+      <td><code>after5xReplaceMb</code></td>
+      <td class="num">4.590 MB</td>
+      <td class="num">4.590 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · heap after 10× create/clear</td>
+      <td><code>afterCreateClear10Mb</code></td>
+      <td class="num">2.940 MB</td>
+      <td class="num">2.940 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · heap after unmount</td>
+      <td><code>afterUnmountMb</code></td>
+      <td class="num">2.930 MB</td>
+      <td class="num">2.930 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · heap after 5× remount</td>
+      <td><code>after5xRemountMb</code></td>
+      <td class="num">2.890 MB</td>
+      <td class="num">2.910 MB</td>
+      <td class="num stable">+0.7%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>svelte · heap after load</td>
+      <td><code>afterLoadMb</code></td>
+      <td class="num">1.290 MB</td>
+      <td class="num">1.290 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>svelte · heap after 1k rows</td>
+      <td><code>after1kMb</code></td>
+      <td class="num">3.250 MB</td>
+      <td class="num">3.240 MB</td>
+      <td class="num stable">-0.3%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>svelte · heap after 5× replace</td>
+      <td><code>after5xReplaceMb</code></td>
+      <td class="num">3.420 MB</td>
+      <td class="num">3.420 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>svelte · heap after 10× create/clear</td>
+      <td><code>afterCreateClear10Mb</code></td>
+      <td class="num">2.410 MB</td>
+      <td class="num">2.410 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>svelte · heap after unmount</td>
+      <td><code>afterUnmountMb</code></td>
+      <td class="num">2.370 MB</td>
+      <td class="num">2.370 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>svelte · heap after 5× remount</td>
+      <td><code>after5xRemountMb</code></td>
+      <td class="num">2.390 MB</td>
+      <td class="num">2.390 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · heap after load</td>
+      <td><code>afterLoadMb</code></td>
+      <td class="num">1.150 MB</td>
+      <td class="num">1.150 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · heap after 1k rows</td>
+      <td><code>after1kMb</code></td>
+      <td class="num">1.900 MB</td>
+      <td class="num">1.900 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · heap after 5× replace</td>
+      <td><code>after5xReplaceMb</code></td>
+      <td class="num">1.980 MB</td>
+      <td class="num">1.980 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · heap after 10× create/clear</td>
+      <td><code>afterCreateClear10Mb</code></td>
+      <td class="num">1.920 MB</td>
+      <td class="num">1.920 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · heap after unmount</td>
+      <td><code>afterUnmountMb</code></td>
+      <td class="num">1.930 MB</td>
+      <td class="num">1.920 MB</td>
+      <td class="num stable">-0.5%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · heap after 5× remount</td>
+      <td><code>after5xRemountMb</code></td>
+      <td class="num">1.920 MB</td>
+      <td class="num">1.920 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>compose-web · heap after load</td>
+      <td><code>afterLoadMb</code></td>
+      <td class="num">2.730 MB</td>
+      <td class="num">2.730 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>compose-web · heap after 1k rows</td>
+      <td><code>after1kMb</code></td>
+      <td class="num">17.85 MB</td>
+      <td class="num">17.86 MB</td>
+      <td class="num stable">+0.1%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>compose-web · heap after 5× replace</td>
+      <td><code>after5xReplaceMb</code></td>
+      <td class="num">19.51 MB</td>
+      <td class="num">19.50 MB</td>
+      <td class="num stable">-0.1%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>compose-web · heap after 10× create/clear</td>
+      <td><code>afterCreateClear10Mb</code></td>
+      <td class="num">7.310 MB</td>
+      <td class="num">7.290 MB</td>
+      <td class="num stable">-0.3%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>compose-web · heap after unmount</td>
+      <td><code>afterUnmountMb</code></td>
+      <td class="num">4.660 MB</td>
+      <td class="num">4.660 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>compose-web · heap after 5× remount</td>
+      <td><code>after5xRemountMb</code></td>
+      <td class="num">4.850 MB</td>
+      <td class="num">4.850 MB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr></tbody>
+  </table></div></details><details ><summary>Sustained updates (28)</summary><div class="table-scroll"><table>
+    <thead><tr><th>Scope</th><th>Metric</th><th>Baseline</th><th>Current</th><th>Change</th><th>Status</th></tr></thead>
+    <tbody><tr>
+      <td>kinetica · animation throughput</td>
+      <td><code>fps</code></td>
+      <td class="num">120.0 fps</td>
+      <td class="num">120.0 fps</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>kinetica · median frame time</td>
+      <td><code>medianMs</code></td>
+      <td class="num">8.300 ms</td>
+      <td class="num">8.300 ms</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>kinetica · p95 frame time</td>
+      <td><code>p95Ms</code></td>
+      <td class="num">9.300 ms</td>
+      <td class="num">9.300 ms</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>kinetica · frames over 25 ms</td>
+      <td><code>longFramePct</code></td>
+      <td class="num">0.0%</td>
+      <td class="num">0.0%</td>
+      <td class="num stable">—</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>react · animation throughput</td>
+      <td><code>fps</code></td>
+      <td class="num">120.0 fps</td>
+      <td class="num">120.0 fps</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>react · median frame time</td>
+      <td><code>medianMs</code></td>
+      <td class="num">8.300 ms</td>
+      <td class="num">8.300 ms</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>react · p95 frame time</td>
+      <td><code>p95Ms</code></td>
+      <td class="num">10.00 ms</td>
+      <td class="num">9.300 ms</td>
+      <td class="num improvement">-7.0%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>react · frames over 25 ms</td>
+      <td><code>longFramePct</code></td>
+      <td class="num">0.0%</td>
+      <td class="num">0.0%</td>
+      <td class="num stable">—</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>preact · animation throughput</td>
+      <td><code>fps</code></td>
+      <td class="num">120.0 fps</td>
+      <td class="num">120.0 fps</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>preact · median frame time</td>
+      <td><code>medianMs</code></td>
+      <td class="num">8.300 ms</td>
+      <td class="num">8.300 ms</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>preact · p95 frame time</td>
+      <td><code>p95Ms</code></td>
+      <td class="num">10.20 ms</td>
+      <td class="num">9.300 ms</td>
+      <td class="num improvement">-8.8%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>preact · frames over 25 ms</td>
+      <td><code>longFramePct</code></td>
+      <td class="num">0.0%</td>
+      <td class="num">0.0%</td>
+      <td class="num stable">—</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · animation throughput</td>
+      <td><code>fps</code></td>
+      <td class="num">120.0 fps</td>
+      <td class="num">120.0 fps</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · median frame time</td>
+      <td><code>medianMs</code></td>
+      <td class="num">8.300 ms</td>
+      <td class="num">8.300 ms</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · p95 frame time</td>
+      <td><code>p95Ms</code></td>
+      <td class="num">10.30 ms</td>
+      <td class="num">9.300 ms</td>
+      <td class="num improvement">-9.7%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vue · frames over 25 ms</td>
+      <td><code>longFramePct</code></td>
+      <td class="num">0.0%</td>
+      <td class="num">0.0%</td>
+      <td class="num stable">—</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>svelte · animation throughput</td>
+      <td><code>fps</code></td>
+      <td class="num">120.0 fps</td>
+      <td class="num">120.0 fps</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>svelte · median frame time</td>
+      <td><code>medianMs</code></td>
+      <td class="num">8.300 ms</td>
+      <td class="num">8.300 ms</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>svelte · p95 frame time</td>
+      <td><code>p95Ms</code></td>
+      <td class="num">10.30 ms</td>
+      <td class="num">9.300 ms</td>
+      <td class="num improvement">-9.7%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>svelte · frames over 25 ms</td>
+      <td><code>longFramePct</code></td>
+      <td class="num">0.0%</td>
+      <td class="num">0.0%</td>
+      <td class="num stable">—</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · animation throughput</td>
+      <td><code>fps</code></td>
+      <td class="num">119.8 fps</td>
+      <td class="num">120.0 fps</td>
+      <td class="num stable">+0.2%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · median frame time</td>
+      <td><code>medianMs</code></td>
+      <td class="num">8.300 ms</td>
+      <td class="num">8.300 ms</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · p95 frame time</td>
+      <td><code>p95Ms</code></td>
+      <td class="num">10.10 ms</td>
+      <td class="num">9.300 ms</td>
+      <td class="num improvement">-7.9%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vanilla · frames over 25 ms</td>
+      <td><code>longFramePct</code></td>
+      <td class="num">0.0%</td>
+      <td class="num">0.0%</td>
+      <td class="num stable">—</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>compose-web · animation throughput</td>
+      <td><code>fps</code></td>
+      <td class="num">120.0 fps</td>
+      <td class="num">120.0 fps</td>
+      <td class="num stable">-0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>compose-web · median frame time</td>
+      <td><code>medianMs</code></td>
+      <td class="num">8.300 ms</td>
+      <td class="num">8.300 ms</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>compose-web · p95 frame time</td>
+      <td><code>p95Ms</code></td>
+      <td class="num">9.800 ms</td>
+      <td class="num">10.10 ms</td>
+      <td class="num stable">+3.1%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>compose-web · frames over 25 ms</td>
+      <td><code>longFramePct</code></td>
+      <td class="num">0.0%</td>
+      <td class="num">0.0%</td>
+      <td class="num stable">—</td>
+      <td><span class="status stable">stable</span></td>
+    </tr></tbody>
+  </table></div></details><details ><summary>Scaling (108)</summary><div class="table-scroll"><table>
+    <thead><tr><th>Scope</th><th>Metric</th><th>Baseline</th><th>Current</th><th>Change</th><th>Status</th></tr></thead>
+    <tbody><tr>
+      <td>kinetica · select row exponent</td>
+      <td><code>exponent</code></td>
+      <td class="num">0.17</td>
+      <td class="num">0.13</td>
+      <td class="num improvement">-23.5%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>kinetica · select row at 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.250 ms</td>
+      <td class="num">6.960 ms</td>
+      <td class="num stable">-4.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>kinetica · select row at 2,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.840 ms</td>
+      <td class="num">7.350 ms</td>
+      <td class="num improvement">-6.3%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>kinetica · select row at 5,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.640 ms</td>
+      <td class="num">7.710 ms</td>
+      <td class="num stable">+0.9%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>kinetica · select row at 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">8.240 ms</td>
+      <td class="num">8.060 ms</td>
+      <td class="num stable">-2.2%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>kinetica · select row at 20,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">13.71 ms</td>
+      <td class="num">10.89 ms</td>
+      <td class="num improvement">-20.6%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>kinetica · swap two rows exponent</td>
+      <td><code>exponent</code></td>
+      <td class="num">0.76</td>
+      <td class="num">0.74</td>
+      <td class="num stable">-2.6%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>kinetica · swap two rows at 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">8.850 ms</td>
+      <td class="num">7.990 ms</td>
+      <td class="num improvement">-9.7%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>kinetica · swap two rows at 2,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">10.32 ms</td>
+      <td class="num">10.96 ms</td>
+      <td class="num regression">+6.2%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>kinetica · swap two rows at 5,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">17.11 ms</td>
+      <td class="num">21.72 ms</td>
+      <td class="num regression">+26.9%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>kinetica · swap two rows at 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">41.42 ms</td>
+      <td class="num">37.70 ms</td>
+      <td class="num improvement">-9.0%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>kinetica · swap two rows at 20,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">80.23 ms</td>
+      <td class="num">71.55 ms</td>
+      <td class="num improvement">-10.8%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>kinetica · update every 10th row exponent</td>
+      <td><code>exponent</code></td>
+      <td class="num">0.75</td>
+      <td class="num">0.74</td>
+      <td class="num stable">-1.3%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>kinetica · update every 10th row at 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">8.290 ms</td>
+      <td class="num">8.190 ms</td>
+      <td class="num stable">-1.2%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>kinetica · update every 10th row at 2,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">10.95 ms</td>
+      <td class="num">11.03 ms</td>
+      <td class="num stable">+0.7%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>kinetica · update every 10th row at 5,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">22.90 ms</td>
+      <td class="num">21.12 ms</td>
+      <td class="num improvement">-7.8%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>kinetica · update every 10th row at 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">38.69 ms</td>
+      <td class="num">37.16 ms</td>
+      <td class="num stable">-4.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>kinetica · update every 10th row at 20,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">76.50 ms</td>
+      <td class="num">75.04 ms</td>
+      <td class="num stable">-1.9%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>react · select row exponent</td>
+      <td><code>exponent</code></td>
+      <td class="num">0.16</td>
+      <td class="num">0.07</td>
+      <td class="num improvement">-56.3%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>react · select row at 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">6.370 ms</td>
+      <td class="num">8.450 ms</td>
+      <td class="num regression">+32.7%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>react · select row at 2,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.200 ms</td>
+      <td class="num">7.100 ms</td>
+      <td class="num stable">-1.4%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>react · select row at 5,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">8.310 ms</td>
+      <td class="num">8.730 ms</td>
+      <td class="num regression">+5.1%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>react · select row at 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">8.050 ms</td>
+      <td class="num">8.430 ms</td>
+      <td class="num stable">+4.7%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>react · select row at 20,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">11.03 ms</td>
+      <td class="num">10.00 ms</td>
+      <td class="num improvement">-9.3%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>react · swap two rows exponent</td>
+      <td><code>exponent</code></td>
+      <td class="num">0.33</td>
+      <td class="num">0.28</td>
+      <td class="num improvement">-15.2%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>react · swap two rows at 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">34.44 ms</td>
+      <td class="num">34.16 ms</td>
+      <td class="num stable">-0.8%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>react · swap two rows at 2,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">33.83 ms</td>
+      <td class="num">36.27 ms</td>
+      <td class="num regression">+7.2%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>react · swap two rows at 5,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">44.70 ms</td>
+      <td class="num">42.18 ms</td>
+      <td class="num improvement">-5.6%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>react · swap two rows at 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">58.26 ms</td>
+      <td class="num">55.29 ms</td>
+      <td class="num improvement">-5.1%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>react · swap two rows at 20,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">91.78 ms</td>
+      <td class="num">81.51 ms</td>
+      <td class="num improvement">-11.2%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>react · update every 10th row exponent</td>
+      <td><code>exponent</code></td>
+      <td class="num">0.81</td>
+      <td class="num">0.74</td>
+      <td class="num improvement">-8.6%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>react · update every 10th row at 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">6.880 ms</td>
+      <td class="num">7.570 ms</td>
+      <td class="num regression">+10.0%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>react · update every 10th row at 2,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">9.590 ms</td>
+      <td class="num">9.090 ms</td>
+      <td class="num improvement">-5.2%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>react · update every 10th row at 5,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">17.10 ms</td>
+      <td class="num">18.25 ms</td>
+      <td class="num regression">+6.7%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>react · update every 10th row at 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">37.50 ms</td>
+      <td class="num">32.61 ms</td>
+      <td class="num improvement">-13.0%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>react · update every 10th row at 20,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">75.94 ms</td>
+      <td class="num">67.17 ms</td>
+      <td class="num improvement">-11.5%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>preact · select row exponent</td>
+      <td><code>exponent</code></td>
+      <td class="num">0.19</td>
+      <td class="num">0.13</td>
+      <td class="num improvement">-31.6%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>preact · select row at 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.100 ms</td>
+      <td class="num">7.670 ms</td>
+      <td class="num regression">+8.0%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>preact · select row at 2,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">8.040 ms</td>
+      <td class="num">7.410 ms</td>
+      <td class="num improvement">-7.8%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>preact · select row at 5,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">8.320 ms</td>
+      <td class="num">8.100 ms</td>
+      <td class="num stable">-2.6%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>preact · select row at 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">8.480 ms</td>
+      <td class="num">8.360 ms</td>
+      <td class="num stable">-1.4%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>preact · select row at 20,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">14.38 ms</td>
+      <td class="num">12.12 ms</td>
+      <td class="num improvement">-15.7%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>preact · swap two rows exponent</td>
+      <td><code>exponent</code></td>
+      <td class="num">0.76</td>
+      <td class="num">0.71</td>
+      <td class="num improvement">-6.6%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>preact · swap two rows at 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.550 ms</td>
+      <td class="num">7.340 ms</td>
+      <td class="num stable">-2.8%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>preact · swap two rows at 2,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">8.610 ms</td>
+      <td class="num">10.42 ms</td>
+      <td class="num regression">+21.0%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>preact · swap two rows at 5,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">15.97 ms</td>
+      <td class="num">18.30 ms</td>
+      <td class="num regression">+14.6%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>preact · swap two rows at 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">35.07 ms</td>
+      <td class="num">32.24 ms</td>
+      <td class="num improvement">-8.1%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>preact · swap two rows at 20,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">66.96 ms</td>
+      <td class="num">61.65 ms</td>
+      <td class="num improvement">-7.9%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>preact · update every 10th row exponent</td>
+      <td><code>exponent</code></td>
+      <td class="num">0.81</td>
+      <td class="num">0.76</td>
+      <td class="num improvement">-6.2%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>preact · update every 10th row at 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.160 ms</td>
+      <td class="num">7.380 ms</td>
+      <td class="num stable">+3.1%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>preact · update every 10th row at 2,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">8.570 ms</td>
+      <td class="num">9.680 ms</td>
+      <td class="num regression">+13.0%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>preact · update every 10th row at 5,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">19.26 ms</td>
+      <td class="num">19.87 ms</td>
+      <td class="num stable">+3.2%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>preact · update every 10th row at 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">36.63 ms</td>
+      <td class="num">36.66 ms</td>
+      <td class="num stable">+0.1%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>preact · update every 10th row at 20,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">75.71 ms</td>
+      <td class="num">69.52 ms</td>
+      <td class="num improvement">-8.2%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vue · select row exponent</td>
+      <td><code>exponent</code></td>
+      <td class="num">0.44</td>
+      <td class="num">0.41</td>
+      <td class="num improvement">-6.8%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vue · select row at 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.950 ms</td>
+      <td class="num">7.490 ms</td>
+      <td class="num improvement">-5.8%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vue · select row at 2,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">8.060 ms</td>
+      <td class="num">8.310 ms</td>
+      <td class="num stable">+3.1%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · select row at 5,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">8.810 ms</td>
+      <td class="num">7.990 ms</td>
+      <td class="num improvement">-9.3%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vue · select row at 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">15.62 ms</td>
+      <td class="num">14.54 ms</td>
+      <td class="num improvement">-6.9%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vue · select row at 20,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">30.74 ms</td>
+      <td class="num">27.59 ms</td>
+      <td class="num improvement">-10.2%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vue · swap two rows exponent</td>
+      <td><code>exponent</code></td>
+      <td class="num">0.77</td>
+      <td class="num">0.76</td>
+      <td class="num stable">-1.3%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · swap two rows at 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.950 ms</td>
+      <td class="num">8.300 ms</td>
+      <td class="num stable">+4.4%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · swap two rows at 2,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">13.20 ms</td>
+      <td class="num">11.97 ms</td>
+      <td class="num improvement">-9.3%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vue · swap two rows at 5,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">26.64 ms</td>
+      <td class="num">26.09 ms</td>
+      <td class="num stable">-2.1%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · swap two rows at 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">42.48 ms</td>
+      <td class="num">42.91 ms</td>
+      <td class="num stable">+1.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · swap two rows at 20,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">81.60 ms</td>
+      <td class="num">78.18 ms</td>
+      <td class="num stable">-4.2%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · update every 10th row exponent</td>
+      <td><code>exponent</code></td>
+      <td class="num">0.80</td>
+      <td class="num">0.78</td>
+      <td class="num stable">-2.5%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · update every 10th row at 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.820 ms</td>
+      <td class="num">8.780 ms</td>
+      <td class="num regression">+12.3%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>vue · update every 10th row at 2,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">13.55 ms</td>
+      <td class="num">11.83 ms</td>
+      <td class="num improvement">-12.7%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vue · update every 10th row at 5,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">21.26 ms</td>
+      <td class="num">24.31 ms</td>
+      <td class="num regression">+14.3%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>vue · update every 10th row at 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">43.34 ms</td>
+      <td class="num">43.76 ms</td>
+      <td class="num stable">+1.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vue · update every 10th row at 20,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">93.04 ms</td>
+      <td class="num">90.04 ms</td>
+      <td class="num stable">-3.2%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>svelte · select row exponent</td>
+      <td><code>exponent</code></td>
+      <td class="num">0.04</td>
+      <td class="num">-0.02</td>
+      <td class="num improvement">-150.0%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>svelte · select row at 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.270 ms</td>
+      <td class="num">8.280 ms</td>
+      <td class="num regression">+13.9%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>svelte · select row at 2,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.390 ms</td>
+      <td class="num">8.890 ms</td>
+      <td class="num regression">+20.3%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>svelte · select row at 5,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.760 ms</td>
+      <td class="num">8.310 ms</td>
+      <td class="num regression">+7.1%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>svelte · select row at 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.550 ms</td>
+      <td class="num">7.930 ms</td>
+      <td class="num regression">+5.0%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>svelte · select row at 20,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">8.470 ms</td>
+      <td class="num">8.310 ms</td>
+      <td class="num stable">-1.9%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>svelte · swap two rows exponent</td>
+      <td><code>exponent</code></td>
+      <td class="num">0.72</td>
+      <td class="num">0.65</td>
+      <td class="num improvement">-9.7%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>svelte · swap two rows at 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.300 ms</td>
+      <td class="num">8.420 ms</td>
+      <td class="num regression">+15.3%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>svelte · swap two rows at 2,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">8.040 ms</td>
+      <td class="num">9.260 ms</td>
+      <td class="num regression">+15.2%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>svelte · swap two rows at 5,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">14.72 ms</td>
+      <td class="num">17.45 ms</td>
+      <td class="num regression">+18.5%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>svelte · swap two rows at 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">29.60 ms</td>
+      <td class="num">29.81 ms</td>
+      <td class="num stable">+0.7%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>svelte · swap two rows at 20,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">59.55 ms</td>
+      <td class="num">56.20 ms</td>
+      <td class="num improvement">-5.6%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>svelte · update every 10th row exponent</td>
+      <td><code>exponent</code></td>
+      <td class="num">0.74</td>
+      <td class="num">0.67</td>
+      <td class="num improvement">-9.5%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>svelte · update every 10th row at 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.240 ms</td>
+      <td class="num">8.070 ms</td>
+      <td class="num regression">+11.5%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>svelte · update every 10th row at 2,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">8.260 ms</td>
+      <td class="num">9.750 ms</td>
+      <td class="num regression">+18.0%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>svelte · update every 10th row at 5,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">17.98 ms</td>
+      <td class="num">16.55 ms</td>
+      <td class="num improvement">-8.0%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>svelte · update every 10th row at 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">31.84 ms</td>
+      <td class="num">30.87 ms</td>
+      <td class="num stable">-3.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>svelte · update every 10th row at 20,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">60.46 ms</td>
+      <td class="num">59.02 ms</td>
+      <td class="num stable">-2.4%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · select row exponent</td>
+      <td><code>exponent</code></td>
+      <td class="num">0.05</td>
+      <td class="num">0.05</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · select row at 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">6.850 ms</td>
+      <td class="num">7.080 ms</td>
+      <td class="num stable">+3.4%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · select row at 2,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.070 ms</td>
+      <td class="num">7.800 ms</td>
+      <td class="num regression">+10.3%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>vanilla · select row at 5,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">8.050 ms</td>
+      <td class="num">8.160 ms</td>
+      <td class="num stable">+1.4%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · select row at 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">8.250 ms</td>
+      <td class="num">7.880 ms</td>
+      <td class="num stable">-4.5%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · select row at 20,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.700 ms</td>
+      <td class="num">8.410 ms</td>
+      <td class="num regression">+9.2%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>vanilla · swap two rows exponent</td>
+      <td><code>exponent</code></td>
+      <td class="num">0.72</td>
+      <td class="num">0.67</td>
+      <td class="num improvement">-6.9%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vanilla · swap two rows at 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">7.020 ms</td>
+      <td class="num">7.170 ms</td>
+      <td class="num stable">+2.1%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · swap two rows at 2,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">8.950 ms</td>
+      <td class="num">9.290 ms</td>
+      <td class="num stable">+3.8%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · swap two rows at 5,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">12.89 ms</td>
+      <td class="num">15.41 ms</td>
+      <td class="num regression">+19.6%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>vanilla · swap two rows at 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">27.78 ms</td>
+      <td class="num">27.76 ms</td>
+      <td class="num stable">-0.1%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>vanilla · swap two rows at 20,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">62.77 ms</td>
+      <td class="num">52.73 ms</td>
+      <td class="num improvement">-16.0%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vanilla · update every 10th row exponent</td>
+      <td><code>exponent</code></td>
+      <td class="num">0.81</td>
+      <td class="num">0.73</td>
+      <td class="num improvement">-9.9%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vanilla · update every 10th row at 1,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">6.480 ms</td>
+      <td class="num">8.050 ms</td>
+      <td class="num regression">+24.2%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>vanilla · update every 10th row at 2,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">8.100 ms</td>
+      <td class="num">8.630 ms</td>
+      <td class="num regression">+6.5%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>vanilla · update every 10th row at 5,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">18.51 ms</td>
+      <td class="num">17.44 ms</td>
+      <td class="num improvement">-5.8%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vanilla · update every 10th row at 10,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">34.20 ms</td>
+      <td class="num">31.63 ms</td>
+      <td class="num improvement">-7.5%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>vanilla · update every 10th row at 20,000 rows</td>
+      <td><code>median</code></td>
+      <td class="num">69.52 ms</td>
+      <td class="num">67.19 ms</td>
+      <td class="num stable">-3.4%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr></tbody>
+  </table></div></details><details ><summary>JVM microbenchmarks (9)</summary><div class="table-scroll"><table>
+    <thead><tr><th>Scope</th><th>Metric</th><th>Baseline</th><th>Current</th><th>Change</th><th>Status</th></tr></thead>
+    <tbody><tr>
+      <td>write + recompute through 10,000-wide derived fan</td>
+      <td><code>medianMs</code></td>
+      <td class="num">3.125 ms</td>
+      <td class="num">1.087 ms</td>
+      <td class="num improvement">-65.2%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>cached read of a join over 10,000 unchanged dependencies</td>
+      <td><code>medianMs</code></td>
+      <td class="num">0.000 ms</td>
+      <td class="num">0.000 ms</td>
+      <td class="num improvement">-33.3%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>write + lazy read through 1,000-deep derived chain</td>
+      <td><code>medianMs</code></td>
+      <td class="num">0.775 ms</td>
+      <td class="num">0.067 ms</td>
+      <td class="num improvement">-91.4%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>write + lazy read through 500-deep derived chain (complexity probe: 1k should cost ~2x this = linear)</td>
+      <td><code>medianMs</code></td>
+      <td class="num">0.071 ms</td>
+      <td class="num">0.081 ms</td>
+      <td class="num regression">+13.9%</td>
+      <td><span class="status regression">regression</span></td>
+    </tr><tr>
+      <td>write + recompute through 100-wide diamond</td>
+      <td><code>medianMs</code></td>
+      <td class="num">0.030 ms</td>
+      <td class="num">0.015 ms</td>
+      <td class="num improvement">-50.2%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>render 1,000-row table Node tree (fresh runtime)</td>
+      <td><code>medianMs</code></td>
+      <td class="num">4.313 ms</td>
+      <td class="num">1.895 ms</td>
+      <td class="num improvement">-56.1%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>re-render 1,000-row table after updating every 10th row</td>
+      <td><code>medianMs</code></td>
+      <td class="num">1.702 ms</td>
+      <td class="num">0.531 ms</td>
+      <td class="num improvement">-68.8%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>parse all docs-site markdown (80 KB)</td>
+      <td><code>medianMs</code></td>
+      <td class="num">3.213 ms</td>
+      <td class="num">1.406 ms</td>
+      <td class="num improvement">-56.2%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr><tr>
+      <td>SSR: render parsed docs markdown to HTML string</td>
+      <td><code>medianMs</code></td>
+      <td class="num">6.181 ms</td>
+      <td class="num">2.437 ms</td>
+      <td class="num improvement">-60.6%</td>
+      <td><span class="status improvement">improvement</span></td>
+    </tr></tbody>
+  </table></div></details><details ><summary>Bundle sizes (12)</summary><div class="table-scroll"><table>
+    <thead><tr><th>Scope</th><th>Metric</th><th>Baseline</th><th>Current</th><th>Change</th><th>Status</th></tr></thead>
+    <tbody><tr>
+      <td>kinetica/browser-bench-bundle</td>
+      <td><code>gzipBytes</code></td>
+      <td class="num">86.1 KB</td>
+      <td class="num">86.1 KB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>kinetica/browser-bench-js</td>
+      <td><code>gzipBytes</code></td>
+      <td class="num">274.7 KB</td>
+      <td class="num">274.7 KB</td>
+      <td class="num stable">-0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>bench/vanilla</td>
+      <td><code>gzipBytes</code></td>
+      <td class="num">1.2 KB</td>
+      <td class="num">1.2 KB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>bench/react</td>
+      <td><code>gzipBytes</code></td>
+      <td class="num">60.3 KB</td>
+      <td class="num">60.3 KB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>bench/preact</td>
+      <td><code>gzipBytes</code></td>
+      <td class="num">8.6 KB</td>
+      <td class="num">8.6 KB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>bench/vue</td>
+      <td><code>gzipBytes</code></td>
+      <td class="num">65.2 KB</td>
+      <td class="num">65.2 KB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>bench/svelte</td>
+      <td><code>gzipBytes</code></td>
+      <td class="num">20.8 KB</td>
+      <td class="num">20.8 KB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>bench/vanilla-tree</td>
+      <td><code>gzipBytes</code></td>
+      <td class="num">0.8 KB</td>
+      <td class="num">0.8 KB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>bench/react-tree</td>
+      <td><code>gzipBytes</code></td>
+      <td class="num">59.6 KB</td>
+      <td class="num">59.6 KB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>bench/preact-tree</td>
+      <td><code>gzipBytes</code></td>
+      <td class="num">5.9 KB</td>
+      <td class="num">5.9 KB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>bench/vue-tree</td>
+      <td><code>gzipBytes</code></td>
+      <td class="num">64.8 KB</td>
+      <td class="num">64.8 KB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr><tr>
+      <td>bench/svelte-tree</td>
+      <td><code>gzipBytes</code></td>
+      <td class="num">20.2 KB</td>
+      <td class="num">20.2 KB</td>
+      <td class="num stable">+0.0%</td>
+      <td><span class="status stable">stable</span></td>
+    </tr></tbody>
+  </table></div></details></section>
+<section><h2>Scope and metric definitions</h2><dl class="meta"><dt>Current</dt><dd>20260716T215731619Z</dd><dt>Baseline</dt><dd>accepted (no complete versioned run yet)</dd><dt>Threshold</dt><dd>5% direction-adjusted change</dd><dt>Browser aggregate</dt><dd>Geometric mean of per-operation current median / baseline median for common scenarios.</dd><dt>Status</dt><dd>Lower is better except FPS. Stable means absolute direction-adjusted change is below the threshold.</dd></dl></section>
+<section><h2>Methodology and robustness</h2><p>Only metrics present in both runs are compared. No missing value is imputed. Browser identity checks cover Chromium, CPU, architecture, platform and throttle where recorded; JVM checks cover runtime and OS. Sample distributions are retained in source JSON, while this report compares medians.</p></section>
+<section><h2>Limitations</h2><ul><li>Percentage thresholds are practical noise guards, not confidence intervals.</li><li>Results from different machines, browser builds, throttle settings or JVMs are blocked by default.</li><li>A filtered run can compare only its common subset; aggregate changes state the number of included scenarios.</li><li>Bundle size comparisons are deterministic for identical build inputs; runtime measurements are not.</li></ul></section>
+<section><h2>Recommended next steps</h2><ul><li>Inspect the largest same-environment regressions in the metric tables and raw samples.</li><li>Repeat surprising runtime changes with more iterations before accepting a baseline.</li><li>Promote and update documentation only from a complete all-framework run.</li></ul></section>
+<section><h2>Further questions</h2><p>Do the largest deltas reproduce in a second run, and do CPU profiles or allocation traces explain them?</p></section>
+</main></body></html>

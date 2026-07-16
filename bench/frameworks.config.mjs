@@ -1,5 +1,5 @@
 // Single source of truth for benchmarked frameworks, shared by driver/bench.mjs,
-// report/generate.mjs and run-all.mjs.
+// report/generate.mjs and run.mjs.
 //
 // Rules for adding a framework (see README.md for the full contract):
 // - APPEND new entries at the end. Position in this list assigns the chart color
@@ -13,6 +13,9 @@
 //   via `node build.mjs`, which reads TARGETS in build.mjs).
 // - `treeUrl`: the framework's deep-tree benchmark app (driver/tree.mjs); omit to skip
 //   that framework in the tree bench.
+// - `profile`: recipe for a readable production-mode bundle used by run.mjs --profile.
+//   `build-target` reuses a target exported by build.mjs; `linked-js` bundles a Kotlin/JS
+//   link output. Use `{ unsupported: "reason" }` only for an explicit browser limitation.
 
 export const frameworks = [
   {
@@ -24,6 +27,11 @@ export const frameworks = [
     rowControl: "button",
     version: "dev",
     build: { cmd: process.execPath, args: ["bench/build-kinetica.mjs"] },
+    profile: {
+      kind: "linked-js",
+      entry: "build/tasks/_browser-bench_linkJs/browser-bench.mjs",
+      define: { KINETICA_DEBUG_DIAGNOSTICS: "false" },
+    },
   },
   {
     name: "react",
@@ -33,6 +41,7 @@ export const frameworks = [
     buttons: "id",
     rowControl: "a",
     version: { package: "react" },
+    profile: { kind: "build-target", target: "react" },
   },
   {
     name: "preact",
@@ -42,6 +51,7 @@ export const frameworks = [
     buttons: "id",
     rowControl: "a",
     version: { package: "preact" },
+    profile: { kind: "build-target", target: "preact" },
   },
   {
     name: "vue",
@@ -51,6 +61,7 @@ export const frameworks = [
     buttons: "id",
     rowControl: "a",
     version: { package: "vue" },
+    profile: { kind: "build-target", target: "vue" },
   },
   {
     name: "svelte",
@@ -60,6 +71,7 @@ export const frameworks = [
     buttons: "id",
     rowControl: "a",
     version: { package: "svelte" },
+    profile: { kind: "build-target", target: "svelte" },
   },
   {
     name: "vanilla",
@@ -69,6 +81,7 @@ export const frameworks = [
     buttons: "id",
     rowControl: "a",
     version: "n/a",
+    profile: { kind: "build-target", target: "vanilla" },
   },
   {
     name: "compose-web",
@@ -79,6 +92,10 @@ export const frameworks = [
     rowControl: "a",
     version: "1.11.1",
     build: { cmd: process.execPath, args: ["bench/build-compose.mjs"] },
+    profile: {
+      kind: "linked-js",
+      entry: "build/tasks/_browser-bench-compose_linkJs/browser-bench-compose.mjs",
+    },
   },
 ];
 

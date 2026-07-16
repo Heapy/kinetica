@@ -14,7 +14,11 @@ const bundleFile = join(bundleDir, "browser-bench.bundle.mjs");
 const kotlin = process.platform === "win32" ? "kotlin.bat" : "./kotlin";
 // browser-bench compiles through the Kinetica compiler plugin, resolved from the
 // toolchain-local repo — publish it first so the bundle always uses the current plugin.
-run(kotlin, ["publish", "mavenLocal", "-m", "kinetica-compiler"], { cwd: repoRoot });
+// The unified orchestrator publishes it once for all selected suites and sets this
+// marker so the per-framework build does not repeat the publication.
+if (process.env.KINETICA_COMPILER_PUBLISHED !== "1") {
+  run(kotlin, ["publish", "mavenLocal", "-m", "kinetica-compiler"], { cwd: repoRoot });
+}
 run(kotlin, ["build", "-m", "browser-bench"], { cwd: repoRoot });
 
 if (!existsSync(linkEntry)) {

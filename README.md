@@ -51,7 +51,7 @@ See [`docs/README.md`](docs/README.md).
 | `kinetica-compiler` | K2 compiler plugin — mandatory: frame/slot ordinals, skip transform, FIR authoring rules, server/client boundary |
 | `samples/` | browser apps, four-way Game of Life comparison, server-components demo, annotated (compiler-plugin) sample |
 | `docs/` | the documentation site + Docker packaging |
-| `bench/` | js-framework-benchmark harness vs React/Preact/Vue/Svelte/vanilla — 13 keyed-table ops, GC accounting, scaling curves, sustained updates, deep-tree suite, memory/leak probes ([guide](bench/README.md)) |
+| `bench/` | Unified benchmark runner (`node bench/run.mjs`) plus js-framework-benchmark harness vs React/Preact/Vue/Svelte/vanilla/Compose HTML — 13 keyed-table ops, GC accounting, scaling curves, sustained updates, deep-tree suite, memory/leak probes ([guide](bench/README.md)) |
 | `bench-jvm/` | JVM microbenchmarks: reactive core, render pipeline, markdown SSR (`./kotlin run -m bench-jvm`) |
 
 ## Building

@@ -23,5 +23,7 @@ build/
 /bench/dist/
 /bench/results/dom-count-*.json
 /bench/results/profile-*/
+/bench/results/cpuprofiles/
+/bench/results/runs/
 /docs/.docker-stage/
 .claude/

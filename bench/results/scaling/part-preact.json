@@ -1,9 +1,15 @@
 {
   "meta": {
-    "date": "2026-07-06T09:33:27.744Z",
+    "date": "2026-07-16T22:58:54.723Z",
+    "machine": {
+      "cpu": "Apple M4 Max",
+      "arch": "arm64",
+      "platform": "darwin",
+      "memGb": 36
+    },
     "chromium": "149.0.7827.55",
-    "warmup": 1,
-    "samples": 5,
+    "warmup": 3,
+    "samples": 10,
     "sizes": [
       1000,
       2000,
@@ -28,43 +34,43 @@
           "threshold": 0.6,
           "bySize": {
             "1000": {
-              "median": 7.1,
-              "mean": 7.09,
-              "stddev": 0.67,
-              "min": 6.15,
-              "max": 8.13
+              "median": 7.67,
+              "mean": 7.4,
+              "stddev": 0.99,
+              "min": 5.77,
+              "max": 8.84
             },
             "2000": {
-              "median": 8.04,
-              "mean": 7.43,
-              "stddev": 0.98,
-              "min": 6.23,
-              "max": 8.37
+              "median": 7.41,
+              "mean": 7.21,
+              "stddev": 1.19,
+              "min": 4.87,
+              "max": 9.3
             },
             "5000": {
-              "median": 8.32,
-              "mean": 7.95,
-              "stddev": 0.68,
-              "min": 6.86,
-              "max": 8.69
+              "median": 8.1,
+              "mean": 8.33,
+              "stddev": 0.85,
+              "min": 7.42,
+              "max": 9.96
             },
             "10000": {
-              "median": 8.48,
-              "mean": 8.38,
-              "stddev": 0.36,
-              "min": 7.78,
-              "max": 8.81
+              "median": 8.36,
+              "mean": 7.96,
+              "stddev": 1.15,
+              "min": 5.8,
+              "max": 9.34
             },
             "20000": {
-              "median": 14.38,
-              "mean": 14.63,
-              "stddev": 0.95,
-              "min": 13.46,
-              "max": 15.81
+              "median": 12.12,
+              "mean": 12.26,
+              "stddev": 0.99,
+              "min": 11.01,
+              "max": 14.42
             }
           },
-          "exponent": 0.19,
-          "r2": 0.69,
+          "exponent": 0.13,
+          "r2": 0.66,
           "superlinear": false
         },
         "swap": {
@@ -72,43 +78,43 @@
           "threshold": 0.6,
           "bySize": {
             "1000": {
-              "median": 7.55,
-              "mean": 7.59,
-              "stddev": 0.37,
-              "min": 7.03,
-              "max": 8.04
+              "median": 7.34,
+              "mean": 7.16,
+              "stddev": 1.1,
+              "min": 5.27,
+              "max": 8.82
             },
             "2000": {
-              "median": 8.61,
-              "mean": 8.64,
-              "stddev": 0.55,
-              "min": 7.9,
-              "max": 9.6
+              "median": 10.42,
+              "mean": 10.18,
+              "stddev": 0.84,
+              "min": 8.64,
+              "max": 11.18
             },
             "5000": {
-              "median": 15.97,
-              "mean": 15.99,
-              "stddev": 1.21,
-              "min": 13.83,
-              "max": 17.24
+              "median": 18.3,
+              "mean": 17.7,
+              "stddev": 2.2,
+              "min": 13.67,
+              "max": 20.52
             },
             "10000": {
-              "median": 35.07,
-              "mean": 36.04,
-              "stddev": 3.85,
-              "min": 32.37,
-              "max": 43.39
+              "median": 32.24,
+              "mean": 32.78,
+              "stddev": 1.76,
+              "min": 30.84,
+              "max": 36.14
             },
             "20000": {
-              "median": 66.96,
-              "mean": 67.03,
-              "stddev": 2.01,
-              "min": 63.96,
-              "max": 69.41
+              "median": 61.65,
+              "mean": 61.55,
+              "stddev": 3.37,
+              "min": 56.07,
+              "max": 67
             }
           },
-          "exponent": 0.76,
-          "r2": 0.95,
+          "exponent": 0.71,
+          "r2": 0.99,
           "superlinear": true
         },
         "update": {
@@ -116,43 +122,43 @@
           "threshold": 1.3,
           "bySize": {
             "1000": {
-              "median": 7.16,
-              "mean": 7.21,
-              "stddev": 0.25,
-              "min": 6.93,
-              "max": 7.67
+              "median": 7.38,
+              "mean": 7.65,
+              "stddev": 0.84,
+              "min": 6.48,
+              "max": 9.35
             },
             "2000": {
-              "median": 8.57,
-              "mean": 8.7,
-              "stddev": 1.04,
-              "min": 7.61,
-              "max": 10.63
+              "median": 9.68,
+              "mean": 9.96,
+              "stddev": 1.23,
+              "min": 7.69,
+              "max": 12.8
             },
             "5000": {
-              "median": 19.26,
-              "mean": 19.65,
-              "stddev": 0.86,
-              "min": 18.66,
-              "max": 21.17
+              "median": 19.87,
+              "mean": 20.27,
+              "stddev": 1.62,
+              "min": 18.33,
+              "max": 23.17
             },
             "10000": {
-              "median": 36.63,
-              "mean": 37.19,
-              "stddev": 1.95,
-              "min": 34.65,
-              "max": 39.72
+              "median": 36.66,
+              "mean": 36.45,
+              "stddev": 2.39,
+              "min": 32.66,
+              "max": 41.34
             },
             "20000": {
-              "median": 75.71,
-              "mean": 81.07,
-              "stddev": 9.82,
-              "min": 69.27,
-              "max": 94.92
+              "median": 69.52,
+              "mean": 70.1,
+              "stddev": 2.48,
+              "min": 65.97,
+              "max": 74.16
             }
           },
-          "exponent": 0.81,
-          "r2": 0.97,
+          "exponent": 0.76,
+          "r2": 0.98,
           "superlinear": false
         }
       }

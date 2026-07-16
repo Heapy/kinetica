@@ -1,9 +1,15 @@
 {
   "meta": {
-    "date": "2026-07-06T09:34:53.416Z",
+    "date": "2026-07-16T23:02:40.089Z",
+    "machine": {
+      "cpu": "Apple M4 Max",
+      "arch": "arm64",
+      "platform": "darwin",
+      "memGb": 36
+    },
     "chromium": "149.0.7827.55",
-    "warmup": 1,
-    "samples": 5,
+    "warmup": 3,
+    "samples": 10,
     "sizes": [
       1000,
       2000,
@@ -28,43 +34,43 @@
           "threshold": 0.6,
           "bySize": {
             "1000": {
-              "median": 7.95,
-              "mean": 7.67,
-              "stddev": 0.38,
-              "min": 7.16,
-              "max": 8.02
+              "median": 7.49,
+              "mean": 7.43,
+              "stddev": 1.13,
+              "min": 5.51,
+              "max": 9.02
             },
             "2000": {
-              "median": 8.06,
-              "mean": 7.85,
-              "stddev": 0.54,
-              "min": 6.78,
-              "max": 8.25
+              "median": 8.31,
+              "mean": 8.35,
+              "stddev": 0.81,
+              "min": 7.35,
+              "max": 9.66
             },
             "5000": {
-              "median": 8.81,
-              "mean": 9,
-              "stddev": 0.55,
-              "min": 8.48,
-              "max": 9.98
+              "median": 7.99,
+              "mean": 8.14,
+              "stddev": 0.69,
+              "min": 7.16,
+              "max": 9.58
             },
             "10000": {
-              "median": 15.62,
-              "mean": 15.73,
-              "stddev": 0.5,
-              "min": 15.09,
-              "max": 16.37
+              "median": 14.54,
+              "mean": 14.68,
+              "stddev": 0.58,
+              "min": 13.68,
+              "max": 15.78
             },
             "20000": {
-              "median": 30.74,
-              "mean": 33.2,
-              "stddev": 6.79,
-              "min": 28.19,
-              "max": 46.59
+              "median": 27.59,
+              "mean": 27.79,
+              "stddev": 0.73,
+              "min": 27.32,
+              "max": 29.86
             }
           },
-          "exponent": 0.44,
-          "r2": 0.8,
+          "exponent": 0.41,
+          "r2": 0.78,
           "superlinear": false
         },
         "swap": {
@@ -72,42 +78,42 @@
           "threshold": 0.6,
           "bySize": {
             "1000": {
-              "median": 7.95,
-              "mean": 8.29,
-              "stddev": 0.62,
-              "min": 7.62,
-              "max": 9.36
+              "median": 8.3,
+              "mean": 8.28,
+              "stddev": 0.64,
+              "min": 7.5,
+              "max": 9.78
             },
             "2000": {
-              "median": 13.2,
-              "mean": 12.66,
-              "stddev": 1.68,
-              "min": 9.51,
-              "max": 14.46
+              "median": 11.97,
+              "mean": 11.83,
+              "stddev": 1.78,
+              "min": 8.55,
+              "max": 14.45
             },
             "5000": {
-              "median": 26.64,
-              "mean": 27.14,
-              "stddev": 1.74,
-              "min": 25.32,
-              "max": 29.72
+              "median": 26.09,
+              "mean": 25.79,
+              "stddev": 1.25,
+              "min": 23.02,
+              "max": 27.3
             },
             "10000": {
-              "median": 42.48,
-              "mean": 42.18,
-              "stddev": 1.34,
-              "min": 39.89,
-              "max": 43.64
+              "median": 42.91,
+              "mean": 43.58,
+              "stddev": 2.01,
+              "min": 41.14,
+              "max": 47.53
             },
             "20000": {
-              "median": 81.6,
-              "mean": 85.24,
-              "stddev": 8.56,
-              "min": 77.3,
-              "max": 101.77
+              "median": 78.18,
+              "mean": 79.16,
+              "stddev": 3.06,
+              "min": 73.68,
+              "max": 83.74
             }
           },
-          "exponent": 0.77,
+          "exponent": 0.76,
           "r2": 1,
           "superlinear": true
         },
@@ -116,42 +122,42 @@
           "threshold": 1.3,
           "bySize": {
             "1000": {
-              "median": 7.82,
-              "mean": 8.03,
-              "stddev": 1.42,
-              "min": 6.24,
-              "max": 10.61
+              "median": 8.78,
+              "mean": 8.86,
+              "stddev": 0.53,
+              "min": 7.98,
+              "max": 9.64
             },
             "2000": {
-              "median": 13.55,
-              "mean": 12.68,
-              "stddev": 2.55,
-              "min": 8.33,
-              "max": 15.19
+              "median": 11.83,
+              "mean": 11.89,
+              "stddev": 1.99,
+              "min": 8.73,
+              "max": 15.74
             },
             "5000": {
-              "median": 21.26,
-              "mean": 22.14,
-              "stddev": 1.76,
-              "min": 20.63,
-              "max": 25.36
+              "median": 24.31,
+              "mean": 23.81,
+              "stddev": 2.56,
+              "min": 18.11,
+              "max": 26.33
             },
             "10000": {
-              "median": 43.34,
-              "mean": 43.51,
-              "stddev": 2.4,
-              "min": 40.94,
-              "max": 47.08
+              "median": 43.76,
+              "mean": 43.4,
+              "stddev": 2.09,
+              "min": 40.64,
+              "max": 46.48
             },
             "20000": {
-              "median": 93.04,
-              "mean": 92.96,
-              "stddev": 2.44,
-              "min": 89.2,
-              "max": 96.85
+              "median": 90.04,
+              "mean": 89.71,
+              "stddev": 2.72,
+              "min": 83.72,
+              "max": 93.78
             }
           },
-          "exponent": 0.8,
+          "exponent": 0.78,
           "r2": 0.98,
           "superlinear": false
         }

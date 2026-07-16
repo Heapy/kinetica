@@ -6,7 +6,7 @@
   "scripts": {
     "build": "node build.mjs",
     "bench": "node driver/bench.mjs",
-    "all": "node run-all.mjs",
+    "all": "node run.mjs",
     "game-of-life": "node game-of-life/run.mjs"
   },
   "dependencies": {

@@ -1,7 +1,7 @@
 import { build } from "esbuild";
 import sveltePlugin from "esbuild-svelte";
 import { cpSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = dirname(fileURLToPath(import.meta.url));
@@ -42,7 +42,7 @@ function page(title) {
 `;
 }
 
-const targets = [
+export const targets = [
   { name: "vanilla", title: "Vanilla JS keyed benchmark", entry: "frameworks/vanilla/main.mjs" },
   { name: "react", title: "React keyed benchmark", entry: "frameworks/react/main.jsx" },
   { name: "preact", title: "Preact keyed benchmark", entry: "frameworks/preact/main.jsx" },
@@ -55,13 +55,14 @@ const targets = [
   { name: "svelte-tree", title: "Svelte tree benchmark", entry: "frameworks/svelte/tree-main.mjs", svelte: true },
 ];
 
-for (const target of targets) {
-  const outDir = join(dist, target.name);
+export async function buildTarget(name, { minify = true, outDir = join(dist, name), title = null } = {}) {
+  const target = targets.find((candidate) => candidate.name === name);
+  if (!target) throw new Error(`unknown build target '${name}'`);
   mkdirSync(outDir, { recursive: true });
   await build({
     entryPoints: [join(root, target.entry)],
     bundle: true,
-    minify: true,
+    minify,
     format: "esm",
     outfile: join(outDir, "main.js"),
     define: {
@@ -77,7 +78,11 @@ for (const target of targets) {
       : [],
     logLevel: "warning",
   });
-  writeFileSync(join(outDir, "index.html"), page(target.title));
+  writeFileSync(join(outDir, "index.html"), page(title ?? target.title));
   cpSync(join(root, "frameworks/shared/styles.css"), join(outDir, "styles.css"));
-  console.log(`built ${target.name}`);
+  console.log(`built ${target.name}${minify ? "" : " readable profile"}`);
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  for (const target of targets) await buildTarget(target.name);
 }

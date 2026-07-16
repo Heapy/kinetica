@@ -1,0 +1,124 @@
+{
+  "date": "2026-07-16T23:26:56.660Z",
+  "status": "complete",
+  "suites": [
+    "main",
+    "tree",
+    "scaling",
+    "jvm",
+    "size",
+    "build"
+  ],
+  "scenarios": {
+    "main": [
+      "01_run1k",
+      "02_replace1k",
+      "03_update10th1k",
+      "04_select1k",
+      "05_swap1k",
+      "06_remove1k",
+      "07_create10k",
+      "08_append1k",
+      "09_clear1k",
+      "10_select10k",
+      "11_swap10k",
+      "12_remove10k",
+      "13_update10th10k",
+      "startup",
+      "memory",
+      "animation"
+    ],
+    "tree": [
+      "t1_createTree",
+      "t2_updateLeaves",
+      "t3_reverseTop",
+      "t4_noopRender"
+    ],
+    "scaling": [
+      "select",
+      "swap",
+      "update"
+    ],
+    "jvm": [
+      "derived_fanout_10k",
+      "derived_fanout_cached_read",
+      "derived_chain_lazy_1k",
+      "derived_chain_lazy_500",
+      "derived_diamond_100",
+      "render_create_1k",
+      "render_update_1k",
+      "markdown_parse_docs",
+      "ssr_render_docs"
+    ],
+    "size": [
+      "size"
+    ],
+    "build": [
+      "build"
+    ]
+  },
+  "frameworks": [
+    "kinetica",
+    "react",
+    "preact",
+    "vue",
+    "svelte",
+    "vanilla",
+    "compose-web"
+  ],
+  "frameworksBySuite": {
+    "main": [
+      "kinetica",
+      "react",
+      "preact",
+      "vue",
+      "svelte",
+      "vanilla",
+      "compose-web"
+    ],
+    "tree": [
+      "kinetica",
+      "react",
+      "preact",
+      "vue",
+      "svelte",
+      "vanilla",
+      "compose-web"
+    ],
+    "scaling": [
+      "kinetica",
+      "react",
+      "preact",
+      "vue",
+      "svelte",
+      "vanilla",
+      "compose-web"
+    ]
+  },
+  "warmup": 3,
+  "iterations": 10,
+  "stress": null,
+  "extra": null,
+  "cpuThrottle": null,
+  "profiling": null,
+  "resultsDir": "bench/results",
+  "artifacts": {
+    "browser": "bench/results/results.json",
+    "throttled": null,
+    "tree": "bench/results/tree.json",
+    "scaling": "bench/results/scaling.json",
+    "jvm": "bench/results/jvm/results.json",
+    "sizesAndBuild": "bench/results/sizes.json",
+    "report": "bench/report/index.html",
+    "comparisonJson": "bench/results/comparison.json",
+    "comparisonHtml": "bench/report/comparison.html"
+  },
+  "comparison": {
+    "baseline": "accepted (no complete versioned run yet)",
+    "compatible": false,
+    "allowed": true,
+    "metrics": 346,
+    "json": "bench/results/comparison.json",
+    "html": "bench/report/comparison.html"
+  }
+}

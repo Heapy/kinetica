@@ -18,7 +18,8 @@ import { gzipSync } from "node:zlib";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const baselinePath = join(repoRoot, "bench", "size-baseline.json");
-const outPath = join(repoRoot, "bench", "results", "sizes.json");
+const resultsDir = process.env.BENCH_RESULTS_DIR ?? join(repoRoot, "bench", "results");
+const outPath = join(resultsDir, "sizes.json");
 
 const args = new Set(process.argv.slice(2));
 

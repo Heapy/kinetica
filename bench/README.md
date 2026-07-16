@@ -8,7 +8,8 @@ environment: one machine, one local static server, one vendored Chromium, one dr
 
 Beyond the classic 9 operations the suite measures: partial operations on the 10k table,
 GC time inside every operation, scaling curves (complexity-class regression detection),
-sustained-update frame timing (dbmonster-style), a deep-tree suite (UIBench-style), memory
+sustained-update frame timing (dbmonster-style), an opt-in 10k–100k stress curve for
+Kinetica/React/Vanilla, a deep-tree suite (UIBench-style), memory
 churn/leak probes, startup script/blocking time, an optional CPU-throttled pass, plus JVM
 microbenchmarks (`../bench-jvm`) and a bundle-size baseline check (`../scripts/size-report.mjs`).
 
@@ -18,40 +19,119 @@ re-run the suite, or modify the harness. Read it fully before changing anything.
 ## Quick start
 
 ```sh
-cd bench
-npm install                 # once; installs framework deps + esbuild
-node run-all.mjs            # build everything → bench all frameworks → merge → report
-open report/index.html      # the local results page
+node bench/run.mjs           # provision → build → run every standard suite → report
+# the runner prints the versioned result/report paths when it finishes
 ```
 
-Common variants:
+The unified runner owns the complete lifecycle: it installs the locked npm dependencies,
+provisions Playwright and Chromium under the repository, publishes the current
+`kinetica-compiler` to `mavenLocal`, builds the selected apps, runs every selected framework
+sequentially, runs the JVM and size/build suites, merges browser result parts, regenerates the
+HTML report, and writes a versioned `bench/results/runs/<id>/run.json` manifest with the
+effective run configuration. A normal run never overwrites the accepted numbers.
+That manifest also points to every produced artifact (`results.json`, tree/scaling/stress/extra JSON,
+JVM results, size/build metrics, and the browser report), so automation has one stable entry
+point even when only a subset of suites was selected.
+
+Host prerequisites are Node/npm and the Kotlin Toolchain CLI required by the checked-in
+`./kotlin` wrapper. Everything benchmark-specific is provisioned inside the repository; use
+`--with-deps` on a fresh Linux host if Playwright must also install Chromium's OS packages.
+
+Its common timing knobs apply to the standard timed suites (`--iterations` is translated to the
+older drivers' `--samples` option). The opt-in stress curve has bounded defaults of one warmup
+and three samples:
 
 ```sh
-node run-all.mjs --frameworks=kinetica            # re-bench one framework; other results kept
-node run-all.mjs --frameworks=solid               # bench a newly added framework
-node run-all.mjs --samples=5 --warmup=1           # quick noisy pass (default 10 + 3)
-node run-all.mjs --skip-build                     # bundles unchanged, skip builds
-node run-all.mjs --report-only                    # only re-merge parts + regenerate the page
-node run-all.mjs --tree                           # also run the deep-tree suite
-node run-all.mjs --scaling                        # also run scaling curves
-node run-all.mjs --throttle=4                     # 4x CPU-throttled pass → results/throttled/
-node run-all.mjs --skip-main --tree               # only the tree suite, keep main parts
-node driver/bench.mjs --frameworks=react --bench=04 --samples=3    # one op, for debugging
-node driver/bench.mjs --frameworks=react --bench=anim              # only the animation bench
-node driver/tree.mjs --frameworks=kinetica --samples=3             # tree suite directly
-node driver/scaling.mjs --frameworks=kinetica --sizes=1000,5000,20000 --strict
+node bench/run.mjs --warmup=1 --iterations=3
+node bench/run.mjs --suites=main,jvm --frameworks=kinetica,react
+node bench/run.mjs --suites=tree,scaling --frameworks=kinetica --sizes=1000,5000,20000
+node bench/run.mjs --suites=stress
+node bench/run.mjs --suites=extra --frameworks=kinetica
+node bench/run.mjs '--filter=main:07_create10k,main:animation,jvm:render_*'
+node bench/run.mjs --row-sizes=10k,100k,1000k --filter=jvm:row_
+node bench/run.mjs --compare-to=latest
+node bench/run.mjs --compare-to=accepted
+node bench/run.mjs --compare-to=git:main
+node bench/run.mjs --suites=main --frameworks=kinetica,react \
+  --filter=main:12_remove10k --profile --iterations=3
+node bench/run.mjs --list
+node bench/run.mjs --dry-run
 ```
 
-A full default run takes ~20–30 minutes (more with `--tree`/`--scaling`). Frameworks are
+Suites are `main`, `tree`, `scaling`, `stress`, `extra`, `jvm`, `size`, and `build`. The default
+and `all` include every standard suite but deliberately exclude the expensive `stress` and
+`extra` investigation tiers; the `browser` alias likewise means `main,tree,scaling`. Both opt-in
+tiers are hard-limited to Kinetica, React and Vanilla JS, even when other frameworks are selected.
+A filter is a comma-separated list of substring or `*` wildcard selectors. Prefix a
+selector with its suite to disambiguate IDs such as `main:07_create10k`; quote wildcard-bearing
+arguments in shells such as zsh. Run `node bench/run.mjs --help` for provisioning, throttling,
+output-directory, comparison, and reuse options. Every comparison writes `comparison.json` and
+a self-contained `comparison.html` next to the run. Environment mismatches (machine, Chromium,
+CPU throttle, JVM) are reported and block acceptance by default. `--compare-to=latest` selects
+the newest completed run with the requested suites and framework coverage, so stress is not
+accidentally compared with an ordinary default run.
+
+### Re-running Kinetica with cached framework results
+
+For routine Kinetica work, measure Kinetica again and fill the unselected browser-framework
+columns from one previous run:
+
+```sh
+node bench/run.mjs --frameworks=kinetica \
+  --reuse-from=latest --compare-to=accepted
+```
+
+`--reuse-from` accepts `accepted`, `latest`, or a versioned run directory. It applies to every
+selected browser suite: `main`, `tree`, `scaling`, and the opt-in `stress`/`extra` suites. The
+default command above still runs the non-browser Kinetica/JVM, size, and build suites normally;
+only the unselected browser frameworks are cached. Select opt-in tiers explicitly when needed,
+for example `--suites=all,stress,extra` to keep every standard suite too; use a versioned run as
+their source because accepted results do not promote `stress` or `extra` artifacts. Prefer `latest` or an explicit
+completed run for routine reuse; legacy accepted artifacts are usable only when their timing
+metadata matches the requested run.
+
+Reuse requires a partial framework selection and an unfiltered suite. For each selected browser
+suite that needs cache, the source must contain at least one unselected framework; only frameworks
+actually present in that source are added (a Kinetica/React/Vanilla source therefore adds React and
+Vanilla, not the whole registry). Its recorded machine, Chromium, throttle, warmup/sample counts,
+sizes, methodology, and reused framework versions must match the fresh run. A mismatch aborts the
+merge; re-run all frameworks after changing the environment, benchmark settings, or a cached
+framework's dependency. `--compare-to` remains independent: it chooses the baseline for deltas,
+while `--reuse-from` chooses data used only to complete the cross-framework tables.
+
+Merged JSON artifacts and `run.json` retain the measured/reused framework lists and cache source.
+The HTML report displays that provenance. Comparisons omit cached current-run framework values,
+so unchanged copied numbers do not inflate the “stable” count or dilute Kinetica's aggregate.
+
+`--profile` additionally captures V8 CPU profiles for all selected browser frameworks and main
+scenarios using readable, unminified production-mode bundles. It honors the common warmup/iteration and
+main-scenario filters, writes raw `.cpuprofile` files under the versioned run's `profiles/`, and
+adds an aggregated `profiles/summary.json` with self-time by file and top function. The supported
+profile scenarios are select/remove on 1k, append 1k, remove on 10k, and update every tenth on
+10k; use `--profile-interval-us` and `--profile-top` for profiler-specific tuning. Each framework's
+registry entry declares how its readable bundle is produced; a framework can be skipped only with
+an explicit `profile.unsupported` reason.
+
+To replace the canonical results and generated documentation after reviewing a complete run:
+
+```sh
+node bench/run.mjs --accept --compare-to=accepted
+node bench/run.mjs --update-docs    # compare to latest, accept, update Markdown + static assets
+```
+
+Both commands require exactly every standard suite, scenario, and framework in one unthrottled
+run; opt-in `stress` and `extra` results stay in versioned run directories and are not promoted. Use
+`--allow-incompatible` only when the environment change is intentional and documented.
+Individual drivers remain useful while debugging one harness. A full default run is long. Frameworks are
 benchmarked **sequentially, never in parallel** — parallel Chromiums contend for CPU and corrupt
 the timings. Don't run anything CPU-heavy on the machine during a run, and don't run two
-`run-all`/driver invocations at once.
+runner/driver invocations at once.
 
 ## Directory map
 
 ```
 frameworks.config.mjs   ← REGISTRY: every benchmarked framework (order = chart color slot)
-run-all.mjs             ← orchestrator: builds → sequential benches → merges → report
+run.mjs                 ← unified provision/build/run/merge/report orchestrator
 build.mjs               ← esbuild bundling for the JS frameworks (has its own `targets` list)
 build-kinetica.mjs      ← Kotlin/JS link + esbuild production bundle for Kinetica
 frameworks/<name>/      ← table app (main.*) and tree app (tree.* / Tree*.svelte) per framework
@@ -59,16 +139,19 @@ frameworks/shared/      ← data.mjs + tree-data.mjs (generators), styles.css (s
 driver/common.mjs       ← shared machinery: args, Playwright, trace parsing (incl. GC), stats
 driver/bench.mjs        ← main driver: 13 ops + startup + memory churn + animation
 driver/tree.mjs         ← deep-tree driver (create/update/reverse/no-op on 1,555 nodes)
-driver/scaling.mjs      ← scaling curves: ops at 1k–50k rows, log-log slope fit
+driver/scaling.mjs      ← standard 1k–20k and opt-in 10k–100k stress curves
+driver/extra-ops.mjs    ← ad-hoc large-table append/remove/clear investigations
 driver/server.mjs       ← static file server rooted at the REPO ROOT (port 4573)
-driver/merge.mjs        ← merges part files → merged results JSON (generic per-section)
-results/part-<name>.json       ← canonical per-framework results (kept between runs)
-results/part-*-before.json     ← historical snapshots; excluded from merges; feed the
-                                 report's before/after section
-results/tree/ scaling/ throttled/  ← per-framework parts for the optional suites, merged to
-                                     results/tree.json, scaling.json, throttled.json
+results/runs/<id>/              ← immutable local run artifacts (gitignored)
+results/part-<name>.json        ← accepted canonical per-framework results
+results/comparison.json         ← comparison attached to the accepted run
+results/runs/<id>/profiles/     ← optional raw CPU profiles + aggregated summary.json
+results/tree/ scaling/ stress/ throttled/  ← per-framework parts, merged to the corresponding
+                                             root JSON artifacts
+results/extra-ops/              ← ad-hoc large-table mutation results
 results/jvm/results.json       ← output of ../bench-jvm (JVM microbenchmarks)
-report/generate.mjs     ← results JSONs → report/index.html (self-contained page)
+report/generate.mjs     ← browser results → report/index.html
+report/comparison.mjs   ← generic run comparison + generated docs block
 ../bench-jvm/           ← JVM microbenchmarks: reactive core, render pipeline, markdown SSR
 ../scripts/size-report.mjs     ← bundle sizes vs ../bench/size-baseline.json (CI-enforced)
 ```
@@ -80,8 +163,8 @@ that plugin — IR const-props interning + static leaf-host hoisting), then esbu
 bundles/minifies the linked Kotlin/JS graph into
 `../build/tasks/_browser-bench_bundle/browser-bench.bundle.mjs`). Table app at
 `../samples/browser-bench/web/index.html`, tree app at the same page with `?app=tree`.
-`part-kinetica-preplugin-before.json` snapshots the last pre-plugin numbers. Renderer work:
-see git history for the retired `perf-rewrite-design.md` and `compiler-perf-design.md`.
+Renderer history lives in git; current changes are compared through complete versioned runs,
+not special per-framework snapshot files.
 
 The Compose HTML app lives at `../samples/browser-bench-compose/` (module
 `browser-bench-compose`, plain Kotlin/JS + JetBrains Compose Multiplatform's DOM library
@@ -150,10 +233,10 @@ Also collected per framework:
   500ms discarded); reported as fps, median/p95 frame time and % of frames >25ms.
 
 `--throttle=N` applies CDP `Emulation.setCPUThrottlingRate` to the op and animation contexts
-(startup/memory stay unthrottled). Via run-all, throttled parts land in `results/throttled/`
+(startup/memory stay unthrottled). Throttled parts land in the run's `throttled/`
 and render as a separate report section — never mixed with unthrottled numbers.
 
-### Deep-tree suite (driver/tree.mjs, run-all --tree)
+### Deep-tree suite (driver/tree.mjs, `--suites=tree`)
 
 A keyed tree of depth 4 / fanout 6 → 1,555 nodes, 1,296 leaves (contract in
 `frameworks/shared/tree-data.mjs`, Kotlin mirror in the browser-bench module):
@@ -169,14 +252,33 @@ A keyed tree of depth 4 / fanout 6 → 1,555 nodes, 1,296 leaves (contract in
 1,555 components, fine-grained frameworks should approach zero tree work. Tree apps must not use
 user-land memoization (no `React.memo` etc.) — framework-internal reuse is the thing measured.
 
-### Scaling curves (driver/scaling.mjs, run-all --scaling)
+### Scaling curves (driver/scaling.mjs, `--suites=scaling`)
 
-Select / swap / update measured at 1k, 2k, 5k, 10k, 20k, 50k rows (sizes reached through the
+Select / swap / update measured at 1k, 2k, 5k, 10k and 20k rows (sizes reached through the
 standard buttons: `run`/`runlots` + repeated `add`; sizes must be multiples of 1,000), then
 fitted as duration ∝ n^exponent (log-log least squares). Select/swap should be near-flat
 (threshold 0.6), update near-linear (threshold 1.3); exceeding the threshold flags the op
 `superlinear` in the JSON and ⚠ in the report. `--strict` exits 1 on any superlinear op.
 Update rebuilds the table between samples (labels mutate cumulatively); select/swap don't.
+
+### Large-table stress (`--suites=stress`)
+
+The opt-in stress tier reuses the scaling driver for select / swap / update at 10k, 20k, 50k
+and 100k rows. It runs Kinetica, React and Vanilla JS only, with three measured samples and one
+warmup by default; override those bounds with `--stress-sizes`, `--stress-warmup` and
+`--stress-iterations`. Results are merged into `stress.json` and comparisons retain both the
+per-size medians and fitted exponent. This tier amplifies bookkeeping that remains near the
+browser's fixed paint floor at 10k, but its cost and unrealistic unvirtualized DOM size make it
+unsuitable for the default run. Stress results remain in their versioned run directory rather
+than being promoted into the canonical documentation artifacts. A stress-only run produces the
+JSON artifact (and a comparison when requested); run `--suites=main,stress` when the stress
+section is also needed in `report.html`.
+
+`--suites=extra` remains a separate investigation tool for append 1k, remove one and clear at a
+large table size (`--extra-size`, 100k by default). It defaults to one measured sample without a
+warmup; use `--extra-warmup` and `--extra-iterations` when a more stable diagnostic is worth the
+setup cost. Use it when examining memory/GC or reconciliation changes rather than as a routine
+regression gate. It is subject to the same Kinetica/React/Vanilla allowlist.
 
 ### JVM microbenchmarks (../bench-jvm)
 
@@ -256,11 +358,10 @@ Example: adding Solid.
      treeUrl: "/bench/dist/solid-tree/index.html",
      buttons: "id", rowControl: "a", version: { package: "solid-js" } }
    ```
-5. Smoke it: `node run-all.mjs --frameworks=solid --samples=2 --warmup=0 --tree` — checks build,
+5. Smoke it: `node bench/run.mjs --suites=main,tree --frameworks=solid --iterations=2 --warmup=0` — checks build,
    selectors and all assertions end-to-end.
-6. Real numbers: `node run-all.mjs --frameworks=solid` (other frameworks' existing parts are
-   reused in the merged report; re-run everything only when the environment changed).
-7. Sanity-check `report/index.html`: the new column appears, values are plausible (a keyed
+6. Real numbers: `node bench/run.mjs` so every framework is measured in the same environment.
+7. Sanity-check the printed `report.html` path: the new column appears, values are plausible (a keyed
    framework lands between vanilla ~1× and React ~1.3× on the geomean; if you see 10×+ on
    partial ops, the implementation probably isn't keyed or is in dev mode).
 
@@ -276,8 +377,8 @@ declare a `build` command in its config entry.
   another machine, adjust both constants there (or set `PLAYWRIGHT_IMPORT` /
   `PLAYWRIGHT_CHROMIUM_EXECUTABLE`).
 - **Port 4573** (`BENCH_PORT` to override); the static server serves the whole repo root.
-- Numbers are only comparable **within one machine + one Chromium**. After changing either,
-  re-run ALL frameworks, and treat `results/part-*-before.json` snapshots as stale history.
+- Numbers are only comparable **within one machine + one Chromium**. The generic comparator
+  blocks mismatched environments by default; after changing either, re-run all frameworks.
 - Kinetica's payload/TTI figures use the benchmark's esbuild production bundle over the Kotlin
   Toolchain linked JS output. If you bypass `build-kinetica.mjs` and load
   `_browser-bench_linkJs/browser-bench.mjs` directly, startup will regress to the unminified

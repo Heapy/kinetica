@@ -269,12 +269,24 @@ const BENCHMARKS = [
   },
 ];
 
-const selectedBenchmarks = args.bench && args.bench !== "anim"
-  ? BENCHMARKS.filter((b) => b.id.includes(args.bench))
-  : BENCHMARKS;
-const runOps = args.bench !== "anim";
-const runAnimation = !args.bench || args.bench === "anim";
-const runStartupAndMemory = !args.bench;
+const scenarioFilter = args.scenarios ?? args.bench;
+const scenarioPatterns = scenarioFilter
+  ? scenarioFilter.split(",").map((value) => value.trim()).filter(Boolean)
+  : [];
+const matchesScenario = (id, ...aliases) =>
+  scenarioPatterns.length === 0 ||
+  scenarioPatterns.some((pattern) => [id, ...aliases].some((value) => value.includes(pattern)));
+
+const selectedBenchmarks = BENCHMARKS.filter((b) => matchesScenario(b.id));
+const runOps = selectedBenchmarks.length > 0;
+const runStartup = matchesScenario("startup");
+const runMemory = matchesScenario("memory");
+const runAnimation = matchesScenario("animation", "anim");
+
+if (scenarioPatterns.length > 0 && !runOps && !runStartup && !runMemory && !runAnimation) {
+  console.error(`error: no main benchmark scenario matches: ${scenarioFilter}`);
+  process.exit(1);
+}
 
 // --- main ---
 
@@ -351,7 +363,7 @@ for (const fwName of selectedFrameworks) {
 
   // startup: 5 untraced cold loads for mount time + resource weight (comparable with
   // historical parts), then 2 traced loads for script-evaluate time and TBT.
-  if (runStartupAndMemory) {
+  if (runStartup) {
     const mountTimes = [];
     let resources = [];
     for (let i = 0; i < 5; i++) {
@@ -411,7 +423,7 @@ for (const fwName of selectedFrameworks) {
 
   // memory: heap after load and after creating 1k rows, then churn/leak probes —
   // 5x replace, 10x create+clear cycles, and unmount/remount via the app hooks.
-  if (runStartupAndMemory) {
+  if (runMemory) {
     const { context, page } = await openPage(browser, fw.url);
     const cdp = await context.newCDPSession(page);
     await cdp.send("Performance.enable");
@@ -565,7 +577,7 @@ const out = {
       (THROTTLE > 1 ? ` CPU throttled ${THROTTLE}x via CDP for ops and animation.` : " No CPU throttling."),
     versions: Object.fromEntries(selectedFrameworks.map((f) => [f, FRAMEWORKS[f].version])),
   },
-  benchmarks: BENCHMARKS.map(({ id, label }) => ({ id, label })),
+  benchmarks: selectedBenchmarks.map(({ id, label }) => ({ id, label })),
   results,
   startup,
   memory,

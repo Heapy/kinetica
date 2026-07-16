@@ -74,10 +74,28 @@ stageKotlinApp(
 // 3. The comparison report (self-contained: inlines its data, no fetch() at runtime).
 mkdirSync(join(out, "report"), { recursive: true });
 cpSync(join(repoRoot, "bench", "report", "index.html"), join(out, "report", "index.html"));
+cpSync(join(repoRoot, "bench", "report", "report.js"), join(out, "report", "report.js"));
+const comparisonReport = join(repoRoot, "bench", "report", "comparison.html");
+if (existsSync(comparisonReport)) {
+  cpSync(comparisonReport, join(out, "report", "comparison.html"));
+}
 
-// 4. Raw results JSON, for anyone who wants the numbers instead of the rendered report.
-cpSync(join(repoRoot, "bench", "results"), join(out, "results"), { recursive: true });
-
+// 4. Canonical accepted JSON only. Versioned runs and profiling scratch data stay local.
+const sourceResults = join(repoRoot, "bench", "results");
+const publicResults = join(out, "results");
+mkdirSync(publicResults, { recursive: true });
+for (const file of [
+  "results.json", "tree.json", "scaling.json", "throttled.json", "sizes.json",
+  "comparison.json", "run.json", "accepted-run.json",
+]) {
+  const source = join(sourceResults, file);
+  if (existsSync(source)) cpSync(source, join(publicResults, file));
+}
+const jvmResults = join(sourceResults, "jvm", "results.json");
+if (existsSync(jvmResults)) {
+  mkdirSync(join(publicResults, "jvm"), { recursive: true });
+  cpSync(jvmResults, join(publicResults, "jvm", "results.json"));
+}
 let totalBytes = 0;
 let totalFiles = 0;
 const walk = (dir) => {

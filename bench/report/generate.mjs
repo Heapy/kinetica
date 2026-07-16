@@ -1,16 +1,27 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const resultsPath = process.argv[2] ?? join(here, "..", "results", "results.json");
+const resultsDir = process.env.BENCH_RESULTS_DIR ?? join(here, "..", "results");
+const resultsPath = process.argv[2] ?? join(resultsDir, "results.json");
 const outPath = process.argv[3] ?? join(here, "index.html");
 const data = JSON.parse(readFileSync(resultsPath, "utf8"));
 
 const loadOptional = (p) => (existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : null);
-const throttledData = loadOptional(join(here, "..", "results", "throttled.json"));
-const treeData = loadOptional(join(here, "..", "results", "tree.json"));
-const scalingData = loadOptional(join(here, "..", "results", "scaling.json"));
+const findExtraResult = () => {
+  const dir = join(resultsDir, "extra-ops");
+  if (!existsSync(dir)) return null;
+  const name = readdirSync(dir).filter((entry) => /^results-\d+\.json$/.test(entry)).sort().at(-1);
+  return name ? join(dir, name) : null;
+};
+const manifestData = loadOptional(join(resultsDir, "run.json"));
+const throttledData = loadOptional(join(resultsDir, "throttled.json"));
+const treeData = loadOptional(join(resultsDir, "tree.json"));
+const scalingData = loadOptional(join(resultsDir, "scaling.json"));
+const stressData = loadOptional(join(resultsDir, "stress.json"));
+const extraPath = findExtraResult();
+const extraData = extraPath ? loadOptional(extraPath) : null;
 
 import { colorFor, frameworks } from "../frameworks.config.mjs";
 
@@ -20,6 +31,50 @@ const FW_LABEL = Object.fromEntries(frameworks.map((f) => [f.name, f.label]));
 const FW_COLOR = Object.fromEntries(frameworks.map((f) => [f.name, colorFor(f.name)]));
 // sequential blue ramp for the table shading (factor vs fastest)
 const RAMP = ["#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7", "#3987e5", "#2a78d6", "#256abf", "#1c5cab", "#184f95", "#104281", "#0d366b"];
+
+const escapeHtml = (value) => String(value)
+  .replaceAll("&", "&amp;")
+  .replaceAll("<", "&lt;")
+  .replaceAll(">", "&gt;")
+  .replaceAll('"', "&quot;");
+
+const asFrameworkNames = (value) => Array.isArray(value)
+  ? value.filter((name) => typeof name === "string" && name.length > 0)
+  : [];
+
+const manifestReuse = manifestData?.reuse ?? {};
+const manifestReused = manifestReuse.reusedFrameworksBySuite ??
+  manifestData?.reusedFrameworksBySuite ?? {};
+const manifestMeasured = manifestReuse.measuredFrameworksBySuite ??
+  manifestData?.measuredFrameworksBySuite ??
+  manifestData?.executedFrameworksBySuite ?? {};
+const reuseSuiteLabels = {
+  main: "main",
+  tree: "tree",
+  scaling: "scaling",
+  stress: "stress",
+  extra: "extra",
+};
+const reuseArtifacts = { main: data, tree: treeData, scaling: scalingData, stress: stressData, extra: extraData };
+const reuseEntries = Object.entries(reuseArtifacts).flatMap(([suite, artifact]) => {
+  if (!artifact) return [];
+  const artifactReuse = artifact.reuse ?? {};
+  const reusedFrameworks = [...new Set([
+    ...asFrameworkNames(manifestReused[suite]),
+    ...asFrameworkNames(artifactReuse.reusedFrameworks),
+  ])];
+  if (reusedFrameworks.length === 0) return [];
+  return [{
+    suite,
+    reusedFrameworks,
+    measuredFrameworks: [...new Set([
+      ...asFrameworkNames(manifestMeasured[suite]),
+      ...asFrameworkNames(artifactReuse.measuredFrameworks),
+    ])],
+    source: artifactReuse.source ?? manifestReuse.source ?? manifestData?.reuseSource ?? null,
+    sourceDir: artifactReuse.sourceDir ?? manifestReuse.sourceDir ?? null,
+  }];
+});
 
 const fmt = (x, d = 1) => Number(x).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 
@@ -185,35 +240,35 @@ if (gcBenches.length > 0) {
   </section>`;
 }
 
-// --- scaling curves (optional results/scaling.json) ---
+// --- scaling curves (optional results/scaling.json and results/stress.json) ---
 
-let scalingSection = "";
-if (scalingData?.scaling) {
-  const scalingFws = FW_ORDER.filter((f) => scalingData.scaling[f]);
-  const opIds = [...new Set(scalingFws.flatMap((f) => Object.keys(scalingData.scaling[f].ops)))];
+function scalingSectionHtml(source, { title, subtitle }) {
+  if (!source?.scaling) return "";
+  const scalingFws = frameworks.map((framework) => framework.name).filter((f) => source.scaling[f]);
+  const opIds = [...new Set(scalingFws.flatMap((f) => Object.keys(source.scaling[f].ops)))];
   const rows = opIds
     .map((op) => {
       const cells = scalingFws.map((f) => {
-        const entry = scalingData.scaling[f].ops[op];
+        const entry = source.scaling[f].ops[op];
         if (!entry) return `<td class="num empty">—</td>`;
-        const sizes = scalingData.scaling[f].sizes;
+        const sizes = source.scaling[f].sizes;
         const tip = sizes.map((s) => `${s / 1000}k: ${fmt(entry.bySize[s].median)}ms`).join(" · ");
         return `<td class="num ${entry.superlinear ? "warn" : ""}"
           title="${FW_LABEL[f]} · ${entry.label}: ${tip} (threshold ${entry.threshold}, r² ${entry.r2})">
           n<sup>${fmt(entry.exponent, 2)}</sup>${entry.superlinear ? " ⚠" : ""}</td>`;
       }).join("");
-      const label = scalingFws.map((f) => scalingData.scaling[f].ops[op]?.label).find(Boolean) ?? op;
+      const label = scalingFws.map((f) => source.scaling[f].ops[op]?.label).find(Boolean) ?? op;
       return `<tr><th scope="row">${label}</th>${cells}</tr>`;
     })
     .join("");
-  const sizes = scalingFws.length ? scalingData.scaling[scalingFws[0]].sizes : [];
-  scalingSection = `
+  const sizes = scalingFws.length ? source.scaling[scalingFws[0]].sizes : [];
+  return `
   <section>
-    <h2>Scaling curves</h2>
-    <p class="section-sub">The same partial operation measured at ${sizes.map((s) => `${s / 1000}k`).join(", ")}
-    rows, fitted as duration ∝ n<sup>exponent</sup> (log-log least squares). Select and swap should be
-    near-flat, update near-linear; a ⚠ cell exceeds its threshold — the complexity-class regression the
-    single-size table can't see. Hover for the per-size medians.</p>
+    <h2>${title}</h2>
+    <p class="section-sub">${subtitle} The same partial operation is measured at
+    ${sizes.map((s) => `${s / 1000}k`).join(", ")} rows and fitted as duration ∝ n<sup>exponent</sup>
+    (log-log least squares). Select and swap should be near-flat, update near-linear; a ⚠ cell exceeds
+    its threshold. Hover for the per-size medians.</p>
     <div class="table-scroll">
       <table class="results num-table">
         <thead>
@@ -224,6 +279,15 @@ if (scalingData?.scaling) {
     </div>
   </section>`;
 }
+
+const scalingSection = scalingSectionHtml(scalingData, {
+  title: "Scaling curves",
+  subtitle: "The default 1k–20k curve catches complexity-class regressions that a single-size table can't see.",
+});
+const stressSection = scalingSectionHtml(stressData, {
+  title: "Large-table stress curves",
+  subtitle: "This opt-in tier runs only Kinetica, React and Vanilla JS to amplify large-table bookkeeping costs.",
+});
 
 // --- sustained updates (animation) ---
 
@@ -398,47 +462,22 @@ if (churnFws.length > 0) {
     </div>`;
 }
 
-// optional before/after section for the kinetica event-registry fix
-const beforePath = join(here, "..", "results", "part-kinetica-before.json");
-let fixSection = "";
-if (existsSync(beforePath) && data.results.kinetica) {
-  const before = JSON.parse(readFileSync(beforePath, "utf8")).results.kinetica;
-  const rows = benches
-    .filter((b) => before[b.id] && data.results.kinetica[b.id])
-    .map((b) => {
-      const prev = before[b.id].median;
-      const now = data.results.kinetica[b.id].median;
-      const speedup = prev / now;
-      return `<tr>
-        <th scope="row">${b.label}</th>
-        <td class="num">${fmt(prev)}</td>
-        <td class="num">${fmt(now)}</td>
-        <td class="num delta">${speedup >= 1.05 ? fmt(speedup, 1) + "× faster" : "≈ same"}</td>
-      </tr>`;
-    })
-    .join("");
-  fixSection = `
-  <section>
-    <h2>One fix, measured</h2>
-    <p class="section-sub">Profiling traced 60–67% of all CPU to <code>KineticaRuntime.registerEvent</code>:
-    an O(n) linear scan of a never-evicted identity list, run once per handler per render — O(n²) per
-    operation and growing with app lifetime. Replacing the list with a hash map produced the
-    numbers used throughout this report. The remaining gap versus the keyed frameworks was the
-    full-DOM rebuild, since addressed by the retained-mode renderer.</p>
-    <div class="table-scroll">
-      <table class="results fix-table">
-        <thead>
-          <tr><th></th><th scope="col">before (ms)</th><th scope="col">after (ms)</th><th scope="col">improvement</th></tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>
-  </section>`;
-}
-
 const legend = FW_ORDER.map(
   (f) => `<span class="legend-item"><span class="swatch" data-fw="${f}"></span>${FW_LABEL[f]}<span class="ver">${data.meta.versions?.[f] && data.meta.versions[f] !== "n/a" ? " " + data.meta.versions[f] : ""}</span></span>`,
 ).join("");
+
+const reuseSources = [...new Set(reuseEntries.flatMap((entry) => [entry.source, entry.sourceDir].filter(Boolean)))];
+const reuseNotice = reuseEntries.length > 0 ? `
+    <aside class="reuse-notice" role="note">
+      <strong>Mixed fresh and cached browser results.</strong>
+      ${reuseEntries.map((entry) => {
+        const reused = entry.reusedFrameworks.map((name) => escapeHtml(FW_LABEL[name] ?? name)).join(", ");
+        const measured = entry.measuredFrameworks.map((name) => escapeHtml(FW_LABEL[name] ?? name)).join(", ");
+        return `<span><code>${escapeHtml(reuseSuiteLabels[entry.suite] ?? entry.suite)}</code>: cached ${reused}${measured ? `; freshly measured ${measured}` : ""}</span>`;
+      }).join(" ")}
+      ${reuseSources.length ? `<span>Cache source: ${reuseSources.map((source) => `<code>${escapeHtml(source)}</code>`).join(" / ")}.</span>` : ""}
+      <span>Cached values remain in the tables for cross-framework context and are excluded from current-run comparison deltas.</span>
+    </aside>` : "";
 
 const fwColorCss = FW_ORDER.map(
   (f) => `  [data-fw="${f}"] { --series: var(--c-${f}); }`,
@@ -530,6 +569,13 @@ h1 { font-size: 30px; line-height: 1.15; margin: 0 0 6px; letter-spacing: -0.015
 .legend-item { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; color: var(--ink-2); }
 .legend-item .ver { color: var(--muted); font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
 .swatch { width: 11px; height: 11px; border-radius: 3px; background: var(--series); display: inline-block; }
+.reuse-notice {
+  display: grid; gap: 4px; margin-top: 18px; padding: 12px 15px;
+  color: var(--ink-2); background: var(--surface); border: 1px solid var(--border);
+  border-left: 3px solid var(--accent); border-radius: 8px; font-size: 13px;
+}
+.reuse-notice strong { color: var(--ink); }
+.reuse-notice code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 
 section { margin-top: 44px; }
 h2 { font-size: 20px; margin: 0 0 4px; letter-spacing: -0.01em; }
@@ -593,15 +639,6 @@ table.results td.num {
 }
 table.results td.num .factor { font-size: 11px; opacity: 0.7; }
 table.results td.num.warn { background: var(--warn-bg); color: var(--warn-ink); font-weight: 600; }
-table.fix-table td.num {
-  text-align: right; border-bottom: 1px solid var(--grid);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums;
-}
-table.fix-table thead th { text-align: right; }
-table.fix-table td.delta { color: #006300; font-weight: 600; }
-:root[data-theme="dark"] table.fix-table td.delta { color: #0ca30c; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) table.fix-table td.delta { color: #0ca30c; } }
-
 .callout {
   border: 1px solid var(--border); border-left: 3px solid var(--accent);
   background: var(--surface); border-radius: 8px; padding: 14px 18px; margin-top: 18px;
@@ -647,6 +684,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
       ${data.meta.cpuThrottle ? `<span class="chip">CPU throttle ${data.meta.cpuThrottle}×</span>` : ""}
     </div>
     <div class="legend">${legend}</div>
+    ${reuseNotice}
   </header>
 
   <section>
@@ -666,8 +704,6 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
     ${resultsTableHtml(main, FW_ORDER)}
   </section>
 
-  ${fixSection}
-
   <section>
     <h2>Per operation</h2>
     <p class="section-sub">Same data as the table, drawn to scale — each chart normalized to its own
@@ -678,6 +714,8 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
   ${gcSection}
 
   ${scalingSection}
+
+  ${stressSection}
 
   ${animationSection}
 
@@ -733,7 +771,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
       <code>__unmount</code>/<code>__mount</code> hooks with a forced GC between readings.
       Sustained updates toggle the app's <code>animate</code> button (every 10th row re-labelled per
       rAF) while an injected collector records frame deltas. Scaling curves re-measure select/swap/update
-      at 1k–20k rows and fit a log-log slope. The deep-tree suite (<code>driver/tree.mjs</code>) runs
+      at 1k–20k rows and fit a log-log slope.${stressData ? " The opt-in stress tier repeats those operations over its configured large-table sizes for Kinetica, React and Vanilla JS." : ""} The deep-tree suite (<code>driver/tree.mjs</code>) runs
       create/update/reverse/no-op on a 1,555-node keyed tree.</dd>
       <dt>Fairness</dt>
       <dd>All apps render the same DOM structure (table/tr/td, same CSS file, no hover styles) from the

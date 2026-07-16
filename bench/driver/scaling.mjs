@@ -10,10 +10,11 @@
 //   node driver/scaling.mjs --strict                 # exit 1 if any op is superlinear
 //
 // Sizes must be multiples of 1,000 (reached via run/runlots + repeated add clicks).
-// Results: results/scaling/part-<framework>.json, merged by run-all into
-// results/scaling.json.
+// Results: results/scaling/part-<framework>.json, merged by run.mjs into
+// results/scaling.json (or stress.json for the opt-in large-table tier).
 
 import { mkdirSync, writeFileSync } from "node:fs";
+import { arch, cpus, platform, totalmem } from "node:os";
 import { dirname, join } from "node:path";
 import { startServer } from "./server.mjs";
 import { frameworks } from "../frameworks.config.mjs";
@@ -36,7 +37,7 @@ const args = parseArgs();
 const WARMUP = Number(args.warmup ?? 1);
 const SAMPLES = Number(args.samples ?? 5);
 const THROTTLE = Number(args.throttle ?? 0);
-const SIZES = (args.sizes ?? "1000,2000,5000,10000,20000,50000").split(",").map(Number);
+const SIZES = (args.sizes ?? "1000,2000,5000,10000,20000").split(",").map(Number);
 const OUT = args.out ?? join(driverDir, "..", "results", "scaling", "part-scaling.json");
 
 if (SIZES.some((s) => s < 1000 || s % 1000 !== 0)) {
@@ -108,6 +109,18 @@ const OPS = [
   },
 ];
 
+const benchPatterns = args.bench
+  ? args.bench.split(",").map((value) => value.trim()).filter(Boolean)
+  : [];
+const selectedOps = benchPatterns.length > 0
+  ? OPS.filter((op) => benchPatterns.some((pattern) => op.id.includes(pattern)))
+  : OPS;
+
+if (selectedOps.length === 0) {
+  console.error(`error: no scaling benchmark matches: ${args.bench}`);
+  process.exit(1);
+}
+
 async function ensureRows(h, size) {
   await h.clickButton("clear");
   await h.waitRows(0);
@@ -141,7 +154,7 @@ for (const fwName of selectedFrameworks) {
   console.log(`\n=== ${fwName} ===`);
   const perOp = {};
 
-  for (const op of OPS) {
+  for (const op of selectedOps) {
     const bySize = {};
     for (const size of SIZES) {
       const { context, page, pageErrors } = await openPage(browser, fw.url, { throttle: THROTTLE });
@@ -198,6 +211,12 @@ for (const fwName of selectedFrameworks) {
 const out = {
   meta: {
     date: new Date().toISOString(),
+    machine: {
+      cpu: cpus()[0]?.model,
+      arch: arch(),
+      platform: platform(),
+      memGb: Math.round(totalmem() / 1073741824),
+    },
     chromium: browser.version(),
     warmup: WARMUP,
     samples: SAMPLES,
