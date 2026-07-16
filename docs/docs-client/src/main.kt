@@ -23,6 +23,9 @@ import io.heapy.kinetica.forms.textInput
 import io.heapy.kinetica.forms.validators
 import io.heapy.kinetica.host
 import io.heapy.kinetica.loadingBoundary
+import io.heapy.kinetica.motion.AnimationSpec
+import io.heapy.kinetica.motion.Easing
+import io.heapy.kinetica.motion.animate
 import io.heapy.kinetica.resource
 import io.heapy.kinetica.state
 import io.heapy.kinetica.text
@@ -42,6 +45,7 @@ import org.w3c.dom.Document
 import org.w3c.dom.Element
 import org.w3c.dom.events.Event
 import kotlin.js.Promise
+import kotlin.time.TimeSource
 
 /** Mounts the live examples embedded in documentation pages via `::: example <name>`. */
 fun main() {
@@ -60,6 +64,7 @@ fun main() {
                 "resource-fetch" -> ResourceFetchExample()
                 "effect-timer" -> EffectTimerExample()
                 "form-signup" -> FormSignupExample()
+                "motion-toggle" -> MotionToggleExample()
                 else -> text("Unknown example: $name")
             }
         }
@@ -69,11 +74,20 @@ fun main() {
             // for full quiescence) can't pump its ticks — drive them with a coarse interval.
             scheduleIntervalRender { if (runtime.hasPendingInvalidation) app.render() }
         }
+        if (name == "motion-toggle") {
+            // The motion card commits one state write per animation frame; pump renders at rAF
+            // cadence so every committed frame reaches the DOM instead of batching at 100ms.
+            scheduleAnimationFrameRender { if (runtime.hasPendingInvalidation) app.render() }
+        }
     }
 }
 
 private fun scheduleIntervalRender(callback: () -> Unit) {
     js("setInterval(function () { callback(); }, 100)")
+}
+
+private fun scheduleAnimationFrameRender(callback: () -> Unit) {
+    js("function loop() { callback(); window.requestAnimationFrame(loop); } window.requestAnimationFrame(loop);")
 }
 
 /**
@@ -202,6 +216,76 @@ private fun ComponentScope.EffectTimerExample() {
             text(
                 "Start flips one cell; a watch on it loops while it is true. " +
                     "Stop writes it back — the runtime cancels the previous watch block.",
+                semantics = null,
+            )
+        }
+    }
+}
+
+private val MotionSpring = AnimationSpec.Spring(stiffness = 600f, dampingRatio = 1f, visibilityThreshold = 0.01f)
+private val MotionTween = AnimationSpec.Tween(durationMillis = 350, easing = Easing.EaseOut)
+private const val MotionFrameMillis = 16L
+
+@UiComponent
+private fun ComponentScope.MotionToggleExample() {
+    var shown by state { true }
+    var springy by state { true }
+    val presence = state { 1f }
+
+    val card = animate(
+        initial = 1f,
+        target = if (shown) 1f else 0f,
+        spec = if (springy) MotionSpring else MotionTween,
+    )
+
+    // animate() owns the value, a driver owns the clock. The browser renderer does not consume
+    // frame bindings yet, so this watch plays the driver: advance by the real elapsed time and
+    // commit each frame into ordinary state (the rAF pump in main() renders it).
+    watch(source = { card.target }) {
+        var frame = TimeSource.Monotonic.markNow()
+        while (card.isRunning) {
+            delay(MotionFrameMillis)
+            card.advanceBy(frame.elapsedNow().inWholeMilliseconds)
+            frame = TimeSource.Monotonic.markNow()
+            card.frameValue.commitTo(presence)
+        }
+    }
+
+    val t = presence.value
+    host("div", props = mapOf("class" to "ex")) {
+        host("div", props = mapOf("class" to "ex-motion-stage")) {
+            host(
+                "div",
+                props = mapOf(
+                    "class" to "ex-motion-card",
+                    "style" to "opacity: $t; transform: translateY(${(1f - t) * 14f}px) scale(${0.92f + 0.08f * t})",
+                ),
+                semantics = Semantics(testTag = "motion-card"),
+            ) {
+                host("span", props = mapOf("class" to "ex-motion-card-title")) {
+                    text("Frame-driven", semantics = null)
+                }
+                text("One animated float → opacity, translateY, scale", semantics = null)
+            }
+        }
+        host("div", props = mapOf("class" to "ex-row")) {
+            button(
+                onClick = event { shown = !shown },
+                semantics = Semantics(role = Role.Button, testTag = "motion-toggle-button"),
+            ) {
+                text(if (shown) "Hide" else "Show", semantics = null)
+            }
+            button(onClick = event { springy = true }, enabled = !springy) {
+                text("Spring", semantics = null)
+            }
+            button(onClick = event { springy = false }, enabled = springy) {
+                text("Tween", semantics = null)
+            }
+        }
+        host("p", props = mapOf("class" to "ex-note")) {
+            text(
+                "Toggle mid-flight: animate() retargets from the current value instead of restarting. " +
+                    "Spring settles with a decaying tail; the tween lands in a fixed 350 ms.",
                 semantics = null,
             )
         }

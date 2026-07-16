@@ -181,6 +181,28 @@ try {
   if (stoppedAt !== stillAt) throw new Error(`timer kept ticking after stop: ${stoppedAt} -> ${stillAt}`);
   console.log("OK   effect-timer example ticks via watch and stops on cancel");
 
+  // live example: motion toggle plays a frame-driven hide animation and settles at the target
+  const motion = '[data-example="motion-toggle"]';
+  await page.goto(`${base}/docs/motion`, { waitUntil: "networkidle" });
+  await page.waitForSelector(`${motion} [data-testid="motion-toggle-button"]`, { timeout: 10_000 });
+  await page.click(`${motion} [data-testid="motion-toggle-button"]`);
+  await page.waitForFunction(
+    (sel) => {
+      const card = document.querySelector(`${sel} [data-testid="motion-card"]`);
+      const opacity = card ? parseFloat(getComputedStyle(card).opacity) : NaN;
+      return opacity > 0 && opacity < 1;
+    },
+    motion, { timeout: 5_000 },
+  );
+  await page.waitForFunction(
+    (sel) => {
+      const card = document.querySelector(`${sel} [data-testid="motion-card"]`);
+      return card ? parseFloat(getComputedStyle(card).opacity) === 0 : false;
+    },
+    motion, { timeout: 5_000 },
+  );
+  console.log("OK   motion example animates frame by frame and settles at the target");
+
   // live example: form-signup validates then submits
   const form = '[data-example="form-signup"]';
   await page.goto(`${base}/docs/forms`, { waitUntil: "networkidle" });

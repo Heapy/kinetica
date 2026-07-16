@@ -41,6 +41,9 @@ class DocsServerTest {
         assertTrue("<h1" in statePage)
         assertTrue("data-example=\"counter\"" in statePage)
 
+        val motionPage = get("$baseUrl/docs/motion")
+        assertTrue("data-example=\"motion-toggle\"" in motionPage)
+
         val missing = getResponse("$baseUrl/docs/no-such-page")
         assertEquals(404, missing.statusCode())
         assertTrue("No such page" in missing.body())

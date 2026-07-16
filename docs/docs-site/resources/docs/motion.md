@@ -55,6 +55,18 @@ running. Drivers (a browser rAF loop, a test, the runtime's virtual time) own ti
 why animations are deterministic in tests: `advanceBy(100)` twice lands exactly at the tween's
 end state.
 
+## Try it
+
+<!-- code: docs/docs-client/src/main.kt (MotionToggleExample) -->
+
+::: example motion-toggle
+
+One `animate()` float drives the card's opacity, translate, and scale. The browser renderer does
+not consume frame bindings yet, so the example plays the driver's role itself: a `watch` loop
+advances the clock by the real elapsed time each frame and `commitTo`s the value into ordinary
+state. Toggle mid-flight — the animation retargets from wherever the value currently is — and
+switch specs to compare the spring's decaying tail with the tween's fixed 350 ms window.
+
 ## Enter & exit
 
 <!-- code: kinetica-motion/src/Motion.kt (enterTransition, exitTransition), kinetica-runtime/src/Boundary.kt (exitGroup, onExit, asLeaving) -->

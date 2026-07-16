@@ -6,6 +6,7 @@ apply:
 dependencies:
   - ../../kinetica-browser
   - ../../kinetica-forms
+  - ../../kinetica-motion
   - ../../kinetica-runtime
 
 description: "Client bundle for the documentation site: mounts live interactive examples into doc pages."

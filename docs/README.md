@@ -52,7 +52,7 @@ DOCS_BASE_URL=http://127.0.0.1:8080 node docs/verify-docs.mjs
 ```
 
 Checks: all pages server-render with no source-link comment leaking into the HTML, the live
-counter/keyed-list/effect-timer/form-signup examples mount and react, the resource-fetch demo
+counter/keyed-list/effect-timer/form-signup/motion-toggle examples mount and react, the resource-fetch demo
 on `/docs/resources` loads its per-visitor session stack, surfaces the backend's intentional
 `NullPointerException` for "Java" through the error boundary and recovers on retry, and the
 server-components demo hydrates its island, receives the streamed patch, and dispatches the
