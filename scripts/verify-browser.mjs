@@ -108,6 +108,11 @@ async function verifyGameOfLifeImplementation(implementation) {
     throw new Error("Expected the corner cell to start dead");
   }
   await editableCell.click();
+  await page.waitForFunction(
+    () => document.querySelector('[data-testid="cell-0-0"]')?.getAttribute("aria-pressed") === "true",
+    undefined,
+    { timeout: 5_000 },
+  );
   if (await editableCell.getAttribute("aria-pressed") !== "true") {
     throw new Error("Clicking a dead cell did not make it alive");
   }
