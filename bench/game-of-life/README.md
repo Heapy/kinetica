@@ -5,14 +5,16 @@ This suite compares Kinetica, React, Compose HTML, and Vanilla implementations o
 speeds, model behavior, and a cross-language seeded random sequence so dense workloads are
 cell-for-cell identical.
 
-Build and run from the repository root:
+Run the complete lifecycle from the repository root:
 
 ```sh
-npm ci --prefix bench
-node scripts/build-game-of-life.mjs
-node bench/game-of-life/benchmark.mjs --warmup=1 --samples=5
-node bench/game-of-life/validate-results.mjs
+node bench/game-of-life/run.mjs --warmup=1 --samples=5
 ```
+
+The command installs missing local dependencies, runs the model tests, builds all four production
+apps, measures them, refreshes the report and docs snapshot, validates the published artifacts,
+and prints previous → current deltas. The browser and HTTP server are owned and closed by the
+benchmark driver. If a later step fails, the runner restores the previously published artifacts.
 
 The driver records cold startup plus six representative interactions. Interaction duration is
 parsed from a Chrome trace from trusted click `EventDispatch` start through the final

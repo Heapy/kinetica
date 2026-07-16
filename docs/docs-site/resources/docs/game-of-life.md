@@ -21,22 +21,22 @@ metadata](/game-of-life/results.json) are published alongside it.
 
 ## Performance snapshot
 
-<!-- code: bench/results/game-of-life/results.json, bench/game-of-life/benchmark.mjs -->
+<!-- code: bench/results/game-of-life/results.json, bench/game-of-life/run.mjs, bench/game-of-life/benchmark.mjs -->
 
 Median milliseconds from the 2026-07-16 run on an Apple M4 Max with Chromium 149.0.7827.55,
-five measured samples after one warmup. Interaction traces request reduced motion so the shared
+5 measured samples after 1 warmup. Interaction traces request reduced motion so the shared
 160 ms cell-birth animation cannot hide renderer work. Lower is better.
 
 | Operation | Kinetica | React | Compose HTML | Vanilla |
 |---|---:|---:|---:|---:|
-| Cold startup + 3,456-cell mount | 65.60 | 57.00 | 107.00 | **40.40** |
-| Load Pulsar preset | 26.63 | 21.40 | 29.16 | **20.71** |
-| Advance Pulsar | 25.79 | 28.70 | 32.33 | **24.26** |
-| Randomize 24% of the board | 123.40 | 153.11 | 133.73 | **114.25** |
-| Advance randomized board | 120.31 | 144.94 | 129.48 | **110.92** |
-| Toggle one cell | **13.40** | 19.83 | 14.78 | 14.18 |
-| Clear Pulsar | 21.17 | **20.26** | 28.39 | 29.03 |
-| Production bundle, gzip | 98.1 KB | 62.2 KB | 177.0 KB | **3.9 KB** |
+| Cold startup + 3,456-cell mount | 66.90 | 56.00 | 107.40 | **35.60** |
+| Load Pulsar preset | **21.42** | 21.87 | 34.62 | 27.18 |
+| Advance Pulsar | **24.23** | 28.43 | 31.85 | 24.82 |
+| Randomize 24% of the board | 140.39 | 155.99 | 140.28 | **118.71** |
+| Advance randomized board | 121.97 | 149.87 | 128.78 | **116.83** |
+| Toggle one cell | 14.50 | 18.93 | 13.75 | **13.41** |
+| Clear Pulsar | 21.00 | **20.15** | 33.28 | 20.25 |
+| Production bundle, gzip | 98.3 KB | 62.3 KB | 177.3 KB | **4.1 KB** |
 
 The numbers are machine-specific, so the committed JSON retains every sample instead of
 presenting the medians as universal rankings. Sparse operations sit close together; randomized
@@ -56,7 +56,5 @@ The benchmark uses Kinetica's existing Chrome-trace parser: duration begins at t
 `EventDispatch` and ends at the last `Paint` or `Commit`. Reproduce it from the repository root:
 
 ```sh
-npm ci --prefix bench
-node scripts/build-game-of-life.mjs
-node bench/game-of-life/benchmark.mjs --warmup=1 --samples=5
+node bench/game-of-life/run.mjs --warmup=1 --samples=5
 ```

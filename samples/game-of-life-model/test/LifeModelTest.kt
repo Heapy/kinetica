@@ -105,6 +105,7 @@ class LifeModelTest {
     @Test
     fun invalidBoardsAndOperationsAreRejected() {
         assertFailsWith<IllegalArgumentException> { LifeBoard(columns = 0, rows = 3) }
+        assertFailsWith<IllegalArgumentException> { LifeBoard(columns = Int.MAX_VALUE, rows = 2) }
         assertFailsWith<IllegalArgumentException> {
             LifeBoard(columns = 3, rows = 3, livingCells = points(3 to 0))
         }

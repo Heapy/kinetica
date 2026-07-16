@@ -69,8 +69,57 @@ assert.equal(seededNext.population, 963);
 assert.equal([...seededNext.livingCells].reduce((sum, index) => sum + index, 0), 1_709_984);
 assert.equal(seeds.take(), 2_978_944_408);
 
+for (const [columns, rows, density, seed] of [
+  [1, 1, 1, 1],
+  [2, 3, 0.5, 2],
+  [17, 11, 0.05, 3],
+  [17, 11, 0.8, 4],
+  [72, 48, 0.24, 5],
+]) {
+  let actual = randomizeBoardSeeded(createBoard({ columns, rows }), seed, density);
+  let expected = actual;
+  for (let generation = 0; generation < 8; generation++) {
+    actual = stepBoard(actual);
+    expected = referenceStepBoard(expected);
+    assert.deepEqual(
+      actual,
+      expected,
+      `optimized step diverged for ${columns}x${rows} density=${density} at generation ${generation + 1}`,
+    );
+  }
+}
+
 assert.throws(() => createBoard({ columns: 0 }));
 assert.throws(() => toggleCell(createBoard({ columns: 3, rows: 3 }), -1));
 assert.throws(() => randomizeBoard(createBoard(), 1.1));
 
 console.log("Game of Life JavaScript model parity tests passed");
+
+function referenceStepBoard(board) {
+  const neighborCounts = new Map();
+  for (const index of board.livingCells) {
+    const column = index % board.columns;
+    const row = Math.floor(index / board.columns);
+    for (let rowDelta = -1; rowDelta <= 1; rowDelta++) {
+      for (let columnDelta = -1; columnDelta <= 1; columnDelta++) {
+        if (columnDelta === 0 && rowDelta === 0) continue;
+        const neighborColumn = column + columnDelta;
+        const neighborRow = row + rowDelta;
+        if (
+          neighborColumn >= 0 && neighborColumn < board.columns &&
+          neighborRow >= 0 && neighborRow < board.rows
+        ) {
+          const neighbor = cellIndex(neighborColumn, neighborRow, board.columns);
+          neighborCounts.set(neighbor, (neighborCounts.get(neighbor) ?? 0) + 1);
+        }
+      }
+    }
+  }
+  const livingCells = new Set();
+  for (const [index, neighbors] of neighborCounts) {
+    if (neighbors === 3 || (neighbors === 2 && board.livingCells.has(index))) {
+      livingCells.add(index);
+    }
+  }
+  return createBoard({ ...board, livingCells, generation: board.generation + 1 });
+}

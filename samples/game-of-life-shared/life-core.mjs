@@ -3,6 +3,8 @@ export const BOARD_ROWS = 48;
 export const RANDOM_DENSITY = 0.24;
 const UINT32_RANGE = 4_294_967_296;
 const SEED_INCREMENT = 0x9e3779b9;
+const LIVE_CELL_MASK = 0x10;
+const NEIGHBOR_COUNT_MASK = 0x0f;
 
 export const SIMULATION_SPEEDS = Object.freeze([
   Object.freeze({ id: "slow", label: "Slow", delayMs: 420 }),
@@ -109,7 +111,11 @@ export function createBoard({
       throw new Error(`Living cell ${index} is outside the board.`);
     }
   }
-  return Object.freeze({ columns, rows, livingCells: cells, generation, population: cells.size });
+  return freezeBoard(columns, rows, cells, generation);
+}
+
+function freezeBoard(columns, rows, livingCells, generation) {
+  return Object.freeze({ columns, rows, livingCells, generation, population: livingCells.size });
 }
 
 export function loadPreset(board, presetOrId) {
@@ -132,11 +138,11 @@ export function toggleCell(board, index) {
   const livingCells = new Set(board.livingCells);
   if (livingCells.has(index)) livingCells.delete(index);
   else livingCells.add(index);
-  return createBoard({ ...board, livingCells });
+  return freezeBoard(board.columns, board.rows, livingCells, board.generation);
 }
 
 export function clearBoard(board) {
-  return createBoard({ ...board, livingCells: new Set(), generation: 0 });
+  return freezeBoard(board.columns, board.rows, new Set(), 0);
 }
 
 export function randomizeBoard(board, density = RANDOM_DENSITY, random = Math.random) {
@@ -145,7 +151,7 @@ export function randomizeBoard(board, density = RANDOM_DENSITY, random = Math.ra
   for (let index = 0; index < board.columns * board.rows; index++) {
     if (random() < density) livingCells.add(index);
   }
-  return createBoard({ ...board, livingCells, generation: 0 });
+  return freezeBoard(board.columns, board.rows, livingCells, 0);
 }
 
 export function seededRandom(seed) {
@@ -173,31 +179,45 @@ export function randomizeBoardSeeded(board, seed, density = RANDOM_DENSITY) {
 }
 
 export function stepBoard(board) {
-  const neighborCounts = new Map();
+  if (board.population === 0) {
+    return freezeBoard(board.columns, board.rows, new Set(), board.generation + 1);
+  }
+
+  // One byte stores the live bit plus the 0..8 neighbor count. The candidate list
+  // lets us inspect only cells touched by a live neighbor instead of scanning the board.
+  const cellStates = new Uint8Array(board.columns * board.rows);
+  const candidates = new Uint32Array(cellStates.length);
+  let candidateCount = 0;
   for (const index of board.livingCells) {
-    const { column, row } = cellCoordinates(index, board.columns);
-    for (let rowDelta = -1; rowDelta <= 1; rowDelta++) {
-      for (let columnDelta = -1; columnDelta <= 1; columnDelta++) {
-        if (columnDelta === 0 && rowDelta === 0) continue;
-        const neighborColumn = column + columnDelta;
-        const neighborRow = row + rowDelta;
-        if (
-          neighborColumn >= 0 && neighborColumn < board.columns &&
-          neighborRow >= 0 && neighborRow < board.rows
-        ) {
-          const neighbor = cellIndex(neighborColumn, neighborRow, board.columns);
-          neighborCounts.set(neighbor, (neighborCounts.get(neighbor) ?? 0) + 1);
+    cellStates[index] |= LIVE_CELL_MASK;
+    const row = Math.floor(index / board.columns);
+    const column = index - row * board.columns;
+    const firstRow = Math.max(0, row - 1);
+    const lastRow = Math.min(board.rows - 1, row + 1);
+    const firstColumn = Math.max(0, column - 1);
+    const lastColumn = Math.min(board.columns - 1, column + 1);
+    for (let neighborRow = firstRow; neighborRow <= lastRow; neighborRow++) {
+      for (let neighborColumn = firstColumn; neighborColumn <= lastColumn; neighborColumn++) {
+        const neighborIndex = neighborRow * board.columns + neighborColumn;
+        if (neighborIndex === index) continue;
+        if ((cellStates[neighborIndex] & NEIGHBOR_COUNT_MASK) === 0) {
+          candidates[candidateCount++] = neighborIndex;
         }
+        cellStates[neighborIndex]++;
       }
     }
   }
+
   const livingCells = new Set();
-  for (const [index, neighbors] of neighborCounts) {
-    if (neighbors === 3 || (neighbors === 2 && board.livingCells.has(index))) {
+  for (let candidateIndex = 0; candidateIndex < candidateCount; candidateIndex++) {
+    const index = candidates[candidateIndex];
+    const state = cellStates[index];
+    const neighbors = state & NEIGHBOR_COUNT_MASK;
+    if (neighbors === 3 || (neighbors === 2 && (state & LIVE_CELL_MASK) !== 0)) {
       livingCells.add(index);
     }
   }
-  return createBoard({ ...board, livingCells, generation: board.generation + 1 });
+  return freezeBoard(board.columns, board.rows, livingCells, board.generation + 1);
 }
 
 export function afterGenerations(board, generations) {

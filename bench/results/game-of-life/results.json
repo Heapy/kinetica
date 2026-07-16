@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-16T08:20:45.261Z",
+  "generatedAt": "2026-07-16T11:07:28.584Z",
   "methodology": {
     "board": "finite 72x48 B3/S23",
     "timing": "Chrome trace: trusted click EventDispatch start through final Paint/Commit",
@@ -24,124 +24,124 @@
       "version": "dev",
       "bundle": {
         "label": "Kinetica",
-        "rawBytes": 320779,
-        "gzipBytes": 100427
+        "rawBytes": 321366,
+        "gzipBytes": 100703
       },
       "startup": {
         "samples": [
-          112.6,
-          64.9,
-          67.5,
-          65.3,
-          65.6
+          105.1,
+          66.9,
+          64.6,
+          66.6,
+          67.1
         ],
-        "median": 65.6,
-        "mean": 75.18,
-        "stddev": 18.73,
-        "min": 64.9,
-        "max": 112.6
+        "median": 66.9,
+        "mean": 74.06,
+        "stddev": 15.55,
+        "min": 64.6,
+        "max": 105.1
       },
       "operations": {
         "load_pulsar": {
           "label": "Load 48-cell Pulsar preset",
           "samples": [
-            26.63,
-            21.85,
-            21.06,
-            28.4,
-            28.26
+            29.07,
+            20.7,
+            28.47,
+            21.42,
+            20.02
           ],
-          "median": 26.63,
-          "mean": 25.24,
-          "stddev": 3.16,
-          "min": 21.06,
-          "max": 28.4,
-          "clickDispatchMedian": 3.48,
-          "gcMedian": 2.3
+          "median": 21.42,
+          "mean": 23.94,
+          "stddev": 3.98,
+          "min": 20.02,
+          "max": 29.07,
+          "clickDispatchMedian": 2.87,
+          "gcMedian": 0
         },
         "step_pulsar": {
           "label": "Advance Pulsar one generation",
           "samples": [
-            30.88,
-            25.79,
-            24.17,
-            23.56,
-            30.62
+            24.23,
+            23.88,
+            24.26,
+            24.8,
+            23.28
           ],
-          "median": 25.79,
-          "mean": 27,
-          "stddev": 3.15,
-          "min": 23.56,
-          "max": 30.88,
-          "clickDispatchMedian": 3.35,
+          "median": 24.23,
+          "mean": 24.09,
+          "stddev": 0.5,
+          "min": 23.28,
+          "max": 24.8,
+          "clickDispatchMedian": 2.58,
           "gcMedian": 0
         },
         "randomize": {
           "label": "Populate 24% of the 3,456-cell board",
           "samples": [
-            113.6,
-            123.4,
-            116.37,
-            126.4,
-            134.28
+            124.06,
+            140.39,
+            132.35,
+            143.89,
+            151.44
           ],
-          "median": 123.4,
-          "mean": 122.81,
-          "stddev": 7.37,
-          "min": 113.6,
-          "max": 134.28,
-          "clickDispatchMedian": 6.23,
+          "median": 140.39,
+          "mean": 138.43,
+          "stddev": 9.45,
+          "min": 124.06,
+          "max": 151.44,
+          "clickDispatchMedian": 6.67,
           "gcMedian": 0
         },
         "step_random": {
           "label": "Advance a randomized board one generation",
           "samples": [
-            115.99,
-            120.31,
-            113.63,
-            124.67,
-            122.15
+            121.97,
+            117.08,
+            117.45,
+            129.11,
+            139.25
           ],
-          "median": 120.31,
-          "mean": 119.35,
-          "stddev": 4.03,
-          "min": 113.63,
-          "max": 124.67,
-          "clickDispatchMedian": 7.92,
-          "gcMedian": 5.51
+          "median": 121.97,
+          "mean": 124.97,
+          "stddev": 8.35,
+          "min": 117.08,
+          "max": 139.25,
+          "clickDispatchMedian": 7.24,
+          "gcMedian": 33.37
         },
         "toggle_center": {
           "label": "Toggle one editable board cell",
           "samples": [
-            13.4,
+            14.31,
+            14.73,
+            14.5,
             14.7,
-            13.4,
-            13.38,
-            14.13
+            13.92
           ],
-          "median": 13.4,
-          "mean": 13.8,
-          "stddev": 0.53,
-          "min": 13.38,
-          "max": 14.7,
-          "clickDispatchMedian": 3.34,
+          "median": 14.5,
+          "mean": 14.43,
+          "stddev": 0.3,
+          "min": 13.92,
+          "max": 14.73,
+          "clickDispatchMedian": 2.41,
           "gcMedian": 0
         },
         "clear_pulsar": {
           "label": "Clear the 48-cell Pulsar",
           "samples": [
-            23.06,
-            20.48,
-            21.17,
-            20.81,
-            22.76
+            21,
+            21.35,
+            21.6,
+            20.52,
+            20.78
           ],
-          "median": 21.17,
-          "mean": 21.66,
-          "stddev": 1.05,
-          "min": 20.48,
-          "max": 23.06,
-          "clickDispatchMedian": 3.26,
+          "median": 21,
+          "mean": 21.05,
+          "stddev": 0.39,
+          "min": 20.52,
+          "max": 21.6,
+          "clickDispatchMedian": 3.06,
           "gcMedian": 0
         }
       }
@@ -151,124 +151,124 @@
       "version": "19.2.7",
       "bundle": {
         "label": "React",
-        "rawBytes": 203465,
-        "gzipBytes": 63701
+        "rawBytes": 203663,
+        "gzipBytes": 63808
       },
       "startup": {
         "samples": [
-          59.6,
-          56.9,
-          56.6,
-          61.2,
-          57
+          57.7,
+          56,
+          52.2,
+          54.5,
+          82.4
         ],
-        "median": 57,
-        "mean": 58.26,
-        "stddev": 1.82,
-        "min": 56.6,
-        "max": 61.2
+        "median": 56,
+        "mean": 60.56,
+        "stddev": 11.07,
+        "min": 52.2,
+        "max": 82.4
       },
       "operations": {
         "load_pulsar": {
           "label": "Load 48-cell Pulsar preset",
           "samples": [
-            26.49,
-            21.08,
-            21.73,
-            21.4,
-            21.17
+            21.25,
+            21.56,
+            29.43,
+            21.87,
+            28.4
           ],
-          "median": 21.4,
-          "mean": 22.37,
-          "stddev": 2.07,
-          "min": 21.08,
-          "max": 26.49,
-          "clickDispatchMedian": 1.22,
+          "median": 21.87,
+          "mean": 24.5,
+          "stddev": 3.62,
+          "min": 21.25,
+          "max": 29.43,
+          "clickDispatchMedian": 1.24,
           "gcMedian": 0
         },
         "step_pulsar": {
           "label": "Advance Pulsar one generation",
           "samples": [
-            28.97,
-            28.7,
-            28.88,
-            28.61,
-            26.92
+            27.92,
+            28.23,
+            28.78,
+            28.48,
+            28.43
           ],
-          "median": 28.7,
-          "mean": 28.42,
-          "stddev": 0.76,
-          "min": 26.92,
-          "max": 28.97,
-          "clickDispatchMedian": 1.18,
-          "gcMedian": 2.11
+          "median": 28.43,
+          "mean": 28.37,
+          "stddev": 0.28,
+          "min": 27.92,
+          "max": 28.78,
+          "clickDispatchMedian": 1.35,
+          "gcMedian": 0
         },
         "randomize": {
           "label": "Populate 24% of the 3,456-cell board",
           "samples": [
-            146.2,
-            161.1,
-            156.03,
-            151.27,
-            153.11
+            151.34,
+            195.56,
+            155.99,
+            180.33,
+            155.57
           ],
-          "median": 153.11,
-          "mean": 153.54,
-          "stddev": 4.95,
-          "min": 146.2,
-          "max": 161.1,
-          "clickDispatchMedian": 2.31,
-          "gcMedian": 16.37
+          "median": 155.99,
+          "mean": 167.76,
+          "stddev": 17.25,
+          "min": 151.34,
+          "max": 195.56,
+          "clickDispatchMedian": 2.39,
+          "gcMedian": 20.7
         },
         "step_random": {
           "label": "Advance a randomized board one generation",
           "samples": [
-            124.31,
-            117.58,
-            145.73,
-            144.94,
-            146.37
+            131.51,
+            139.26,
+            149.87,
+            154.21,
+            160.37
           ],
-          "median": 144.94,
-          "mean": 135.79,
-          "stddev": 12.31,
-          "min": 117.58,
-          "max": 146.37,
-          "clickDispatchMedian": 2.47,
+          "median": 149.87,
+          "mean": 147.04,
+          "stddev": 10.38,
+          "min": 131.51,
+          "max": 160.37,
+          "clickDispatchMedian": 2.71,
           "gcMedian": 0
         },
         "toggle_center": {
           "label": "Toggle one editable board cell",
           "samples": [
-            19.54,
-            21.52,
-            20.15,
-            19.72,
-            19.83
+            19.43,
+            18.93,
+            18.55,
+            17.43,
+            19.54
           ],
-          "median": 19.83,
-          "mean": 20.15,
-          "stddev": 0.71,
-          "min": 19.54,
-          "max": 21.52,
-          "clickDispatchMedian": 1.1,
+          "median": 18.93,
+          "mean": 18.77,
+          "stddev": 0.76,
+          "min": 17.43,
+          "max": 19.54,
+          "clickDispatchMedian": 1.32,
           "gcMedian": 0
         },
         "clear_pulsar": {
           "label": "Clear the 48-cell Pulsar",
           "samples": [
-            18.95,
-            20.26,
-            20.35,
-            20.42,
-            20.22
+            20.15,
+            26.29,
+            20.65,
+            19.59,
+            19.49
           ],
-          "median": 20.26,
-          "mean": 20.04,
-          "stddev": 0.55,
-          "min": 18.95,
-          "max": 20.42,
-          "clickDispatchMedian": 2.4,
+          "median": 20.15,
+          "mean": 21.23,
+          "stddev": 2.56,
+          "min": 19.49,
+          "max": 26.29,
+          "clickDispatchMedian": 2.35,
           "gcMedian": 0
         }
       }
@@ -278,125 +278,125 @@
       "version": "1.11.1",
       "bundle": {
         "label": "Compose HTML",
-        "rawBytes": 576902,
-        "gzipBytes": 181233
+        "rawBytes": 577650,
+        "gzipBytes": 181533
       },
       "startup": {
         "samples": [
-          109.1,
-          107,
-          105.3,
-          111.7,
-          106.8
+          111.3,
+          107.4,
+          107.1,
+          108.2,
+          105.3
         ],
-        "median": 107,
-        "mean": 107.98,
-        "stddev": 2.22,
+        "median": 107.4,
+        "mean": 107.86,
+        "stddev": 1.96,
         "min": 105.3,
-        "max": 111.7
+        "max": 111.3
       },
       "operations": {
         "load_pulsar": {
           "label": "Load 48-cell Pulsar preset",
           "samples": [
-            29.86,
-            27.92,
-            28.5,
-            29.97,
-            29.16
+            37.49,
+            34.62,
+            34.7,
+            34.6,
+            33.12
           ],
-          "median": 29.16,
-          "mean": 29.08,
-          "stddev": 0.79,
-          "min": 27.92,
-          "max": 29.97,
-          "clickDispatchMedian": 0.34,
-          "gcMedian": 2.12
+          "median": 34.62,
+          "mean": 34.91,
+          "stddev": 1.42,
+          "min": 33.12,
+          "max": 37.49,
+          "clickDispatchMedian": 0.52,
+          "gcMedian": 0
         },
         "step_pulsar": {
           "label": "Advance Pulsar one generation",
           "samples": [
-            32.33,
-            30.6,
-            39.88,
-            31.67,
-            40.4
+            38.09,
+            30.64,
+            29.8,
+            32.04,
+            31.85
           ],
-          "median": 32.33,
-          "mean": 34.98,
-          "stddev": 4.26,
-          "min": 30.6,
-          "max": 40.4,
-          "clickDispatchMedian": 0.45,
-          "gcMedian": 1.72
+          "median": 31.85,
+          "mean": 32.48,
+          "stddev": 2.92,
+          "min": 29.8,
+          "max": 38.09,
+          "clickDispatchMedian": 0.43,
+          "gcMedian": 2.11
         },
         "randomize": {
           "label": "Populate 24% of the 3,456-cell board",
           "samples": [
-            130.48,
-            135.44,
-            133.73,
-            131.03,
-            149.85
+            138.45,
+            140.28,
+            132.54,
+            169.47,
+            151.94
           ],
-          "median": 133.73,
-          "mean": 136.1,
-          "stddev": 7.1,
-          "min": 130.48,
-          "max": 149.85,
-          "clickDispatchMedian": 0.46,
-          "gcMedian": 5.8
+          "median": 140.28,
+          "mean": 146.54,
+          "stddev": 13.08,
+          "min": 132.54,
+          "max": 169.47,
+          "clickDispatchMedian": 0.57,
+          "gcMedian": 7.36
         },
         "step_random": {
           "label": "Advance a randomized board one generation",
           "samples": [
-            129.48,
-            129.73,
-            89.61,
-            130.39,
-            124.4
+            135.86,
+            128.78,
+            127.2,
+            97.15,
+            139.31
           ],
-          "median": 129.48,
-          "mean": 120.72,
-          "stddev": 15.7,
-          "min": 89.61,
-          "max": 130.39,
-          "clickDispatchMedian": 1.02,
-          "gcMedian": 38.4
+          "median": 128.78,
+          "mean": 125.66,
+          "stddev": 14.93,
+          "min": 97.15,
+          "max": 139.31,
+          "clickDispatchMedian": 0.41,
+          "gcMedian": 40.17
         },
         "toggle_center": {
           "label": "Toggle one editable board cell",
           "samples": [
-            13.86,
-            14.33,
-            14.83,
-            14.78,
-            15.19
+            15.39,
+            13.41,
+            13.75,
+            12.05,
+            16.55
           ],
-          "median": 14.78,
-          "mean": 14.6,
-          "stddev": 0.46,
-          "min": 13.86,
-          "max": 15.19,
-          "clickDispatchMedian": 0.27,
-          "gcMedian": 1.78
+          "median": 13.75,
+          "mean": 14.23,
+          "stddev": 1.57,
+          "min": 12.05,
+          "max": 16.55,
+          "clickDispatchMedian": 0.44,
+          "gcMedian": 0
         },
         "clear_pulsar": {
           "label": "Clear the 48-cell Pulsar",
           "samples": [
-            36.41,
-            28.18,
-            27.94,
-            28.39,
-            28.6
+            33.99,
+            28.42,
+            27.82,
+            35.26,
+            33.28
           ],
-          "median": 28.39,
-          "mean": 29.9,
-          "stddev": 3.26,
-          "min": 27.94,
-          "max": 36.41,
-          "clickDispatchMedian": 0.28,
-          "gcMedian": 1.83
+          "median": 33.28,
+          "mean": 31.76,
+          "stddev": 3.04,
+          "min": 27.82,
+          "max": 35.26,
+          "clickDispatchMedian": 0.42,
+          "gcMedian": 1.84
         }
       }
     },
@@ -405,124 +405,124 @@
       "version": "browser DOM",
       "bundle": {
         "label": "Vanilla",
-        "rawBytes": 11953,
-        "gzipBytes": 4039
+        "rawBytes": 12152,
+        "gzipBytes": 4150
       },
       "startup": {
         "samples": [
-          40.4,
-          39.8,
-          37.7,
-          43.2,
-          43.1
+          36.8,
+          35.6,
+          32.2,
+          35,
+          39.3
         ],
-        "median": 40.4,
-        "mean": 40.84,
-        "stddev": 2.09,
-        "min": 37.7,
-        "max": 43.2
+        "median": 35.6,
+        "mean": 35.78,
+        "stddev": 2.32,
+        "min": 32.2,
+        "max": 39.3
       },
       "operations": {
         "load_pulsar": {
           "label": "Load 48-cell Pulsar preset",
           "samples": [
-            20.32,
-            20.87,
-            20.6,
-            20.71,
-            21.38
+            25.64,
+            27.56,
+            29.32,
+            27.18,
+            26.97
           ],
-          "median": 20.71,
-          "mean": 20.77,
-          "stddev": 0.35,
-          "min": 20.32,
-          "max": 21.38,
-          "clickDispatchMedian": 0.26,
+          "median": 27.18,
+          "mean": 27.34,
+          "stddev": 1.19,
+          "min": 25.64,
+          "max": 29.32,
+          "clickDispatchMedian": 0.37,
           "gcMedian": 0
         },
         "step_pulsar": {
           "label": "Advance Pulsar one generation",
           "samples": [
-            24.26,
-            23.77,
-            24.92,
-            24.4,
-            23.03
+            23.64,
+            24.82,
+            30.8,
+            29.23,
+            24
           ],
-          "median": 24.26,
-          "mean": 24.08,
-          "stddev": 0.64,
-          "min": 23.03,
-          "max": 24.92,
-          "clickDispatchMedian": 0.27,
+          "median": 24.82,
+          "mean": 26.5,
+          "stddev": 2.94,
+          "min": 23.64,
+          "max": 30.8,
+          "clickDispatchMedian": 0.37,
           "gcMedian": 0
         },
         "randomize": {
           "label": "Populate 24% of the 3,456-cell board",
           "samples": [
-            114.25,
-            155.04,
-            108.92,
-            123.21,
-            104.87
+            117.01,
+            119.27,
+            116.41,
+            118.71,
+            122.9
           ],
-          "median": 114.25,
-          "mean": 121.26,
-          "stddev": 17.97,
-          "min": 104.87,
-          "max": 155.04,
-          "clickDispatchMedian": 1.04,
+          "median": 118.71,
+          "mean": 118.86,
+          "stddev": 2.28,
+          "min": 116.41,
+          "max": 122.9,
+          "clickDispatchMedian": 1.16,
           "gcMedian": 0
         },
         "step_random": {
           "label": "Advance a randomized board one generation",
           "samples": [
-            112.36,
-            109.96,
-            120.42,
-            110.92,
-            107.72
+            110.72,
+            140.06,
+            116.83,
+            115.23,
+            116.95
           ],
-          "median": 110.92,
-          "mean": 112.28,
-          "stddev": 4.34,
-          "min": 107.72,
-          "max": 120.42,
-          "clickDispatchMedian": 1.09,
-          "gcMedian": 12.39
+          "median": 116.83,
+          "mean": 119.96,
+          "stddev": 10.3,
+          "min": 110.72,
+          "max": 140.06,
+          "clickDispatchMedian": 1.03,
+          "gcMedian": 0
         },
         "toggle_center": {
           "label": "Toggle one editable board cell",
           "samples": [
-            16.12,
-            13.58,
-            14.25,
-            13.86,
-            14.18
+            14.6,
+            13.41,
+            13.24,
+            13.73,
+            12.44
           ],
-          "median": 14.18,
-          "mean": 14.4,
-          "stddev": 0.89,
-          "min": 13.58,
-          "max": 16.12,
-          "clickDispatchMedian": 0.15,
+          "median": 13.41,
+          "mean": 13.48,
+          "stddev": 0.7,
+          "min": 12.44,
+          "max": 14.6,
+          "clickDispatchMedian": 0.14,
           "gcMedian": 0
         },
         "clear_pulsar": {
           "label": "Clear the 48-cell Pulsar",
           "samples": [
-            20.66,
-            29.55,
-            29.06,
-            19.54,
-            29.03
+            19.74,
+            20.42,
+            20.03,
+            27.29,
+            20.25
           ],
-          "median": 29.03,
-          "mean": 25.57,
-          "stddev": 4.48,
-          "min": 19.54,
-          "max": 29.55,
-          "clickDispatchMedian": 0.3,
+          "median": 20.25,
+          "mean": 21.55,
+          "stddev": 2.88,
+          "min": 19.74,
+          "max": 27.29,
+          "clickDispatchMedian": 0.36,
           "gcMedian": 0
         }
       }
