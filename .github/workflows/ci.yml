@@ -10,56 +10,127 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: Build, test & verify
+  jvm:
+    name: JVM
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
+      # Exact-input build caches are safe to reuse and make non-Kotlin follow-up commits
+      # avoid recompilation. Deliberately omit restore-keys: stale compiler outputs are
+      # riskier than a cold build.
+      - name: Restore JVM build outputs
+        id: jvm-build-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: build
+          key: kinetica-jvm-build-${{ runner.os }}-${{ hashFiles('.github/actions/setup-kinetica/action.yml', '.github/workflows/ci.yml', 'kotlin', 'project.yaml', 'common.module-template.yaml', '**/module.yaml', '**/plugin.yaml', '**/*.kt', '**/*.java', '**/resources/**', '**/testResources/**') }}
+
       - uses: ./.github/actions/setup-kinetica
 
-      # The plugin is mandatory for every module (slot ordinals are compiler-assigned),
-      # and it resolves from the toolchain's own local repo (.kotlin/home/.m2) — so it must
-      # be built and published before anything else compiles. Publish precedes the plugin's
-      # own tests: its test fragment depends on kinetica-runtime, which already needs the
-      # published artifact.
+      # Every project module resolves the compiler plugin from the toolchain-local Maven
+      # repository, so publish it before asking the CLI to construct the project graph.
       - name: Publish compiler plugin
-        run: |
-          set -euo pipefail
-          ./kotlin publish mavenLocal -m kinetica-compiler
-          ./kotlin test -m kinetica-compiler --platform jvm
+        run: ./kotlin publish mavenLocal -m kinetica-compiler
 
-      # JVM tests for every module with a JVM-testable surface.
-      # (Android/native targets are out of CI scope for now: they need SDK/host toolchains.)
-      - name: JVM tests
+      # One CLI invocation shares project discovery and task scheduling across the whole
+      # JVM graph. The repeated -m form is supported by Kotlin Toolchain 0.11.
+      - name: JVM test suite
         run: |
           set -euo pipefail
-          for module in kinetica-runtime kinetica-markdown kinetica-router kinetica-forms \
-                        kinetica-motion kinetica-persist kinetica-theme kinetica-data \
-                        kinetica-test server-components-shared \
-                        server-components todo; do
-            echo "=== $module"
-            ./kotlin test -m "$module" --platform jvm
-          done
+          ./kotlin test --platform jvm \
+            -m kinetica-compiler \
+            -m kinetica-runtime \
+            -m kinetica-markdown \
+            -m kinetica-router \
+            -m kinetica-forms \
+            -m kinetica-motion \
+            -m kinetica-persist \
+            -m kinetica-theme \
+            -m kinetica-data \
+            -m kinetica-test \
+            -m server-components-shared \
+            -m server-components \
+            -m todo \
+            -m game-of-life-model
 
-      # The two annotated samples are the plugin's behavior gate: scope-free +
-      # receiver-style semantics on JVM, and the IR frame/skip transforms on the K2/JS
-      # pipeline.
-      - name: Compiler plugin samples (JVM + JS)
-        run: |
-          set -euo pipefail
-          ./kotlin run -m annotated
-          ./kotlin build -m annotated-js
-          node build/tasks/_annotated-js_linkJs/annotated-js.mjs
+      - name: Save JVM build outputs
+        if: steps.jvm-build-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: build
+          key: ${{ steps.jvm-build-cache.outputs.cache-primary-key }}
 
-      - name: Build JS modules
+      - name: Compiler plugin JVM sample
+        run: ./kotlin run -m annotated
+
+      - name: JVM microbenchmarks (smoke)
+        run: ./kotlin run -m bench-jvm -- --warmup=1 --samples=3
+
+  browser:
+    name: JS, browser & docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # This cache contains only reproducible build products and uses an exact input hash.
+      # It is saved before verification, so a late browser failure does not force the next
+      # commit to repeat several minutes of unchanged Kotlin compilation.
+      - name: Restore browser build outputs
+        id: browser-build-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: build
+          key: kinetica-browser-build-${{ runner.os }}-${{ hashFiles('.github/actions/setup-kinetica/action.yml', '.github/workflows/ci.yml', 'kotlin', 'project.yaml', 'common.module-template.yaml', '**/module.yaml', '**/plugin.yaml', '**/*.kt', '**/*.java', 'samples/**/*.mjs', 'samples/**/*.js', 'samples/**/*.jsx', 'samples/**/*.css', 'samples/**/*.html', 'docs/docs-site/resources/**', 'scripts/build-game-of-life.mjs', 'scripts/bundle-docs.mjs', 'scripts/lib/**', 'bench/build*.mjs', 'bench/package.json', 'bench/package-lock.json', 'bench/game-of-life/report.html', 'bench/results/game-of-life/results.json') }}
+
+      - uses: ./.github/actions/setup-kinetica
+        with:
+          # A cache hit only runs Node/Java verification against finished artifacts. Avoid
+          # downloading the ~1 GB project-local Kotlin state when no Kotlin command runs.
+          setup-kotlin: ${{ steps.browser-build-cache.outputs.cache-hit != 'true' }}
+
+      - name: Install bench Node dependencies
+        run: npm ci --prefix bench --no-audit --no-fund
+
+      - name: Publish compiler plugin
+        if: steps.browser-build-cache.outputs.cache-hit != 'true'
+        run: ./kotlin publish mavenLocal -m kinetica-compiler
+
+      # Build the complete JS graph once. Subsequent verification steps consume artifacts
+      # and never invoke the Kotlin CLI again.
+      - name: Build browser artifacts
+        if: steps.browser-build-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          for module in kinetica-browser browser-tests browser-counter browser-game-of-life browser-game-of-life-compose browser-todo \
-                        browser-bench docs-client server-components-client; do
-            echo "=== $module"
-            ./kotlin build -m "$module"
-          done
+          ./kotlin build --platform js \
+            -m annotated-js \
+            -m kinetica-browser \
+            -m browser-tests \
+            -m browser-counter \
+            -m browser-game-of-life \
+            -m browser-game-of-life-compose \
+            -m browser-todo \
+            -m browser-bench \
+            -m docs-client \
+            -m server-components-client \
+            -m game-of-life-model \
+            -m kinetica-runtime \
+            -m kinetica-test
+          ./kotlin package -m docs-site
+          node scripts/build-game-of-life.mjs --skip-kotlin-build
+          node scripts/bundle-docs.mjs --skip-kotlin-build
+
+      - name: Save browser build outputs
+        if: steps.browser-build-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: build
+          key: ${{ steps.browser-build-cache.outputs.cache-primary-key }}
+
+      - name: Compiler plugin JS sample
+        run: node build/tasks/_annotated-js_linkJs/annotated-js.mjs
 
       - name: Browser-runtime JS tests
         run: node build/tasks/_kinetica-browser_linkJsTest/kinetica-browser_test.mjs
@@ -67,48 +138,46 @@ jobs:
       - name: Game of Life model tests
         run: |
           set -euo pipefail
-          ./kotlin test -m game-of-life-model --platform jvm
-          ./kotlin build -m game-of-life-model --platform js
           node build/tasks/_game-of-life-model_linkJsTest/game-of-life-model_test.mjs
           node samples/game-of-life-shared/life-core.test.mjs
           node bench/game-of-life/validate-results.mjs
 
-      # Frame storage and the IR ordinal emission must behave identically on the JS
-      # backend, so the runtime and test-kit suites run on Node too.
       - name: Runtime & test-kit JS tests
         run: |
           set -euo pipefail
-          ./kotlin build -m kinetica-runtime --platform js
-          ./kotlin build -m kinetica-test --platform js
           node build/tasks/_kinetica-runtime_linkJsTest/kinetica-runtime_test.mjs
           node build/tasks/_kinetica-test_linkJsTest/kinetica-test_test.mjs
 
-      # Fails when a tracked artifact's gzip size grows >10% over bench/size-baseline.json;
-      # accept intentional growth by re-running with --update-baseline and committing.
+      # Fails when a tracked artifact's gzip size grows >10% over the committed baseline.
       - name: Bundle size check
         run: node scripts/size-report.mjs
 
-      # Smoke, not numbers: shared runners are too noisy for regression thresholds. This
-      # verifies the reactive-core/render/SSR benchmarks still run end to end.
-      - name: JVM microbenchmarks (smoke)
-        run: ./kotlin run -m bench-jvm -- --warmup=1 --samples=3
+      - name: Restore Playwright browser
+        id: playwright-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-1.61.1
 
       - name: Install Playwright
         run: |
           mkdir -p .tools/playwright && cd .tools/playwright
           npm init -y >/dev/null
-          npm install --no-audit --no-fund playwright
-          npx playwright install --with-deps chromium
+          npm install --no-audit --no-fund --save-exact playwright@1.61.1
+          npx playwright install --with-deps --only-shell chromium
 
-      - name: Install bench Node dependencies
-        run: npm ci --prefix bench --no-audit --no-fund
+      - name: Save Playwright browser
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ steps.playwright-cache.outputs.cache-primary-key }}
 
       - name: Browser verification (samples)
         env:
           PLAYWRIGHT_IMPORT: ${{ github.workspace }}/.tools/playwright/node_modules/playwright/index.mjs
         run: |
           set -euo pipefail
-          node scripts/build-game-of-life.mjs --skip-kotlin-build
           node -e 'import("./bench/driver/server.mjs").then(m => m.startServer(process.cwd(), 4173))' &
           SERVER_PID=$!
           sleep 1
@@ -120,8 +189,6 @@ jobs:
           PLAYWRIGHT_IMPORT: ${{ github.workspace }}/.tools/playwright/node_modules/playwright/index.mjs
         run: |
           set -euo pipefail
-          ./kotlin package -m docs-site
-          node scripts/bundle-docs.mjs
           PORT=8080 java -jar build/tasks/_docs-site_executableJarJvm/docs-site-jvm-executable.jar &
           SITE_PID=$!
           for i in $(seq 1 60); do
@@ -130,3 +197,20 @@ jobs:
           done
           DOCS_BASE_URL=http://127.0.0.1:8080 node docs/verify-docs.mjs
           kill $SITE_PID
+
+  required:
+    name: Build, test & verify
+    if: ${{ always() }}
+    needs: [jvm, browser]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify required jobs
+        env:
+          JVM_RESULT: ${{ needs.jvm.result }}
+          BROWSER_RESULT: ${{ needs.browser.result }}
+        run: |
+          echo "JVM: $JVM_RESULT"
+          echo "JS, browser & docs: $BROWSER_RESULT"
+          test "$JVM_RESULT" = "success"
+          test "$BROWSER_RESULT" = "success"
