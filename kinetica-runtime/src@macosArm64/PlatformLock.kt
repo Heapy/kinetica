@@ -4,7 +4,8 @@ import kotlin.concurrent.atomics.AtomicInt
 
 @PublishedApi
 internal class NativeSpinLock {
-    private val state = AtomicInt(0)
+    @PublishedApi
+    internal val state = AtomicInt(0)
 
     inline fun <R> synchronized(block: () -> R): R {
         while (!state.compareAndSet(0, 1)) {
