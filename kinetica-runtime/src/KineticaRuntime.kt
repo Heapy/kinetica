@@ -44,11 +44,7 @@ public class KineticaRuntime(
     internal val appResourceCacheId: String = "app-$runtimeResourceCacheId"
     internal val requestResourceCacheId: String = "request-$runtimeResourceCacheId"
 
-    // Serial dispatcher view (not a dedicated thread): effect bodies must *start* in declaration
-    // order on every backend, matching the single-threaded JS semantics (KSND-099). Parallelism
-    // is limited, not concurrency — a suspended effect does not hold the queue.
-    public val effectScope: CoroutineScope =
-        CoroutineScope(SupervisorJob() + Dispatchers.Default.limitedParallelism(1))
+    public val effectScope: CoroutineScope = CoroutineScope(SupervisorJob() + serialEffectDispatcher())
     private val activeTasks = MutableStateFlow(0)
 
     public val virtualTimeMillis: Long
