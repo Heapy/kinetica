@@ -127,7 +127,11 @@ fun main(args: Array<String>) {
     }
     val warmup = options["warmup"]?.toInt() ?: 5
     val samples = options["samples"]?.toInt() ?: 20
-    val filter = options["filter"] ?: ""
+    val filters = options["filter"]
+        ?.split(',')
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() }
+        .orEmpty()
     val repoRoot = findRepoRoot()
     val outPath = options["out"]?.let(Path::of)
         ?: repoRoot.resolve("bench/results/jvm/results.json")
@@ -325,7 +329,9 @@ fun main(args: Array<String>) {
                 runtime.render(scope) { markdownBlocks(docsBlocks) }.tree.toSafeHtml()
             },
         ),
-    ).filter { filter.isEmpty() || it.id.contains(filter) }
+    ).filter { benchmark ->
+        filters.isEmpty() || filters.any { filter -> benchmark.id.contains(filter) }
+    }
 
     println("bench-jvm: ${benchmarks.size} benchmarks, $warmup warmup + $samples samples each")
     println("JVM ${System.getProperty("java.version")} on ${System.getProperty("os.name")} ${System.getProperty("os.arch")}\n")
