@@ -485,7 +485,8 @@ const fwColorCss = FW_ORDER.map(
 const fwColorTokens = (mode) =>
   FW_ORDER.map((f) => `  --c-${f}: ${FW_COLOR[f][mode]};`).join("\n");
 
-const html = `<title>Kinetica vs React · js-framework-benchmark</title>
+const html = `<meta charset="utf-8">
+<title>Kinetica vs React · js-framework-benchmark</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 :root {
