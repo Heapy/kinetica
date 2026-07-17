@@ -6,9 +6,7 @@ package io.heapy.kinetica.compiler
 
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
 import org.jetbrains.kotlin.backend.common.lower.DeclarationIrBuilder
-import org.jetbrains.kotlin.descriptors.DescriptorVisibilities
 import org.jetbrains.kotlin.ir.IrStatement
-import org.jetbrains.kotlin.ir.builders.declarations.buildField
 import org.jetbrains.kotlin.ir.builders.irCall
 import org.jetbrains.kotlin.ir.builders.irCallConstructor
 import org.jetbrains.kotlin.ir.builders.irGet
@@ -17,7 +15,6 @@ import org.jetbrains.kotlin.ir.builders.irInt
 import org.jetbrains.kotlin.ir.builders.irNull
 import org.jetbrains.kotlin.ir.builders.irString
 import org.jetbrains.kotlin.ir.builders.irVararg
-import org.jetbrains.kotlin.ir.declarations.IrDeclarationOrigin
 import org.jetbrains.kotlin.ir.declarations.IrField
 import org.jetbrains.kotlin.ir.declarations.IrFile
 import org.jetbrains.kotlin.ir.declarations.IrLocalDelegatedProperty
@@ -671,24 +668,16 @@ internal class KineticaFrameTransformer(
         body.statements += guarded
     }
 
-    private fun addTableField(functionFqName: String, numbering: RegionNumbering): IrField {
-        val field = pluginContext.irFactory.buildField {
+    private fun addTableField(functionFqName: String, numbering: RegionNumbering): IrField =
+        addStaticFileField(
+            file = file,
+            pluginContext = pluginContext,
             // Kotlin/JS klib signatures for top-level privates are package-scoped, so the
             // name must be unique across files of one package, not just within the file.
-            name = Name.identifier("kineticaFrame\$${file.fileUniqueTag()}\$${tableFieldCount++}")
-            type = symbols.frameTableType
-            isFinal = true
-            isStatic = true
-            visibility = DescriptorVisibilities.PRIVATE
-            origin = IrDeclarationOrigin.DEFINED
-        }.apply {
-            parent = file
-        }
-        val builder = DeclarationIrBuilder(pluginContext, field.symbol)
-        val constructor = symbols.frameTableConstructor
-        field.initializer = pluginContext.irFactory.createExpressionBody(
-            file.startOffset,
-            file.endOffset,
+            name = Name.identifier("kineticaFrame\$${file.fileUniqueTag()}\$${tableFieldCount++}"),
+            type = symbols.frameTableType,
+        ) { builder ->
+            val constructor = symbols.frameTableConstructor
             builder.irCallConstructor(constructor, emptyList()).apply {
                 constructor.owner.parameters
                     .filter { it.kind == IrParameterKind.Regular }
@@ -713,11 +702,8 @@ internal class KineticaFrameTransformer(
                             else -> builder.irNull(parameter.type.makeNullable())
                         }
                     }
-            },
-        )
-        file.declarations += field
-        return field
-    }
+            }
+        }
 
     private companion object {
         private const val EXTENSION_RECEIVER = "<extension>"
