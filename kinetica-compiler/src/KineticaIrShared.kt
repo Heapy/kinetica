@@ -69,9 +69,38 @@ internal fun addStaticFileField(
     type: IrType,
     initializer: (DeclarationIrBuilder) -> IrExpression,
 ): IrField {
-    // The field must hang off a real IrProperty: backends discover top-level initializers
-    // through properties, and Kotlin/Native's lazy file-initialization lowering silently
-    // skips bare fields — the global then reads as null at runtime.
+    // Initialization timing is backend-specific and load-bearing: frame tables key region
+    // identity, so a single pre-initialization null read permanently splits the frame.
+    // JVM (<clinit>) and JS/wasm (eager module init for bare fields) are safe as-is —
+    // wrapping in a property must NOT happen there, because the JS lowering initializes
+    // top-level *properties* lazily per file and would reintroduce the null window.
+    // Kotlin/Native is the inverse: bare fields never initialize (lazy file init skips
+    // them), so there the field needs a property carrying @EagerInitialization.
+    val eagerInitialization = pluginContext.referenceClass(EAGER_INITIALIZATION_ID)
+    val field = pluginContext.irFactory.buildField {
+        this.name = name
+        this.type = type
+        isFinal = true
+        isStatic = true
+        visibility = DescriptorVisibilities.PRIVATE
+        origin = if (eagerInitialization != null) {
+            IrDeclarationOrigin.PROPERTY_BACKING_FIELD
+        } else {
+            IrDeclarationOrigin.DEFINED
+        }
+    }.apply {
+        parent = file
+    }
+    val fieldBuilder = DeclarationIrBuilder(pluginContext, field.symbol)
+    field.initializer = pluginContext.irFactory.createExpressionBody(
+        file.startOffset,
+        file.endOffset,
+        initializer(fieldBuilder),
+    )
+    if (eagerInitialization == null) {
+        file.declarations += field
+        return field
+    }
     val property = pluginContext.irFactory.buildProperty {
         this.name = name
         visibility = DescriptorVisibilities.PRIVATE
@@ -80,35 +109,12 @@ internal fun addStaticFileField(
     }.apply {
         parent = file
     }
-    val field = pluginContext.irFactory.buildField {
-        this.name = name
-        this.type = type
-        isFinal = true
-        isStatic = true
-        visibility = DescriptorVisibilities.PRIVATE
-        origin = IrDeclarationOrigin.PROPERTY_BACKING_FIELD
-    }.apply {
-        parent = file
-        correspondingPropertySymbol = property.symbol
-    }
+    field.correspondingPropertySymbol = property.symbol
     property.backingField = field
-    val fieldBuilder = DeclarationIrBuilder(pluginContext, field.symbol)
-    field.initializer = pluginContext.irFactory.createExpressionBody(
-        file.startOffset,
-        file.endOffset,
-        initializer(fieldBuilder),
+    property.annotations += IrAnnotationImpl.fromSymbolOwner(
+        eagerInitialization.owner.defaultType,
+        eagerInitialization.constructors.first(),
     )
-    // Kotlin/Native initializes file globals lazily, triggered by the first call to a
-    // top-level function of that file — which can happen AFTER generated prologue code has
-    // already read the field (frame tables key region identity, so a transient null read
-    // permanently splits the frame). Eager initialization closes that window; the
-    // annotation only exists on Native, so resolution failing means it is not needed.
-    pluginContext.referenceClass(EAGER_INITIALIZATION_ID)?.let { eager ->
-        property.annotations += IrAnnotationImpl.fromSymbolOwner(
-            eager.owner.defaultType,
-            eager.constructors.first(),
-        )
-    }
     file.declarations += property
     return field
 }
