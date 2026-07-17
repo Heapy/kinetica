@@ -187,6 +187,15 @@ Shared `ListenerRegistration` holder (fixes double-dispose of two identical lamb
 - Shape: `BrowserKineticaApp` owns the loop — an invalidation while quiescent arms a rAF (or microtask) flush that batches every write since the last frame into one render; the synchronous event path stays as-is for input latency. Then delete the per-app pumps and the docs-client special cases.
 - Companion to KNT-0026 (component-scoped re-rendering): the scheduler decides WHEN to flush, KNT-0026 narrows WHAT.
 
+### KNT-0042 — kinetica-runtime tests do not compile for macosArm64 (toolchain friend-paths gap)
+**Status:** Open (upstream toolchain limitation).
+- `./kotlin test --platform macosArm64 -m kinetica-runtime` fails: the Native test compilation cannot access the module's own internals (`frameSlot`, `Frame`, `platformLock`, …) — friend-paths are not passed to Native test fragments by Kotlin Toolchain 0.11, while JVM/JS/wasmJs test fragments see internals normally.
+- Consequence: the CI `macos` job runs every macosArm64 module except kinetica-runtime; its code is exercised natively only through dependents. Revisit when the toolchain fixes Native friend visibility (check each toolchain upgrade).
+
+### KNT-0043 — Native flake: exitGroupAbandonmentCleansRetainedEffectExactlyOnce
+**Status:** Open.
+- Failed once on macosArm64 (53 ms, right after a clean rebuild), passed on 4 consecutive reruns; never seen on JVM. Suspect timing of exit-group abandonment vs. `Dispatchers.Default` scheduling on Native. If it recurs in the CI `macos` job, capture the assertion output (the test currently reports only pass/fail) and harden like KSND-099's `waitForLog` diagnostics.
+
 ### KNT-0041 — Frame-binding driver in kinetica-browser (motion without recomposition)
 **Status:** Open.
 - The renderer deliberately drops `frame:` props (no-ops in `BrowserKineticaApp.kt`, private-name list in `BrowserMapping.kt`), so `frameProps`/`FrameValue` — the model motion.md documents ("a running animation never re-renders components") — has no browser consumer. The docs `motion-toggle` example works around it: a watch loop advances the clock and commits every frame into ordinary state, re-rendering per frame.

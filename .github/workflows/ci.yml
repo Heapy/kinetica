@@ -198,10 +198,61 @@ jobs:
           DOCS_BASE_URL=http://127.0.0.1:8080 node docs/verify-docs.mjs
           kill $SITE_PID
 
+  macos:
+    name: macOS native
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      # Exact-input build caches, same policy as the JVM job: no restore-keys because
+      # stale compiler outputs are riskier than a cold build.
+      - name: Restore macOS build outputs
+        id: macos-build-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: build
+          key: kinetica-macos-build-${{ runner.os }}-${{ hashFiles('.github/actions/setup-kinetica/action.yml', '.github/workflows/ci.yml', 'kotlin', 'project.yaml', 'common.module-template.yaml', '**/module.yaml', '**/plugin.yaml', '**/*.kt', '**/*.java', '**/resources/**', '**/testResources/**') }}
+
+      # The Kotlin/Native toolchain download is ~1 GB; key it by the Kotlin version pinned
+      # in the shared module template.
+      - name: Cache Kotlin/Native toolchain
+        uses: actions/cache@v5
+        with:
+          path: ~/.konan
+          key: kinetica-konan-${{ runner.os }}-${{ hashFiles('common.module-template.yaml') }}
+
+      - uses: ./.github/actions/setup-kinetica
+
+      - name: Publish compiler plugin
+        run: ./kotlin publish mavenLocal -m kinetica-compiler
+
+      # kinetica-runtime's own test sources need internal (friend) access, which the
+      # toolchain does not provide to Native test compilations yet; the runtime still
+      # compiles and is exercised natively as a dependency of every module below.
+      - name: Native test suite (macosArm64)
+        run: |
+          set -euo pipefail
+          ./kotlin test --platform macosArm64 \
+            -m kinetica-test \
+            -m kinetica-forms \
+            -m kinetica-data \
+            -m kinetica-persist \
+            -m kinetica-router \
+            -m kinetica-motion \
+            -m kinetica-theme
+
+      - name: Save macOS build outputs
+        if: steps.macos-build-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: build
+          key: ${{ steps.macos-build-cache.outputs.cache-primary-key }}
+
   required:
     name: Build, test & verify
     if: ${{ always() }}
-    needs: [jvm, browser]
+    needs: [jvm, browser, macos]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -209,8 +260,11 @@ jobs:
         env:
           JVM_RESULT: ${{ needs.jvm.result }}
           BROWSER_RESULT: ${{ needs.browser.result }}
+          MACOS_RESULT: ${{ needs.macos.result }}
         run: |
           echo "JVM: $JVM_RESULT"
           echo "JS, browser & docs: $BROWSER_RESULT"
+          echo "macOS native: $MACOS_RESULT"
           test "$JVM_RESULT" = "success"
           test "$BROWSER_RESULT" = "success"
+          test "$MACOS_RESULT" = "success"
