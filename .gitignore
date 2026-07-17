@@ -6,6 +6,9 @@ build/
 **/build/
 .kotlin/
 
+# Project Worktrees
+.worktrees/
+
 # Local tooling (vendored per machine, provisioned in CI)
 .tools/
 .playwright-browsers/
