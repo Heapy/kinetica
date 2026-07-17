@@ -20,6 +20,7 @@ import io.heapy.kinetica.text
 import io.heapy.kinetica.watch
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -317,10 +318,20 @@ class EffectCleanupOrderingTest {
             probe.log.clear()
 
             root.click(hasTestTag("double-bump"))
-            waitForLog(probe, listOf("A:2", "B:2"))
+            waitForLog(
+                probe = probe,
+                expected = listOf("A:2", "B:2"),
+                root = root,
+                phase = "after first double-bump",
+            )
 
             root.click(hasTestTag("double-bump"))
-            waitForLog(probe, listOf("A:2", "B:2", "A:4", "B:4"))
+            waitForLog(
+                probe = probe,
+                expected = listOf("A:2", "B:2", "A:4", "B:4"),
+                root = root,
+                phase = "after second double-bump",
+            )
         } finally {
             root.dispose()
         }
@@ -616,8 +627,36 @@ private fun ComponentScope.WatchBatchingApp(probe: EffectLogProbe) {
     }
 }
 
-private suspend fun waitForLog(probe: EffectLogProbe, expected: List<String>) {
-    waitUntil { probe.log.toList() == expected }
+private suspend fun waitForLog(
+    probe: EffectLogProbe,
+    expected: List<String>,
+    root: TestRoot? = null,
+    phase: String? = null,
+) {
+    try {
+        waitUntil { probe.log.toList() == expected }
+    } catch (timeout: TimeoutCancellationException) {
+        if (root == null) {
+            throw timeout
+        }
+        val actual = probe.log.toList()
+        val recentJournal = root.journal()
+            .takeLast(40)
+            .joinToString(separator = "\n") { entry ->
+                "${entry.sequence} ${entry.kind}: ${entry.message} ${entry.attributes}"
+            }
+        throw AssertionError(
+            buildString {
+                appendLine("Timed out waiting for effect log during $phase.")
+                appendLine("Expected: $expected")
+                appendLine("Actual:   $actual")
+                appendLine("Committed renders: ${root.committedRenderCount()}")
+                appendLine("Tree: ${root.tree()}")
+                appendLine("Recent journal:")
+                append(recentJournal)
+            },
+        )
+    }
     assertEquals(expected, probe.log.toList())
 }
 
