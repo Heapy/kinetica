@@ -154,11 +154,13 @@ function barChart({ title, subtitle, rows, unit, note }) {
   const max = Math.max(...rows.map((r) => r.value));
   const bars = rows
     .map((r) => {
-      const pct = Math.max(0.8, (r.value / max) * 86); // cap at 86% so end labels always fit
+      const ratio = r.value / max;
+      const pct = Math.max(0.8, ratio * 86);
+      const inset = ratio * 25; // keep the longest bar 25px shorter so its end label has more room
       return `
       <div class="bar-row" data-tip="${r.tip ?? ""}">
         <span class="bar-name">${r.name}</span>
-        <span class="bar-track"><span class="bar" data-fw="${r.fw}" style="width:${pct.toFixed(1)}%"></span>
+        <span class="bar-track"><span class="bar" data-fw="${r.fw}" style="width:calc(${pct.toFixed(1)}% - ${inset.toFixed(1)}px)"></span>
         <span class="bar-value">${r.label}</span></span>
       </div>`;
     })
