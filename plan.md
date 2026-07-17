@@ -181,6 +181,18 @@ Deferred KSND areas: what + why it is blocked + the unlock that would open it. U
 ### KNT-0038 — Cell.kt API hygiene triad (LANDED, detail in git history)
 Shared `ListenerRegistration` holder (fixes double-dispose of two identical lambdas); `update()`/`setAtomic()` deduped into `commitAtomic`. Side-finding: kinetica-runtime's macosArm64 **test** compile is pre-existingly broken (native test source set is not a friend module) — refines KNT-0037 §12.
 
+### KNT-0040 — Browser render scheduler: async invalidations never flush themselves
+**Status:** Open.
+- Outside the synchronous DOM-event path, a cell write only sets `hasPendingInvalidation`; nothing in `kinetica-browser` ever flushes it. Every browser app hand-rolls a pump today: Game of Life threads a `requestRender` callback into its watch loop (`samples/browser-game-of-life/src/main.kt`), docs-client pumps `awaitIdle` after events plus a 100ms interval for `effect-timer` and a rAF loop for `motion-toggle` (`docs/docs-client/src/main.kt`). This is the spec's "one UI loop" decision left unimplemented on the browser side.
+- Shape: `BrowserKineticaApp` owns the loop — an invalidation while quiescent arms a rAF (or microtask) flush that batches every write since the last frame into one render; the synchronous event path stays as-is for input latency. Then delete the per-app pumps and the docs-client special cases.
+- Companion to KNT-0026 (component-scoped re-rendering): the scheduler decides WHEN to flush, KNT-0026 narrows WHAT.
+
+### KNT-0041 — Frame-binding driver in kinetica-browser (motion without recomposition)
+**Status:** Open.
+- The renderer deliberately drops `frame:` props (no-ops in `BrowserKineticaApp.kt`, private-name list in `BrowserMapping.kt`), so `frameProps`/`FrameValue` — the model motion.md documents ("a running animation never re-renders components") — has no browser consumer. The docs `motion-toggle` example works around it: a watch loop advances the clock and commits every frame into ordinary state, re-rendering per frame.
+- Shape: on mount, resolve `frame:<property>` bindings to their `FrameValue` by id, subscribe via `observe`, and patch the mapped style property on the host element directly — no recomposition; one renderer-owned rAF clock calls `advanceBy` on running `AnimatedFloat`s and writes styles. Afterwards the motion example drops its manual driver and the motion.md caveat ("the browser renderer does not consume frame bindings yet") goes away.
+- Related: KNT-0028 (retain-and-mark contract is where exit animations meet the patcher), KNT-0037 §10 (FLIP geometry needs real layout metrics).
+
 ## Order of work
 
 1. The backlog is unscheduled. Per-ticket starting points: KNT-0024 → re-profile, KNT-0028/KNT-0035 → spec decision, KNT-0036 → design decision. (KNT-0031/0033/0033b/0034/0038/0039 landed on `mem-opt-experiments`, pending merge review — see the "Landed" one-liners above; full detail in git history.)
