@@ -15,14 +15,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # Exact-input build caches are safe to reuse and make non-Kotlin follow-up commits
       # avoid recompilation. Deliberately omit restore-keys: stale compiler outputs are
       # riskier than a cold build.
       - name: Restore JVM build outputs
         id: jvm-build-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: build
           key: kinetica-jvm-build-${{ runner.os }}-${{ hashFiles('.github/actions/setup-kinetica/action.yml', '.github/workflows/ci.yml', 'kotlin', 'project.yaml', 'common.module-template.yaml', '**/module.yaml', '**/plugin.yaml', '**/*.kt', '**/*.java', '**/resources/**', '**/testResources/**') }}
@@ -57,7 +57,7 @@ jobs:
 
       - name: Save JVM build outputs
         if: steps.jvm-build-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: build
           key: ${{ steps.jvm-build-cache.outputs.cache-primary-key }}
@@ -73,14 +73,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # This cache contains only reproducible build products and uses an exact input hash.
       # It is saved before verification, so a late browser failure does not force the next
       # commit to repeat several minutes of unchanged Kotlin compilation.
       - name: Restore browser build outputs
         id: browser-build-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: build
           key: kinetica-browser-build-${{ runner.os }}-${{ hashFiles('.github/actions/setup-kinetica/action.yml', '.github/workflows/ci.yml', 'kotlin', 'project.yaml', 'common.module-template.yaml', '**/module.yaml', '**/plugin.yaml', '**/*.kt', '**/*.java', 'samples/**/*.mjs', 'samples/**/*.js', 'samples/**/*.jsx', 'samples/**/*.css', 'samples/**/*.html', 'docs/docs-site/resources/**', 'scripts/build-game-of-life.mjs', 'scripts/bundle-docs.mjs', 'scripts/lib/**', 'bench/build*.mjs', 'bench/package.json', 'bench/package-lock.json', 'bench/game-of-life/report.html', 'bench/results/game-of-life/results.json') }}
@@ -124,7 +124,7 @@ jobs:
 
       - name: Save browser build outputs
         if: steps.browser-build-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: build
           key: ${{ steps.browser-build-cache.outputs.cache-primary-key }}
@@ -154,7 +154,7 @@ jobs:
 
       - name: Restore Playwright browser
         id: playwright-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-1.61.1
@@ -168,7 +168,7 @@ jobs:
 
       - name: Save Playwright browser
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: ~/.cache/ms-playwright
           key: ${{ steps.playwright-cache.outputs.cache-primary-key }}
