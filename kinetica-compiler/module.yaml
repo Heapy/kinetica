@@ -7,7 +7,7 @@ repositories:
 
 settings:
   kotlin:
-    version: 2.4.0
+    version: 2.4.10
     languageVersion: 2.4
     apiVersion: 2.4
     optIns:
@@ -29,10 +29,10 @@ settings:
           url: https://www.apache.org/licenses/LICENSE-2.0.txt
 
 dependencies:
-  - org.jetbrains.kotlin:kotlin-compiler-embeddable:2.4.0: compile-only
+  - org.jetbrains.kotlin:kotlin-compiler-embeddable:2.4.10: compile-only
 
 test-dependencies:
   - ../kinetica-runtime
-  - org.jetbrains.kotlin:kotlin-compiler-embeddable:2.4.0
+  - org.jetbrains.kotlin:kotlin-compiler-embeddable:2.4.10
 
 description: "Kinetica compiler-plugin contract module for K2 responsibilities and generated metadata."
