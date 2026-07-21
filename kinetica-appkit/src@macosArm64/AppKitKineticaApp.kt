@@ -10,6 +10,7 @@ import io.heapy.kinetica.Semantics
 import io.heapy.kinetica.TextNode
 import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.materializeDeep
+import kotlin.concurrent.atomics.AtomicBoolean
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.ObjCAction
 import platform.AppKit.NSBezelStyleRounded
@@ -28,29 +29,9 @@ import platform.AppKit.trailingAnchor
 import platform.AppKit.translatesAutoresizingMaskIntoConstraints
 import platform.Foundation.NSSelectorFromString
 import platform.darwin.NSObject
+import platform.darwin.dispatch_async
+import platform.darwin.dispatch_get_main_queue
 
-/**
- * Retained-mode AppKit renderer: the first render mounts a shadow tree ([Mounted]) of AppKit views
- * inside the supplied [contentView]; every subsequent render re-runs the Kinetica render loop and
- * patches the views by diffing the new [Node] tree against the previous one.
- *
- * Phase 1 simplification: [patch] does a full teardown/rebuild on each invalidation. State lives in
- * Kinetica cells, not in views, so this is correct — just cosmetically blunt. Incremental diffing
- * (keyed-LIS / regioned / positional reconciliation, mirroring the DOM renderer in `kinetica-browser`)
- * is a planned follow-up.
- *
- * Event wiring: Kinetica encodes host events as `event:<name>` props whose value is an opaque event
- * id resolvable via [KineticaRuntime.dispatch]. The renderer installs an [AppKitEventDispatcher]
- * (an [NSObject] target) as the target of every actionable [NSControl]; the dispatcher maps the
- * sender back to its event id and dispatches it, then the render loop re-renders synchronously while
- * the runtime reports a pending invalidation.
- *
- * Obj-C interop note: AppKit's `BOOL`-backed properties (`isEditable`, `isBordered`, `isEnabled`,
- * `drawsBackground`, ...) and the `NS_ENUM` constants (`NSBezelStyle`, `NSButtonType`) are exposed
- * by Kotlin/Native as explicit `setX()` setters and top-level `val`s respectively — not as Kotlin
- * properties or nested enum cases. The AppKit `NSBezelStyle`/`NSButtonType` classes themselves are
- * used only as types for the setters.
- */
 /**
  * Mount [content] into [contentView] and render once. Mirrors `mountKineticaApp` from the browser
  * renderer: a top-level function (rather than a direct constructor call at the call site) so the
@@ -64,6 +45,32 @@ public fun renderAppKitApp(
     content: @UiComponent ComponentScope.() -> Unit,
 ): AppKitKineticaApp = AppKitKineticaApp(contentView, runtime, content).also { it.renderUntilSettled() }
 
+/**
+ * Retained-mode AppKit renderer: the first render mounts a shadow tree ([Mounted]) of AppKit views
+ * inside the supplied [contentView]; every subsequent render re-runs the Kinetica render loop and
+ * patches the views by diffing the new [Node] tree against the previous one.
+ *
+ * Phase 1 simplification: [patch] does a full teardown/rebuild on each invalidation. State lives in
+ * Kinetica cells, not in views, so this is correct — just cosmetically blunt. Incremental diffing
+ * (keyed-LIS / regioned / positional reconciliation, mirroring the DOM renderer in `kinetica-browser`)
+ * is a planned follow-up (KNT-0046).
+ *
+ * Event wiring: Kinetica encodes host events as `event:<name>` props whose value is an opaque event
+ * id resolvable via [KineticaRuntime.dispatch]. The renderer installs an [AppKitEventDispatcher]
+ * (an [NSObject] target) as the target of every actionable [NSControl]; the dispatcher maps the
+ * sender back to its event id and dispatches it, then the render loop re-renders synchronously while
+ * the runtime reports a pending invalidation.
+ *
+ * Async invalidations (effects on `Dispatchers.Default` writing cells off the main thread) are
+ * observed via [KineticaRuntime.onInvalidation] and marshalled onto the main queue by
+ * [scheduleMainThreadRender]; N invalidations coalesce into one hop.
+ *
+ * Obj-C interop note: AppKit's `BOOL`-backed properties (`isEditable`, `isBordered`, `isEnabled`,
+ * `drawsBackground`, ...) and the `NS_ENUM` constants (`NSBezelStyle`, `NSButtonType`) are exposed
+ * by Kotlin/Native as explicit `setX()` setters and top-level `val`s respectively — not as Kotlin
+ * properties or nested enum cases. The AppKit `NSBezelStyle`/`NSButtonType` classes themselves are
+ * used only as types for the setters.
+ */
 @OptIn(ExperimentalForeignApi::class)
 public class AppKitKineticaApp(
     private val contentView: NSView,
@@ -73,6 +80,9 @@ public class AppKitKineticaApp(
     private val scope = ComponentScope(runtime)
     private val dispatcher = AppKitEventDispatcher(runtime, ::renderUntilSettled)
     private var mountedRoot: Mounted? = null
+    private val mainHopScheduled = AtomicBoolean(false)
+    private val invalidationRegistration = runtime.onInvalidation { scheduleMainThreadRender() }
+    private var warnedTextInputEvents = false
 
     /**
      * Render once. Use [renderUntilSettled] from event handlers and after the initial mount so the
@@ -95,11 +105,29 @@ public class AppKitKineticaApp(
     }
 
     public fun dispose() {
+        invalidationRegistration.dispose()
         mountedRoot?.teardown(contentView)
         mountedRoot = null
         dispatcher.reset()
         scope.dispose()
         runtime.dispose()
+    }
+
+    /**
+     * Marshal an off-main invalidation (an effect on `Dispatchers.Default` writing a cell) onto
+     * the main queue and drain it there. Coalescing: invalidations arriving before the hop runs
+     * fold into that hop (single [AtomicBoolean] guard). Synchronous click-path invalidations
+     * fire this too, but their hop lands after [AppKitEventDispatcher.clicked] already drained —
+     * [KineticaRuntime.hasPendingInvalidation] is false by then and the hop no-ops.
+     */
+    private fun scheduleMainThreadRender() {
+        if (!mainHopScheduled.compareAndSet(expectedValue = false, newValue = true)) return
+        dispatch_async(dispatch_get_main_queue()) {
+            mainHopScheduled.store(false)
+            if (runtime.hasPendingInvalidation) {
+                renderUntilSettled()
+            }
+        }
     }
 
     // --- patching ----------------------------------------------------------------------------------------------
@@ -224,6 +252,18 @@ public class AppKitKineticaApp(
     }
 
     private fun makeTextField(node: HostNode): NSTextField {
+        // KNT-0045 honesty note: the field renders model state but its events are NOT wired yet —
+        // typing dispatches nothing, and the next rebuild resets the field. Full onInput/onSubmit
+        // wiring (with focus/typing survival) lands with the KNT-0046 incremental diffing.
+        if (!warnedTextInputEvents &&
+            (node.props.containsKey("event:onInput") || node.props.containsKey("event:onSubmit"))
+        ) {
+            warnedTextInputEvents = true
+            println(
+                "Kinetica AppKit: textInput onInput/onSubmit are not wired yet; " +
+                    "the field is display-only until KNT-0046 lands.",
+            )
+        }
         return NSTextField().apply {
             setStringValue(node.props["value"].orEmpty())
             node.props["placeholder"]?.let { setPlaceholderString(it) }
@@ -291,8 +331,6 @@ public class AppKitKineticaApp(
         Role.None -> null
         null -> null
     }
-
-    // --- mounted shadow tree -----------------------------------------------------------------------------------
 
     // --- mounted shadow tree -----------------------------------------------------------------------------------
 

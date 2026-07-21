@@ -5,6 +5,11 @@ product:
 apply:
   - ../common.module-template.yaml
 
+settings:
+  kotlin:
+    optIns:
+      - kotlin.concurrent.atomics.ExperimentalAtomicApi
+
 dependencies:
   - ../kinetica-runtime: exported
 
