@@ -1,24 +1,26 @@
 package io.heapy.kinetica.appkit
 
 import io.heapy.kinetica.ComponentScope
-import io.heapy.kinetica.FragmentNode
 import io.heapy.kinetica.HostNode
 import io.heapy.kinetica.KineticaRuntime
-import io.heapy.kinetica.Node
 import io.heapy.kinetica.Role
 import io.heapy.kinetica.Semantics
 import io.heapy.kinetica.TextNode
 import io.heapy.kinetica.UiComponent
-import io.heapy.kinetica.materializeDeep
+import io.heapy.kinetica.render.HostAdapter
+import io.heapy.kinetica.render.MountedNode
+import io.heapy.kinetica.render.Reconciler
 import kotlin.concurrent.atomics.AtomicBoolean
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.ObjCAction
 import platform.AppKit.NSBezelStyleRounded
 import platform.AppKit.NSButton
-import platform.AppKit.NSSwitchButton
 import platform.AppKit.NSControl
 import platform.AppKit.NSStackView
+import platform.AppKit.NSSwitchButton
 import platform.AppKit.NSTextField
+import platform.AppKit.NSTextFieldDelegateProtocol
+import platform.AppKit.NSTextView
 import platform.AppKit.NSUserInterfaceLayoutOrientationHorizontal
 import platform.AppKit.NSUserInterfaceLayoutOrientationVertical
 import platform.AppKit.NSView
@@ -27,6 +29,7 @@ import platform.AppKit.leadingAnchor
 import platform.AppKit.topAnchor
 import platform.AppKit.trailingAnchor
 import platform.AppKit.translatesAutoresizingMaskIntoConstraints
+import platform.Foundation.NSNotification
 import platform.Foundation.NSSelectorFromString
 import platform.darwin.NSObject
 import platform.darwin.dispatch_async
@@ -46,20 +49,18 @@ public fun renderAppKitApp(
 ): AppKitKineticaApp = AppKitKineticaApp(contentView, runtime, content).also { it.renderUntilSettled() }
 
 /**
- * Retained-mode AppKit renderer: the first render mounts a shadow tree ([Mounted]) of AppKit views
- * inside the supplied [contentView]; every subsequent render re-runs the Kinetica render loop and
- * patches the views by diffing the new [Node] tree against the previous one.
+ * Retained-mode AppKit renderer on the shared `kinetica-render-core` reconciler (KNT-0046): the
+ * first render mounts AppKit views inside [contentView]; every subsequent render diffs the fresh
+ * `Node` tree against the [MountedNode] shadow tree and patches widgets in place (keyed-LIS child
+ * moves, prop diffs, controlled-state resync). Views are retained across renders, so focus and
+ * in-progress typing survive; [restoreFocus] covers the replace-the-focused-widget edge.
  *
- * Phase 1 simplification: [patch] does a full teardown/rebuild on each invalidation. State lives in
- * Kinetica cells, not in views, so this is correct — just cosmetically blunt. Incremental diffing
- * (keyed-LIS / regioned / positional reconciliation, mirroring the DOM renderer in `kinetica-browser`)
- * is a planned follow-up (KNT-0046).
- *
- * Event wiring: Kinetica encodes host events as `event:<name>` props whose value is an opaque event
- * id resolvable via [KineticaRuntime.dispatch]. The renderer installs an [AppKitEventDispatcher]
- * (an [NSObject] target) as the target of every actionable [NSControl]; the dispatcher maps the
- * sender back to its event id and dispatches it, then the render loop re-renders synchronously while
- * the runtime reports a pending invalidation.
+ * Event wiring: Kinetica encodes host events as `event:<name>` props whose value is an opaque
+ * event id resolvable via [KineticaRuntime.dispatch]. [AppKitEventDispatcher] (one shared
+ * [NSObject]) is the target of every actionable [NSControl] (click/toggle/submit via
+ * target-action) and the [NSTextFieldDelegateProtocol] delegate of every wired text field
+ * (`controlTextDidChange` → `event:onInput` with the field text as payload). Bindings are
+ * registered per widget and dropped in [HostAdapter.teardownHost] — no whole-map resets.
  *
  * Async invalidations (effects on `Dispatchers.Default` writing cells off the main thread) are
  * observed via [KineticaRuntime.onInvalidation] and marshalled onto the main queue by
@@ -68,8 +69,7 @@ public fun renderAppKitApp(
  * Obj-C interop note: AppKit's `BOOL`-backed properties (`isEditable`, `isBordered`, `isEnabled`,
  * `drawsBackground`, ...) and the `NS_ENUM` constants (`NSBezelStyle`, `NSButtonType`) are exposed
  * by Kotlin/Native as explicit `setX()` setters and top-level `val`s respectively — not as Kotlin
- * properties or nested enum cases. The AppKit `NSBezelStyle`/`NSButtonType` classes themselves are
- * used only as types for the setters.
+ * properties or nested enum cases.
  */
 @OptIn(ExperimentalForeignApi::class)
 public class AppKitKineticaApp(
@@ -79,10 +79,11 @@ public class AppKitKineticaApp(
 ) {
     private val scope = ComponentScope(runtime)
     private val dispatcher = AppKitEventDispatcher(runtime, ::renderUntilSettled)
-    private var mountedRoot: Mounted? = null
+    private val reconciler = Reconciler(AppKitHostAdapter(dispatcher))
+    private var mountedRoot: MountedNode<NSView>? = null
+    private var pinnedRoot: NSView? = null
     private val mainHopScheduled = AtomicBoolean(false)
     private val invalidationRegistration = runtime.onInvalidation { scheduleMainThreadRender() }
-    private var warnedTextInputEvents = false
 
     /**
      * Render once. Use [renderUntilSettled] from event handlers and after the initial mount so the
@@ -90,7 +91,15 @@ public class AppKitKineticaApp(
      */
     public fun render() {
         val tree = runtime.render(scope, content).tree
-        mountedRoot = patch(mountedRoot, tree, contentView)
+        val focusedIdentifier = captureFocusIdentifier()
+        val previous = mountedRoot
+        mountedRoot = if (previous == null) {
+            reconciler.mount(tree, contentView)
+        } else {
+            reconciler.patch(previous, tree, contentView)
+        }
+        pinRootIfChanged()
+        restoreFocus(focusedIdentifier)
     }
 
     /**
@@ -106,8 +115,9 @@ public class AppKitKineticaApp(
 
     public fun dispose() {
         invalidationRegistration.dispose()
-        mountedRoot?.teardown(contentView)
+        mountedRoot?.let { mounted -> reconciler.unmount(mounted, contentView) }
         mountedRoot = null
+        pinnedRoot = null
         dispatcher.reset()
         scope.dispose()
         runtime.dispose()
@@ -117,7 +127,7 @@ public class AppKitKineticaApp(
      * Marshal an off-main invalidation (an effect on `Dispatchers.Default` writing a cell) onto
      * the main queue and drain it there. Coalescing: invalidations arriving before the hop runs
      * fold into that hop (single [AtomicBoolean] guard). Synchronous click-path invalidations
-     * fire this too, but their hop lands after [AppKitEventDispatcher.clicked] already drained —
+     * fire this too, but their hop lands after [AppKitEventDispatcher] already drained —
      * [KineticaRuntime.hasPendingInvalidation] is false by then and the hop no-ops.
      */
     private fun scheduleMainThreadRender() {
@@ -130,110 +140,185 @@ public class AppKitKineticaApp(
         }
     }
 
-    // --- patching ----------------------------------------------------------------------------------------------
-
-    private fun patch(previous: Mounted?, node: Node, container: NSView): Mounted {
-        if (previous != null) {
-            previous.teardown(container)
-        }
-        // Full teardown/rebuild recreates every control, so the dispatcher's old sender→eventId
-        // bindings are all dead. Drop them before remounting, otherwise the map (and the NSControls
-        // it strongly keys on) leaks one entry per actionable widget on every invalidation.
-        dispatcher.reset()
-        val mounted = mount(node, container)
-        pinRootToContainer(mounted, container)
-        return mounted
-    }
+    // --- root pinning ------------------------------------------------------------------------------------------
 
     /**
-     * Fill [container] — the NSWindow's contentView, whose frame AppKit itself manages — with the
-     * mounted Kinetica root by pinning the root view to the container's edges.
-     *
-     * We deliberately do NOT flip the contentView's own `translatesAutoresizingMaskIntoConstraints`
-     * or constrain it to its superview (the private theme frame): AppKit owns the contentView's
-     * layout, and adding four equality constraints against the frame view produces
-     * unsatisfiable-constraint breaks and can wedge live window resizing. Pinning the child we own is
-     * conflict-free. Re-pinned every render because the full-rebuild patch creates a fresh root view
-     * each time (its constraints die with the old view on `removeFromSuperview`). Only a single-view
-     * root (the usual case: one top-level container) has a well-defined "fill"; a multi-child fragment
-     * root is left at its natural size.
+     * Fill [contentView] — whose frame AppKit itself manages — with the mounted Kinetica root by
+     * pinning the root view to the container's edges. We deliberately do NOT touch the
+     * contentView's own `translatesAutoresizingMaskIntoConstraints` or constrain it to its
+     * superview (the private theme frame) — that produces unsatisfiable-constraint breaks.
+     * Views are retained across patches now, so re-pinning happens only when the root view was
+     * actually replaced (the old view's constraints died with it). Only a single-view root has a
+     * well-defined "fill"; a multi-child fragment root keeps its natural size.
      */
-    private fun pinRootToContainer(root: Mounted, container: NSView) {
-        val view = root.singleViewOrNull() ?: return
-        view.leadingAnchor.constraintEqualToAnchor(container.leadingAnchor).setActive(true)
-        view.trailingAnchor.constraintEqualToAnchor(container.trailingAnchor).setActive(true)
-        view.topAnchor.constraintEqualToAnchor(container.topAnchor).setActive(true)
-        view.bottomAnchor.constraintEqualToAnchor(container.bottomAnchor).setActive(true)
+    private fun pinRootIfChanged() {
+        val root = mountedRoot?.let(::singleViewOf) ?: return
+        if (root === pinnedRoot) return
+        root.leadingAnchor.constraintEqualToAnchor(contentView.leadingAnchor).setActive(true)
+        root.trailingAnchor.constraintEqualToAnchor(contentView.trailingAnchor).setActive(true)
+        root.topAnchor.constraintEqualToAnchor(contentView.topAnchor).setActive(true)
+        root.bottomAnchor.constraintEqualToAnchor(contentView.bottomAnchor).setActive(true)
+        pinnedRoot = root
     }
 
-    private fun mount(node: Node, container: NSView): Mounted {
-        val normalized = node.materializeDeep()
-        return mountChild(normalized, container)
+    private fun singleViewOf(mounted: MountedNode<NSView>): NSView? = when (mounted) {
+        is MountedNode.Host<NSView> -> mounted.view
+        is MountedNode.Text<NSView> -> mounted.view
+        is MountedNode.Fragment<NSView> -> mounted.children.singleOrNull()?.let(::singleViewOf)
+        is MountedNode.Empty<NSView> -> null
     }
 
-    private fun mountChild(node: Node, container: NSView): Mounted {
-        // Fragments flatten into the parent; their children mount directly into the container.
-        if (node is FragmentNode) {
-            val children = node.children.map { mountChild(it, container) }
-            return Mounted.Fragment(children)
-        }
-        if (node is TextNode) {
-            val label = makeLabel(node.value)
-            applySemantics(label, node.semantics, nativeTag = "text")
-            addChild(container, label)
-            return Mounted.Text(label, node)
-        }
-        if (node is HostNode) {
-            val mounted = mountHost(node, container)
-            applySemantics(mounted.view(), node.semantics, nativeTag = node.tag)
-            return mounted
-        }
-        // TemplateNode / ClientRef — materializeDeep has already inlined templates; ClientRef has no
-        // native representation in this renderer, so it is rendered as an empty fragment.
-        return Mounted.Fragment(emptyList())
+    // --- focus preservation ------------------------------------------------------------------------------------
+
+    /**
+     * Identifier (the `testTag` semantics) of the currently focused widget. Text fields focus
+     * through their window-shared field editor (an [NSTextView] whose delegate is the field), so
+     * the responder is unwrapped first.
+     */
+    private fun captureFocusIdentifier(): String? =
+        focusedView()?.identifier
+
+    private fun restoreFocus(identifier: String?) {
+        if (identifier == null) return
+        val window = contentView.window ?: return
+        if (focusedView()?.identifier == identifier) return
+        val target = findViewByIdentifier(contentView, identifier) ?: return
+        window.makeFirstResponder(target)
     }
 
-    private fun mountHost(node: HostNode, container: NSView): Mounted.Host {
+    private fun focusedView(): NSView? =
+        when (val responder = contentView.window?.firstResponder) {
+            is NSTextView -> responder.delegate as? NSTextField
+            is NSView -> responder
+            else -> null
+        }
+
+    private fun findViewByIdentifier(root: NSView, identifier: String): NSView? {
+        if (root.identifier == identifier) return root
+        for (subview in root.subviews) {
+            val view = subview as? NSView ?: continue
+            findViewByIdentifier(view, identifier)?.let { return it }
+        }
+        return null
+    }
+}
+
+/**
+ * [HostAdapter] over AppKit: tag → widget factories, prop application, NSStackView-aware child
+ * management, semantics → accessibility, and per-widget event (un)binding via the shared
+ * [AppKitEventDispatcher].
+ */
+@OptIn(ExperimentalForeignApi::class)
+internal class AppKitHostAdapter(
+    private val dispatcher: AppKitEventDispatcher,
+) : HostAdapter<NSView> {
+
+    override fun createHost(node: HostNode): NSView {
         val view: NSView = when (node.tag) {
-            "column", "row" -> {
-                NSStackView().apply {
-                    setOrientation(
-                        if (node.tag == "column") NSUserInterfaceLayoutOrientationVertical
-                        else NSUserInterfaceLayoutOrientationHorizontal,
-                    )
-                    setSpacing(8.0)
-                    translatesAutoresizingMaskIntoConstraints = false
-                }
+            "column", "row" -> NSStackView().apply {
+                setOrientation(
+                    if (node.tag == "column") NSUserInterfaceLayoutOrientationVertical
+                    else NSUserInterfaceLayoutOrientationHorizontal,
+                )
+                setSpacing(8.0)
             }
             "button" -> makeButton(node)
             "checkbox" -> makeCheckbox(node)
             "textInput" -> makeTextField(node)
-            else -> {
-                // Unknown tag: fall back to a neutral container so the tree is still navigable.
-                NSView().apply { translatesAutoresizingMaskIntoConstraints = false }
-            }
+            // Unknown tag: a neutral container keeps the tree navigable.
+            else -> NSView()
         }
-        addChild(container, view)
-        // Leaf widgets fold their text children into the widget itself (button title, text field
-        // value). Mounting those children as separate views would double-render the caption (once
-        // as NSButton.title, once as an overlaid NSTextField), so they are skipped here.
-        val children = if (node.tag in LEAF_WIDGET_TAGS) {
-            emptyList()
-        } else {
-            node.children.map { mountChild(it, view) }
-        }
-        return Mounted.Host(view, node, children)
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
     }
 
-    private fun addChild(container: NSView, child: NSView) {
+    override fun createText(node: TextNode): NSView = makeLabel(node.value)
+
+    override fun setText(view: NSView, node: TextNode) {
+        (view as? NSTextField)?.setStringValue(node.value)
+    }
+
+    override fun setProp(view: NSView, name: String, value: String, node: HostNode) {
+        when (name) {
+            "enabled" -> (view as? NSControl)?.setEnabled(value != "false")
+            "checked" -> (view as? NSButton)?.setState(if (value == "true") 1 else 0)
+            "value" -> (view as? NSTextField)?.let { field ->
+                if (field.stringValue != value) field.setStringValue(value)
+            }
+            "placeholder" -> (view as? NSTextField)?.setPlaceholderString(value)
+            "event:onClick", "event:onToggle", "event:onSubmit" ->
+                (view as? NSControl)?.let { control -> dispatcher.registerAction(control, value) }
+            "event:onInput" ->
+                (view as? NSTextField)?.let { field -> dispatcher.registerInput(field, value) }
+        }
+    }
+
+    override fun removeProp(view: NSView, name: String, node: HostNode) {
+        when (name) {
+            "enabled" -> (view as? NSControl)?.setEnabled(true)
+            "checked" -> (view as? NSButton)?.setState(0)
+            "value" -> (view as? NSTextField)?.setStringValue("")
+            "placeholder" -> (view as? NSTextField)?.setPlaceholderString(null)
+            "event:onClick", "event:onToggle", "event:onSubmit", "event:onInput" ->
+                (view as? NSControl)?.let(dispatcher::unregister)
+        }
+    }
+
+    override fun applySemantics(view: NSView, semantics: Semantics?, nativeTag: String) {
+        view.setIdentifier(semantics?.testTag)
+        view.setAccessibilityLabel(semantics?.label)
+        view.setAccessibilityRole(appKitAccessibilityRoleFor(semantics?.role, nativeTag))
+    }
+
+    override fun insert(container: NSView, child: NSView, before: NSView?) {
         // NSStackView lays out its arranged subviews via Auto Layout constraints it owns; a plain
-        // addSubview bypasses that and the child would float at (0,0). So stack containers receive
-        // children via addArrangedSubview.
+        // addSubview bypasses that and the child would float at (0,0).
         if (container is NSStackView) {
-            container.addArrangedSubview(child)
+            val index = before?.let { anchor -> container.arrangedSubviews.indexOf(anchor) } ?: -1
+            if (index >= 0) {
+                container.insertArrangedSubview(child, index.toLong())
+            } else {
+                container.addArrangedSubview(child)
+            }
             return
         }
         container.addSubview(child)
+    }
+
+    override fun remove(container: NSView, child: NSView) {
+        if (container is NSStackView) container.removeArrangedSubview(child)
+        child.removeFromSuperview()
+    }
+
+    override fun foldsChildren(tag: String): Boolean = tag in LEAF_WIDGET_TAGS
+
+    override fun updateFoldedContent(view: NSView, node: HostNode) {
+        if (node.tag == "button") {
+            (view as? NSButton)?.setTitle(foldedCaption(node))
+        }
+    }
+
+    override fun isControlledTag(tag: String): Boolean = tag == "textInput" || tag == "checkbox"
+
+    override fun syncControlledState(view: NSView, node: HostNode) {
+        when (node.tag) {
+            "textInput" -> {
+                val field = view as? NSTextField ?: return
+                val value = node.props["value"].orEmpty()
+                // Skip-if-equal keeps the caret stable while typing: the model was just updated
+                // from onInput, so the common case compares equal.
+                if (field.stringValue != value) field.setStringValue(value)
+            }
+            "checkbox" -> {
+                val button = view as? NSButton ?: return
+                val state = if (node.props["checked"] == "true") 1L else 0L
+                if (button.state != state) button.setState(state)
+            }
+        }
+    }
+
+    override fun teardownHost(view: NSView, node: HostNode) {
+        (view as? NSControl)?.let(dispatcher::unregister)
     }
 
     // --- tag → widget factories --------------------------------------------------------------------------------
@@ -252,36 +337,23 @@ public class AppKitKineticaApp(
     }
 
     private fun makeTextField(node: HostNode): NSTextField {
-        // KNT-0045 honesty note: the field renders model state but its events are NOT wired yet —
-        // typing dispatches nothing, and the next rebuild resets the field. Full onInput/onSubmit
-        // wiring (with focus/typing survival) lands with the KNT-0046 incremental diffing.
-        if (!warnedTextInputEvents &&
-            (node.props.containsKey("event:onInput") || node.props.containsKey("event:onSubmit"))
-        ) {
-            warnedTextInputEvents = true
-            println(
-                "Kinetica AppKit: textInput onInput/onSubmit are not wired yet; " +
-                    "the field is display-only until KNT-0046 lands.",
-            )
-        }
         return NSTextField().apply {
             setStringValue(node.props["value"].orEmpty())
             node.props["placeholder"]?.let { setPlaceholderString(it) }
-            translatesAutoresizingMaskIntoConstraints = false
+            node.props["event:onInput"]?.let { eventId -> dispatcher.registerInput(this, eventId) }
+            node.props["event:onSubmit"]?.let { eventId -> dispatcher.registerAction(this, eventId) }
         }
     }
 
     private fun makeButton(node: HostNode): NSButton {
         // The button's title comes from its single text child (mirrors the DOM renderer, where a
-        // <button> wraps a text node). We extract it here so the native bezel renders the caption.
-        val caption = (node.children.singleOrNull() as? TextNode)?.value.orEmpty()
+        // <button> wraps a text node); the reconciler folds the child instead of mounting it.
         return NSButton().apply {
-            setTitle(caption)
+            setTitle(foldedCaption(node))
             setBordered(true)
             setBezelStyle(NSBezelStyleRounded)
-            translatesAutoresizingMaskIntoConstraints = false
             if (node.props["enabled"] == "false") setEnabled(false)
-            wireEvent(node, "event:onClick", this)
+            node.props["event:onClick"]?.let { eventId -> dispatcher.registerAction(this, eventId) }
         }
     }
 
@@ -290,33 +362,15 @@ public class AppKitKineticaApp(
             setTitle("")
             setButtonType(NSSwitchButton)
             setState(if (node.props["checked"] == "true") 1 else 0)
-            translatesAutoresizingMaskIntoConstraints = false
             if (node.props["enabled"] == "false") setEnabled(false)
-            wireEvent(node, "event:onToggle", this)
+            node.props["event:onToggle"]?.let { eventId -> dispatcher.registerAction(this, eventId) }
         }
     }
 
-    /**
-     * Register [propName]'s event id with the dispatcher and wire the [control] to call it. If the
-     * prop is absent the control simply has no action.
-     */
-    private fun wireEvent(node: HostNode, propName: String, control: NSControl) {
-        val eventId = node.props[propName] ?: return
-        dispatcher.register(control, eventId)
-        control.target = dispatcher
-        control.action = NSSelectorFromString(ACTION_SELECTOR)
-    }
+    private fun foldedCaption(node: HostNode): String =
+        (node.children.singleOrNull() as? TextNode)?.value.orEmpty()
 
     // --- semantics → accessibility -----------------------------------------------------------------------------
-
-    private fun applySemantics(view: NSView, semantics: Semantics?, nativeTag: String) {
-        val s = semantics ?: return
-        s.testTag?.let { view.setIdentifier(it) }
-        s.label?.let { view.setAccessibilityLabel(it) }
-        // AppKit exposes roles via the accessibility API; for the POC we map only the role names we
-        // actually emit from the DSL, mirroring BrowserMapping.browserRoleFor.
-        view.setAccessibilityRole(appKitAccessibilityRoleFor(s.role, nativeTag))
-    }
 
     private fun appKitAccessibilityRoleFor(role: Role?, nativeTag: String): String? = when (role) {
         Role.Button -> "AXButton"
@@ -331,101 +385,77 @@ public class AppKitKineticaApp(
         Role.None -> null
         null -> null
     }
-
-    // --- mounted shadow tree -----------------------------------------------------------------------------------
-
-    private sealed interface Mounted {
-        fun teardown(container: NSView)
-
-        /** The single native view of this subtree, or null when it has zero or many top-level views. */
-        fun singleViewOrNull(): NSView?
-
-        class Host(
-            private val view: NSView,
-            @Suppress("unused") private val node: HostNode,
-            private val children: List<Mounted>,
-        ) : Mounted {
-            fun view(): NSView = view
-            override fun singleViewOrNull(): NSView = view
-            override fun teardown(container: NSView) {
-                children.forEach { it.teardown(view) }
-                detachFrom(view, container)
-            }
-        }
-
-        class Text(
-            private val view: NSView,
-            @Suppress("unused") private val node: TextNode,
-        ) : Mounted {
-            fun view(): NSView = view
-            override fun singleViewOrNull(): NSView = view
-            override fun teardown(container: NSView) {
-                detachFrom(view, container)
-            }
-        }
-
-        class Fragment(private val children: List<Mounted>) : Mounted {
-            override fun singleViewOrNull(): NSView? = children.singleOrNull()?.singleViewOrNull()
-            override fun teardown(container: NSView) {
-                children.forEach { it.teardown(container) }
-            }
-        }
-    }
-}
-
-/**
- * Detach [view] from [container]. For an [NSStackView] parent this must clear the arranged list
- * (via `removeArrangedSubview`) in addition to `removeFromSuperview` — otherwise a re-mount after
- * a teardown/rebuild leaves stale entries in the arranged list and the stack renders duplicates.
- */
-@OptIn(ExperimentalForeignApi::class)
-private fun detachFrom(view: NSView, container: NSView) {
-    if (container is NSStackView) container.removeArrangedSubview(view)
-    view.removeFromSuperview()
 }
 
 /**
  * Host tags whose text children are absorbed into the widget's own caption/value rather than
- * mounted as separate views. Mirrors how the DOM renderer treats `<button>+</button>` (the "+" is
- * the button's text content); on AppKit the `NSButton.title` is the whole caption, so the child
- * text node must NOT also be mounted as an NSTextField on top of it.
+ * mounted as separate views (`NSButton.title` is the whole caption; mounting the child too would
+ * double-render it).
  */
 private val LEAF_WIDGET_TAGS: Set<String> = setOf("button", "checkbox", "textInput")
 
 /**
- * The single [NSObject] target shared by every actionable [NSControl]. AppKit's target-action
- * machinery invokes [clicked] with the sender; the dispatcher maps the sender back to the event id
- * it was registered with, hands it to the runtime, and then drives the render loop until settled.
+ * The single [NSObject] shared by every actionable widget: target of the `clicked:` action
+ * (buttons, checkboxes, text-field submit) and [NSTextFieldDelegateProtocol] delegate of wired
+ * text fields (`controlTextDidChange` → `event:onInput` with the field text as payload). Each
+ * dispatch drives [renderUntilSettled] so the UI settles synchronously on the main thread.
  *
- * One target (rather than one per control) keeps the Obj-C method-dispatch surface tiny: Kinetica
- * emits a high event churn, and registering many tiny NSObject subclasses on Native is wasteful.
+ * One target (rather than one per control) keeps the Obj-C method-dispatch surface tiny.
  */
 @OptIn(ExperimentalForeignApi::class)
-private class AppKitEventDispatcher(
+internal class AppKitEventDispatcher(
     private val runtime: KineticaRuntime,
     private val renderUntilSettled: () -> Unit,
-) : NSObject() {
+) : NSObject(), NSTextFieldDelegateProtocol {
 
     @Suppress("unused")
     @ObjCAction
     fun clicked(sender: NSControl) {
-        val eventId = bindings[sender] ?: return
+        val eventId = actionBindings[sender] ?: return
         runtime.dispatch(eventId)
         renderUntilSettled()
     }
 
-    fun register(control: NSControl, eventId: String) {
-        bindings[control] = eventId
+    override fun controlTextDidChange(obj: NSNotification) {
+        val field = obj.`object` as? NSTextField ?: return
+        val eventId = inputBindings[field] ?: return
+        runtime.dispatch(eventId, field.stringValue)
+        renderUntilSettled()
     }
 
-    /** Drop all sender→eventId bindings so dead NSControls (map keys) don't leak across rebuilds. */
+    fun registerAction(control: NSControl, eventId: String) {
+        actionBindings[control] = eventId
+        control.target = this
+        control.action = NSSelectorFromString(ACTION_SELECTOR)
+    }
+
+    fun registerInput(field: NSTextField, eventId: String) {
+        inputBindings[field] = eventId
+        field.delegate = this
+    }
+
+    /** Drop a widget's bindings on unmount so dead controls don't accumulate. */
+    fun unregister(control: NSControl) {
+        actionBindings.remove(control)
+        if (control is NSTextField) {
+            inputBindings.remove(control)
+            field(control)
+        }
+    }
+
+    private fun field(control: NSTextField) {
+        if (control.delegate === this) control.delegate = null
+    }
+
     fun reset() {
-        bindings.clear()
+        actionBindings.clear()
+        inputBindings.clear()
     }
 
     // Kotlin/Native forbids companion-object fields on Obj-C subclasses, so the action selector name
     // is a top-level constant instead.
-    private val bindings: MutableMap<NSControl, String> = mutableMapOf()
+    private val actionBindings: MutableMap<NSControl, String> = mutableMapOf()
+    private val inputBindings: MutableMap<NSTextField, String> = mutableMapOf()
 }
 
 /** The Obj-C selector AppKit invokes on [AppKitEventDispatcher]; mirrors the `clicked(sender:)` method. */

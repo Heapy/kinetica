@@ -11,6 +11,7 @@ import io.heapy.kinetica.event
 import io.heapy.kinetica.row
 import io.heapy.kinetica.state
 import io.heapy.kinetica.text
+import io.heapy.kinetica.textInput
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.AppKit.NSApplication
 import platform.AppKit.NSApplicationActivationPolicy
@@ -22,13 +23,23 @@ import platform.AppKit.NSWindowStyleMaskResizable
 import platform.AppKit.NSBackingStoreBuffered
 import platform.Foundation.NSMakeRect
 
-// The component is identical to samples/browser-counter — the value tree is toolkit-agnostic.
+// The counter block is identical to samples/browser-counter — the value tree is toolkit-agnostic.
+// The name row exercises the KNT-0046 textInput wiring (onInput payload dispatch + focus/typing
+// survival across retained-diff renders).
 @UiComponent
 fun ComponentScope.CounterApp() {
     var count by state { 0 }
+    var name by state { "" }
 
     column(semantics = Semantics(testTag = "counter-app")) {
         text("Kinetica Counter")
+        textInput(
+            value = name,
+            onInput = event<String> { name = it },
+            placeholder = "Your name",
+            semantics = Semantics(role = Role.TextInput, testTag = "name-input", focusable = true),
+        )
+        text(if (name.isEmpty()) "Hello, stranger" else "Hello, $name")
         row {
             button(
                 onClick = event { count -= 1 },

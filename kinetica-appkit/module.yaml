@@ -12,5 +12,6 @@ settings:
 
 dependencies:
   - ../kinetica-runtime: exported
+  - ../kinetica-render-core
 
 description: "macOS AppKit renderer for Kinetica applications."
