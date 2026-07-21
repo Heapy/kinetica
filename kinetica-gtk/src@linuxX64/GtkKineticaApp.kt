@@ -372,19 +372,21 @@ internal class GtkEventDispatcher(
 
 // staticCFunction lambdas cannot capture, so each signal gets its own top-level handler that
 // knows the signal name as a literal; the dispatcher instance travels through user_data.
+// NOTE the if-style bodies: a trailing safe-call chain would type the lambda as `Unit?`,
+// which the staticCFunction lowering cannot map to a C return type (ICE in the K/N backend).
 
 private val ClickedHandler: GCallback = staticCFunction { widget: GtkWidgetPtr?, data: COpaquePointer? ->
-    data?.asStableRef<GtkEventDispatcher>()?.get()?.fire(widget, "clicked")
+    if (data != null) data.asStableRef<GtkEventDispatcher>().get().fire(widget, "clicked")
 }.reinterpret()
 
 private val ToggledHandler: GCallback = staticCFunction { widget: GtkWidgetPtr?, data: COpaquePointer? ->
-    data?.asStableRef<GtkEventDispatcher>()?.get()?.fire(widget, "toggled")
+    if (data != null) data.asStableRef<GtkEventDispatcher>().get().fire(widget, "toggled")
 }.reinterpret()
 
 private val ActivateHandler: GCallback = staticCFunction { widget: GtkWidgetPtr?, data: COpaquePointer? ->
-    data?.asStableRef<GtkEventDispatcher>()?.get()?.fire(widget, "activate")
+    if (data != null) data.asStableRef<GtkEventDispatcher>().get().fire(widget, "activate")
 }.reinterpret()
 
 private val ChangedHandler: GCallback = staticCFunction { widget: GtkWidgetPtr?, data: COpaquePointer? ->
-    data?.asStableRef<GtkEventDispatcher>()?.get()?.fireInput(widget)
+    if (data != null) data.asStableRef<GtkEventDispatcher>().get().fireInput(widget)
 }.reinterpret()

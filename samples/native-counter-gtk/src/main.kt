@@ -95,8 +95,10 @@ fun main() {
     g_signal_connect_data(
         app,
         "activate",
+        // if-style body: a trailing safe-call would type the lambda `Unit?`, which the
+        // staticCFunction lowering cannot map to a C return type.
         staticCFunction { appPtr: CPointer<GtkApplication>?, _: COpaquePointer? ->
-            appPtr?.let(::onActivate)
+            if (appPtr != null) onActivate(appPtr)
         }.reinterpret(),
         null,
         null,
