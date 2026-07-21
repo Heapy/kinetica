@@ -25,6 +25,6 @@ cat > cinterop/gtk4.def <<EOF
 headers = gtk/gtk.h
 package = gtk4
 compilerOpts.linux = $(pkg-config --cflags gtk4) -I/usr/include -D__glibc_clang_prereq(maj,min)=0
-linkerOpts.linux = -L/usr/lib/x86_64-linux-gnu -L/usr/lib $(pkg-config --libs gtk4)
+linkerOpts.linux = --allow-shlib-undefined -L/usr/lib/x86_64-linux-gnu -L/usr/lib $(pkg-config --libs gtk4)
 EOF
 echo "wrote cinterop/gtk4.def"
