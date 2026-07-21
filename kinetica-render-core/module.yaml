@@ -1,0 +1,11 @@
+product:
+  type: kmp/lib
+  platforms: [jvm, android, js, wasmJs, macosArm64]
+
+apply:
+  - ../common.module-template.yaml
+
+dependencies:
+  - ../kinetica-runtime: exported
+
+description: "Backend-agnostic reconciliation core: keyed-LIS child diffing behind a HostAdapter, shared by native renderers (and the LIS by the browser renderer)."

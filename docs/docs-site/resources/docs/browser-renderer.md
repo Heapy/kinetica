@@ -15,7 +15,7 @@ mountKineticaApp("#app", runtime = KineticaRuntime(debug = false)) {
 
 ## What a patch does
 
-<!-- code: kinetica-browser/src@js/BrowserKineticaApp.kt (patch, applyProp, patchKeyedChildren), kinetica-browser/src/ListReconcile.kt (longestIncreasingSubsequenceIndices) -->
+<!-- code: kinetica-browser/src@js/BrowserKineticaApp.kt (patch, applyProp, patchKeyedChildren), kinetica-render-core/src/ListReconcile.kt (longestIncreasingSubsequenceIndices) -->
 
 - **Reference-equal subtrees are skipped in O(1).** If a subtree's `Node` is the *same object*
   as last render's (memoized [`each` rows](/docs/lists-and-keys), `skippableNode`), the patch

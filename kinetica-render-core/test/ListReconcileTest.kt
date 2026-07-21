@@ -1,4 +1,4 @@
-package io.heapy.kinetica.browser
+package io.heapy.kinetica.render
 
 import kotlin.test.Test
 import kotlin.test.assertContentEquals

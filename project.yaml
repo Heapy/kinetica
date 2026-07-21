@@ -10,6 +10,7 @@ modules:
   - ./kinetica-markdown
   - ./kinetica-motion
   - ./kinetica-persist
+  - ./kinetica-render-core
   - ./kinetica-router
   - ./kinetica-runtime
   - ./kinetica-test

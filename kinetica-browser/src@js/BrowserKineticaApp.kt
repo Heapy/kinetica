@@ -17,6 +17,8 @@ import io.heapy.kinetica.TextNode
 import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.materializeDeep
 import io.heapy.kinetica.reconcileKey
+import io.heapy.kinetica.render.LongestIncreasingSubsequenceScratch
+import io.heapy.kinetica.render.longestIncreasingSubsequenceIndices
 import io.heapy.kinetica.toSafeHtml
 import kotlinx.serialization.json.JsonObject
 import org.w3c.dom.Document

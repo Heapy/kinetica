@@ -4,7 +4,7 @@
 
 ## each
 
-<!-- code: kinetica-runtime/src/ComponentScope.kt (each, renderEachRegion), kinetica-runtime/src/Frames.kt (enterKeyedChild), kinetica-browser/src/ListReconcile.kt -->
+<!-- code: kinetica-runtime/src/ComponentScope.kt (each, renderEachRegion), kinetica-runtime/src/Frames.kt (enterKeyedChild), kinetica-render-core/src/ListReconcile.kt -->
 
 ```kotlin
 each(todos, key = { it.id }) { todo ->

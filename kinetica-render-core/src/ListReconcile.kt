@@ -1,4 +1,4 @@
-package io.heapy.kinetica.browser
+package io.heapy.kinetica.render
 
 /**
  * Indices (into [values]) of one longest strictly-increasing subsequence.
@@ -6,21 +6,22 @@ package io.heapy.kinetica.browser
  * they can never be part of the stable sequence.
  *
  * Used by keyed child reconciliation: children whose old positions form the LIS stay in
- * place; everything else is moved. O(n log n).
+ * place; everything else is moved. O(n log n). Shared by the browser renderer's keyed diff
+ * and the native [Reconciler].
  */
-internal fun longestIncreasingSubsequenceIndices(values: IntArray): IntArray {
+public fun longestIncreasingSubsequenceIndices(values: IntArray): IntArray {
     val scratch = LongestIncreasingSubsequenceScratch()
     val size = longestIncreasingSubsequenceIndices(values, values.size, scratch)
     return scratch.result.copyOf(size)
 }
 
-internal class LongestIncreasingSubsequenceScratch {
-    var tails: IntArray = IntArray(0)
-    var previous: IntArray = IntArray(0)
-    var result: IntArray = IntArray(0)
+public class LongestIncreasingSubsequenceScratch {
+    public var tails: IntArray = IntArray(0)
+    public var previous: IntArray = IntArray(0)
+    public var result: IntArray = IntArray(0)
 }
 
-internal fun longestIncreasingSubsequenceIndices(
+public fun longestIncreasingSubsequenceIndices(
     values: IntArray,
     size: Int,
     scratch: LongestIncreasingSubsequenceScratch,
