@@ -1,0 +1,22 @@
+product:
+  type: linux/app
+  platforms: [linuxX64]
+
+apply:
+  - ../../common.module-template.yaml
+
+repositories:
+  - mavenLocal
+
+settings:
+  native:
+    entryPoint: app.gtk.counter.main
+  kotlin:
+    optIns:
+      - kotlinx.cinterop.ExperimentalForeignApi
+
+dependencies:
+  - ../../kinetica-runtime
+  - ../../kinetica-gtk
+
+description: "Native Linux counter sample rendered with the Kinetica GTK4 renderer. Build on Linux with libgtk-4-dev after kinetica-gtk/generate-def.sh (KNT-0047)."

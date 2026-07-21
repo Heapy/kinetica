@@ -1,0 +1,18 @@
+product:
+  type: kmp/lib
+  platforms: [linuxX64]
+
+apply:
+  - ../common.module-template.yaml
+
+settings:
+  kotlin:
+    optIns:
+      - kotlin.concurrent.atomics.ExperimentalAtomicApi
+      - kotlinx.cinterop.ExperimentalForeignApi
+
+dependencies:
+  - ../kinetica-runtime: exported
+  - ../kinetica-render-core
+
+description: "Linux GTK4 renderer for Kinetica applications. Buildable only where GTK dev headers exist (Linux/CI): run ./generate-def.sh first — cinterop/gtk4.def is generated from pkg-config, not committed (KNT-0047)."

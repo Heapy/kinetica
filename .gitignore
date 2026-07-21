@@ -23,6 +23,7 @@ build/
 *.log
 
 # Generated / staging
+/kinetica-gtk/cinterop/gtk4.def
 /bench/dist/
 /bench/results/dom-count-*.json
 /bench/results/profile-*/

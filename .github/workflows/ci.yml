@@ -255,10 +255,67 @@ jobs:
           path: build
           key: ${{ steps.macos-build-cache.outputs.cache-primary-key }}
 
+  linux:
+    name: Linux native
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      # Exact-input build caches, same policy as the JVM/macOS jobs.
+      - name: Restore Linux native build outputs
+        id: linux-build-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: build
+          key: kinetica-linux-native-build-${{ runner.os }}-${{ hashFiles('.github/actions/setup-kinetica/action.yml', '.github/workflows/ci.yml', 'kotlin', 'project.yaml', 'common.module-template.yaml', '**/module.yaml', '**/plugin.yaml', '**/*.kt', '**/*.java', '**/resources/**', '**/testResources/**') }}
+
+      # The wrapper provisions Kotlin/Native into the repo-local .kotlin/konan
+      # (KONAN_DATA_DIR); cache both konan locations keyed by the pinned Kotlin version.
+      - name: Cache Kotlin/Native toolchain
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.konan
+            .kotlin/konan
+          key: kinetica-konan-linux-${{ hashFiles('common.module-template.yaml') }}
+
+      - uses: ./.github/actions/setup-kinetica
+
+      - name: Install GTK4 dev headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev
+
+      - name: Publish compiler plugin
+        run: ./kotlin publish mavenLocal -m kinetica-compiler
+
+      # .def files cannot run pkg-config themselves (no shell substitution in the K/N def
+      # parser — KNT-0047), so the flags are expanded here before the toolchain sees them.
+      - name: Generate GTK cinterop definition
+        run: ./kinetica-gtk/generate-def.sh
+
+      # Native-host bonus: the shared reconciler's test suite RUNS on linuxX64 here — the
+      # macOS job can only cross-compile it.
+      - name: Render-core native tests (linuxX64)
+        run: ./kotlin test --platform linuxX64 -m kinetica-render-core
+
+      # Smoke-build the GTK sample: compiles kinetica-gtk (cinterop + Native IR + K2 plugin)
+      # and links a linuxX64 executable. GUI launch is not automated (no display in CI).
+      - name: Build native GTK sample (linuxX64)
+        run: ./kotlin build -m native-counter-gtk
+
+      - name: Save Linux native build outputs
+        if: steps.linux-build-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: build
+          key: ${{ steps.linux-build-cache.outputs.cache-primary-key }}
+
   required:
     name: Build, test & verify
     if: ${{ always() }}
-    needs: [jvm, browser, macos]
+    needs: [jvm, browser, macos, linux]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -267,10 +324,13 @@ jobs:
           JVM_RESULT: ${{ needs.jvm.result }}
           BROWSER_RESULT: ${{ needs.browser.result }}
           MACOS_RESULT: ${{ needs.macos.result }}
+          LINUX_RESULT: ${{ needs.linux.result }}
         run: |
           echo "JVM: $JVM_RESULT"
           echo "JS, browser & docs: $BROWSER_RESULT"
           echo "macOS native: $MACOS_RESULT"
+          echo "Linux native: $LINUX_RESULT"
           test "$JVM_RESULT" = "success"
           test "$BROWSER_RESULT" = "success"
           test "$MACOS_RESULT" = "success"
+          test "$LINUX_RESULT" = "success"

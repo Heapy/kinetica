@@ -7,6 +7,7 @@ modules:
   - ./kinetica-compiler
   - ./kinetica-data
   - ./kinetica-forms
+  - ./kinetica-gtk
   - ./kinetica-markdown
   - ./kinetica-motion
   - ./kinetica-persist
@@ -26,6 +27,7 @@ modules:
   - ./samples/browser-todo
   - ./samples/game-of-life-model
   - ./samples/native-counter
+  - ./samples/native-counter-gtk
   - ./samples/server-components
   - ./samples/server-components-client
   - ./samples/server-components-shared
