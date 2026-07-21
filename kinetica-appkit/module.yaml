@@ -1,0 +1,11 @@
+product:
+  type: kmp/lib
+  platforms: [macosArm64]
+
+apply:
+  - ../common.module-template.yaml
+
+dependencies:
+  - ../kinetica-runtime: exported
+
+description: "macOS AppKit renderer for Kinetica applications."

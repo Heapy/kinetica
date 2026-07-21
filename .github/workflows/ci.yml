@@ -242,6 +242,12 @@ jobs:
             -m kinetica-motion \
             -m kinetica-theme
 
+      # Smoke-build the native macOS sample: compiles kinetica-appkit (the AppKit renderer) and
+      # links a macosArm64 executable. GUI launch is not automated (no display in CI); the build
+      # itself exercises the full toolchain path: K2 plugin + Native IR + AppKit interop.
+      - name: Build native macOS sample (macosArm64)
+        run: ./kotlin build -m native-counter
+
       - name: Save macOS build outputs
         if: steps.macos-build-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5

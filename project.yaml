@@ -2,6 +2,7 @@ modules:
   - ./bench-jvm
   - ./docs/docs-client
   - ./docs/docs-site
+  - ./kinetica-appkit
   - ./kinetica-browser
   - ./kinetica-compiler
   - ./kinetica-data
@@ -23,6 +24,7 @@ modules:
   - ./samples/browser-tests
   - ./samples/browser-todo
   - ./samples/game-of-life-model
+  - ./samples/native-counter
   - ./samples/server-components
   - ./samples/server-components-client
   - ./samples/server-components-shared

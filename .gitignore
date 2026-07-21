@@ -30,3 +30,4 @@ build/
 /bench/results/runs/
 /docs/.docker-stage/
 .claude/
+.zcode/

@@ -1,0 +1,19 @@
+product:
+  type: macos/app
+  platforms: [macosArm64]
+
+apply:
+  - ../../common.module-template.yaml
+
+repositories:
+  - mavenLocal
+
+settings:
+  native:
+    entryPoint: app.native.counter.main
+
+dependencies:
+  - ../../kinetica-runtime
+  - ../../kinetica-appkit
+
+description: "Native macOS counter sample rendered with the Kinetica AppKit renderer."
