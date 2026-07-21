@@ -1,14 +1,13 @@
 package io.heapy.kinetica.gtk
 
 import gtk4.GCallback
-import gtk4.GTK_ORIENTATION_HORIZONTAL
-import gtk4.GTK_ORIENTATION_VERTICAL
 import gtk4.GtkBox
 import gtk4.GtkButton
 import gtk4.GtkCheckButton
 import gtk4.GtkEditable
 import gtk4.GtkEntry
 import gtk4.GtkLabel
+import gtk4.GtkOrientation
 import gtk4.GtkWidget
 import gtk4.g_idle_add
 import gtk4.g_signal_connect_data
@@ -144,13 +143,13 @@ internal class GtkHostAdapter(
 
     override fun createHost(node: HostNode): GtkWidgetPtr {
         val widget: GtkWidgetPtr = when (node.tag) {
-            "column" -> gtk_box_new(GTK_ORIENTATION_VERTICAL, 8)!!
-            "row" -> gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8)!!
+            "column" -> gtk_box_new(GtkOrientation.GTK_ORIENTATION_VERTICAL, 8)!!
+            "row" -> gtk_box_new(GtkOrientation.GTK_ORIENTATION_HORIZONTAL, 8)!!
             "button" -> makeButton(node)
             "checkbox" -> makeCheckbox(node)
             "textInput" -> makeEntry(node)
             // Unknown tag: a neutral vertical box keeps the tree navigable.
-            else -> gtk_box_new(GTK_ORIENTATION_VERTICAL, 0)!!
+            else -> gtk_box_new(GtkOrientation.GTK_ORIENTATION_VERTICAL, 0)!!
         }
         return widget
     }

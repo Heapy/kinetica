@@ -8,8 +8,8 @@ import gtk4.g_object_unref
 import gtk4.g_signal_connect_data
 import gtk4.gtk_application_new
 import gtk4.gtk_application_window_new
+import gtk4.GtkOrientation
 import gtk4.gtk_box_new
-import gtk4.GTK_ORIENTATION_VERTICAL
 import gtk4.gtk_window_present
 import gtk4.gtk_window_set_child
 import gtk4.gtk_window_set_default_size
@@ -82,7 +82,7 @@ private fun onActivate(app: CPointer<GtkApplication>) {
     gtk_window_set_title(window.reinterpret<GtkWindow>(), "Kinetica Counter")
     gtk_window_set_default_size(window.reinterpret<GtkWindow>(), 360, 240)
 
-    val root = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0)!!
+    val root = gtk_box_new(GtkOrientation.GTK_ORIENTATION_VERTICAL, 0)!!
     gtk_window_set_child(window.reinterpret<GtkWindow>(), root)
 
     kineticaApp = renderGtkApp(container = root) { CounterApp() }
