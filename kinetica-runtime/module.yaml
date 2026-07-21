@@ -1,6 +1,6 @@
 product:
   type: kmp/lib
-  platforms: [jvm, android, js, wasmJs, macosArm64]
+  platforms: [jvm, android, js, wasmJs, macosArm64, linuxX64]
 
 apply:
   - ../common.module-template.yaml
