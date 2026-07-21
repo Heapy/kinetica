@@ -34,6 +34,7 @@ public class KineticaRuntime(
     private val warnings = JournalBuffer<RuntimeWarning>(journalCapacity)
     private val renderSnapshots = JournalBuffer<RenderSnapshot>(journalCapacity)
     private val pendingRenderCauses = linkedSetOf<String>()
+    private val invalidationListeners = mutableListOf<(String) -> Unit>()
     private val renderSubscriptions = mutableMapOf<ObservableCell<*>, Disposable>()
     private var hasRendered = false
     private var invalidated = false
@@ -189,9 +190,31 @@ public class KineticaRuntime(
     }
 
     public fun invalidate(cause: String = "manual") {
-        synchronizedOn(runtimeLock) {
+        val listeners = synchronizedOn(runtimeLock) {
             invalidated = true
             pendingRenderCauses += cause
+            if (invalidationListeners.isEmpty()) emptyList() else invalidationListeners.toList()
+        }
+        for (listener in listeners) {
+            listener(cause)
+        }
+    }
+
+    /**
+     * Registers [listener] to run on every [invalidate] — including the implicit "cell write"
+     * invalidations from render-subscribed cells. This is the scheduling hook renderers use to
+     * drive their own flush loop (the browser rAF scheduler, the AppKit main-thread marshal):
+     * the runtime itself never re-renders.
+     *
+     * Contract: the listener runs on the invalidating thread (for effect-driven cell writes on
+     * Native that is a background dispatcher thread), AFTER the invalidation flag is set and
+     * OUTSIDE the runtime lock — it may safely call back into the runtime (e.g. read
+     * [hasPendingInvalidation] or re-[invalidate]). Marshal to your UI thread before rendering.
+     */
+    public fun onInvalidation(listener: (cause: String) -> Unit): Disposable {
+        synchronizedOn(runtimeLock) { invalidationListeners += listener }
+        return Disposable {
+            synchronizedOn(runtimeLock) { invalidationListeners -= listener }
         }
     }
 
@@ -320,6 +343,7 @@ public class KineticaRuntime(
         synchronizedOn(runtimeLock) {
             renderSubscriptions.values.forEach(Disposable::dispose)
             renderSubscriptions.clear()
+            invalidationListeners.clear()
         }
         effectScope.cancel()
     }
