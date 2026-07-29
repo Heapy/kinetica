@@ -29,6 +29,7 @@ val DocPages: List<DocPage> = listOf(
     DocPage("server-components", "Server components", "Server"),
 
     DocPage("browser-renderer", "Browser renderer", "Under the hood"),
+    DocPage("desktop-shaders", "Desktop GPU & shaders", "Under the hood"),
     DocPage("performance", "Performance", "Under the hood"),
     DocPage("compiler-plugin", "Compiler plugin", "Under the hood"),
     DocPage("testing", "Testing", "Under the hood"),
