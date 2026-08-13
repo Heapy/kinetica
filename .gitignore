@@ -14,6 +14,10 @@ build/
 .playwright-browsers/
 .npm-cache/
 
+# Release credentials: the wrapper that feeds signing key and Central token to
+# scripts/release.sh. Never commit it.
+/publish.sh
+
 # IDE / OS
 .idea/
 .DS_Store

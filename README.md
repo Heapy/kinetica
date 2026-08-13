@@ -77,8 +77,9 @@ verification suites (`.github/workflows/ci.yml`). Pushes to `main` publish the d
 
 ## Releasing
 
-`GPG_KEY_ID=... ./publish.sh` builds a signed Maven Central bundle at
+`GPG_KEY_ID=... scripts/release.sh` builds a signed Maven Central bundle at
 `build/kinetica-<version>.zip`; `--upload` also POSTs it as a deployment that Central validates
-and holds until you release it by hand. Coordinates live in `publish.module-template.yaml`.
-`kinetica-gtk` is excluded by default — it needs GTK dev headers, so publish it from Linux with
-`PUBLISH_MODULES=kinetica-gtk`.
+and holds until you release it by hand. Keep the signing key and the Central token in a
+git-ignored `./publish.sh` that exports them and calls the script. Coordinates live in
+`publish.module-template.yaml`. `kinetica-gtk` is excluded by default — it needs GTK dev headers,
+so publish it from Linux with `PUBLISH_MODULES=kinetica-gtk`.

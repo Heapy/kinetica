@@ -17,9 +17,11 @@
 #   GPG_PASSPHRASE   passphrase for that key (optional if gpg-agent already holds it)
 #   CENTRAL_TOKEN    "<username>:<password>" Central Portal user token (required for --upload)
 #   PUBLISH_MODULES  comma-separated module list to override the default set
+#
+# Credentials belong in the git-ignored ./publish.sh wrapper, which exports them and calls this.
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "$0")" && pwd)"
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 
 # kinetica-gtk is deliberately absent: it targets linuxX64 and needs GTK dev headers, so it can
