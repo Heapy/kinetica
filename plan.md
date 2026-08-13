@@ -59,7 +59,7 @@ issues, surveyed from the checkouts in `projects/`) lives in git history
 
 | Module | Files | KSND cases | @Test fns | Run |
 |---|---|---|---|---|
-| kinetica-browser (test@js) | 9 | 85 (1 ignored) | 111 | `./kotlin build -m kinetica-browser && node build/tasks/_kinetica-browser_linkJsTest/kinetica-browser_test.mjs` |
+| kinetica-browser (test@js) | 9 | 85 (1 ignored) | 111 | `./kotlin build -v release -m kinetica-browser && node build/artifacts/CompiledWebArtifact/kinetica-browserjsTestrelease/kotlin-output/kinetica-browser_test.mjs` |
 | kinetica-runtime (test) | 2 | 20 | 20 | `./kotlin test -m kinetica-runtime --platform jvm` + JS bundle |
 | kinetica-test (test) | 3 | 30 | 30 | `./kotlin test -m kinetica-test --platform jvm` + JS bundle |
 
@@ -284,6 +284,6 @@ Tag mapping: `column`/`row` → `GtkBox`, `button` → `GtkButton` (signal `clic
 
 ## Verification
 
-- Full sweeps: `./kotlin test -m kinetica-runtime --platform jvm`, `./kotlin test -m kinetica-test --platform jvm`, `./kotlin test -m kinetica-compiler --platform jvm`, kinetica-browser build + `node build/tasks/_kinetica-browser_linkJsTest/kinetica-browser_test.mjs`, the kinetica-runtime/kinetica-test JS bundles the same way, both annotated samples (JVM + JS). The KSND soundness cases ride these same runs (suite layout table in Context).
+- Full sweeps: `./kotlin test -m kinetica-runtime --platform jvm`, `./kotlin test -m kinetica-test --platform jvm`, `./kotlin test -m kinetica-compiler --platform jvm`, kinetica-browser build + `node build/artifacts/CompiledWebArtifact/kinetica-browserjsTestrelease/kotlin-output/kinetica-browser_test.mjs`, the kinetica-runtime/kinetica-test JS bundles the same way, both annotated samples (JVM + JS). The KSND soundness cases ride these same runs (suite layout table in Context).
 - Perf-backlog changes (KNT-0024+): `node bench/run.mjs --suites=main --frameworks=kinetica`, then `node scripts/verify-browser.mjs` from the repo root — the script lives in root `scripts/`, not `bench/` (15 self-tests must stay green). Locally the verification script needs what ci.yml:99-103 provides: a static server first (`node -e 'import("./bench/driver/server.mjs").then(m => m.startServer(process.cwd(), 4173))' &`) and `PLAYWRIGHT_IMPORT=.tools/playwright/node_modules/playwright/index.mjs`, plus built browser-tests/counter/todo samples.
 - Size check: `node scripts/size-report.mjs` within baseline tolerance.

@@ -381,7 +381,7 @@ declare a `build` command in its config entry.
   blocks mismatched environments by default; after changing either, re-run all frameworks.
 - Kinetica's payload/TTI figures use the benchmark's esbuild production bundle over the Kotlin
   Toolchain linked JS output. If you bypass `build-kinetica.mjs` and load
-  `_browser-bench_linkJs/browser-bench.mjs` directly, startup will regress to the unminified
+  the linked `browser-bench.mjs` directly, startup will regress to the unminified
   multi-file preview output.
 - `results*.json`/`report/index.html` are generated; edit `report/generate.mjs`, not the page.
 - Old part files (9 ops, no churn/animation fields) merge cleanly: the report renders missing
@@ -406,8 +406,8 @@ declare a `build` command in its config entry.
   gates and root-cause analysis: git history of the retired `perf-rewrite-design.md`.
   When touching Kinetica code, run its own tests too
   (`../kotlin test -m kinetica-runtime --platform jvm`,
-  `node ../build/tasks/_kinetica-browser_linkJsTest/kinetica-browser_test.mjs` after
-  `../kotlin build -m kinetica-browser`).
+  `node ../build/artifacts/CompiledWebArtifact/kinetica-browserjsTestrelease/kotlin-output/kinetica-browser_test.mjs`
+  after `../kotlin build -v release -m kinetica-browser`).
 - **Compose HTML context** (`html-core` 1.11.1, latest stable at time of writing; 2026-07-07
   run, samples=5/warmup=1 — noisier than the standard 10/3 but the medians are stable):
   single-row ops that Compose can skip via row-level memoization are competitive (select-1k

@@ -4,10 +4,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { run } from "../scripts/lib/run.mjs";
+import { JS_VARIANT_ARGS, jsEntryPoint } from "../scripts/lib/js-output.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..");
-const linkEntry = join(repoRoot, "build", "tasks", "_browser-bench_linkJs", "browser-bench.mjs");
+const linkEntry = jsEntryPoint(repoRoot, "browser-bench");
 const bundleDir = join(repoRoot, "build", "tasks", "_browser-bench_bundle");
 const bundleFile = join(bundleDir, "browser-bench.bundle.mjs");
 
@@ -19,7 +20,7 @@ const kotlin = process.platform === "win32" ? "kotlin.bat" : "./kotlin";
 if (process.env.KINETICA_COMPILER_PUBLISHED !== "1") {
   run(kotlin, ["publish", "mavenLocal", "-m", "kinetica-compiler"], { cwd: repoRoot });
 }
-run(kotlin, ["build", "-m", "browser-bench"], { cwd: repoRoot });
+run(kotlin, ["build", ...JS_VARIANT_ARGS, "-m", "browser-bench"], { cwd: repoRoot });
 
 if (!existsSync(linkEntry)) {
   throw new Error(`Kotlin JS link output not found: ${linkEntry}`);

@@ -4,15 +4,16 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { run } from "../scripts/lib/run.mjs";
+import { JS_VARIANT_ARGS, jsEntryPoint } from "../scripts/lib/js-output.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..");
-const linkEntry = join(repoRoot, "build", "tasks", "_browser-bench-compose_linkJs", "browser-bench-compose.mjs");
+const linkEntry = jsEntryPoint(repoRoot, "browser-bench-compose");
 const bundleDir = join(repoRoot, "build", "tasks", "_browser-bench-compose_bundle");
 const bundleFile = join(bundleDir, "browser-bench-compose.bundle.mjs");
 
 const kotlin = process.platform === "win32" ? "kotlin.bat" : "./kotlin";
-run(kotlin, ["build", "-m", "browser-bench-compose"], { cwd: repoRoot });
+run(kotlin, ["build", ...JS_VARIANT_ARGS, "-m", "browser-bench-compose"], { cwd: repoRoot });
 
 if (!existsSync(linkEntry)) {
   throw new Error(`Kotlin JS link output not found: ${linkEntry}`);

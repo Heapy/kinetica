@@ -62,7 +62,7 @@ No global install needed: the `./kotlin` wrapper provisions the Kotlin Toolchain
 ```sh
 ./kotlin publish mavenLocal -m kinetica-compiler    # first: every module compiles with the plugin
 ./kotlin test -m kinetica-runtime --platform jvm    # module tests
-./kotlin build -m browser-todo                      # a JS sample
+./kotlin build -v release -m browser-todo           # a JS sample (JS links only in release)
 node scripts/verify-browser.mjs                     # Playwright verification (server on :4173)
 ```
 

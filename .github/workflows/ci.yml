@@ -29,13 +29,13 @@ jobs:
 
       - uses: ./.github/actions/setup-kinetica
 
-      # Every project module resolves the compiler plugin from the toolchain-local Maven
-      # repository, so publish it before asking the CLI to construct the project graph.
+      # Every project module resolves the compiler plugin from the local Maven repository,
+      # so publish it before asking the CLI to construct the project graph.
       - name: Publish compiler plugin
         run: ./kotlin publish mavenLocal -m kinetica-compiler
 
       # One CLI invocation shares project discovery and task scheduling across the whole
-      # JVM graph. The repeated -m form is supported by Kotlin Toolchain 0.11.
+      # JVM graph. The repeated -m form is supported by Kotlin Toolchain 0.12.
       - name: JVM test suite
         run: |
           set -euo pipefail
@@ -88,7 +88,7 @@ jobs:
       - uses: ./.github/actions/setup-kinetica
         with:
           # A cache hit only runs Node/Java verification against finished artifacts. Avoid
-          # downloading the ~1 GB project-local Kotlin state when no Kotlin command runs.
+          # restoring the ~1 GB Kotlin Toolchain cache when no Kotlin command runs.
           setup-kotlin: ${{ steps.browser-build-cache.outputs.cache-hit != 'true' }}
 
       - name: Install bench Node dependencies
@@ -100,11 +100,12 @@ jobs:
 
       # Build the complete JS graph once. Subsequent verification steps consume artifacts
       # and never invoke the Kotlin CLI again.
+      # `-v release` is required: the toolchain only links JS for the release variant.
       - name: Build browser artifacts
         if: steps.browser-build-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          ./kotlin build --platform js \
+          ./kotlin build -v release --platform js \
             -m annotated-js \
             -m kinetica-browser \
             -m browser-tests \
@@ -130,23 +131,23 @@ jobs:
           key: ${{ steps.browser-build-cache.outputs.cache-primary-key }}
 
       - name: Compiler plugin JS sample
-        run: node build/tasks/_annotated-js_linkJs/annotated-js.mjs
+        run: node build/artifacts/CompiledWebArtifact/annotated-jsjsrelease/kotlin-output/annotated-js.mjs
 
       - name: Browser-runtime JS tests
-        run: node build/tasks/_kinetica-browser_linkJsTest/kinetica-browser_test.mjs
+        run: node build/artifacts/CompiledWebArtifact/kinetica-browserjsTestrelease/kotlin-output/kinetica-browser_test.mjs
 
       - name: Game of Life model tests
         run: |
           set -euo pipefail
-          node build/tasks/_game-of-life-model_linkJsTest/game-of-life-model_test.mjs
+          node build/artifacts/CompiledWebArtifact/game-of-life-modeljsTestrelease/kotlin-output/game-of-life-model_test.mjs
           node samples/game-of-life-shared/life-core.test.mjs
           node bench/game-of-life/validate-results.mjs
 
       - name: Runtime & test-kit JS tests
         run: |
           set -euo pipefail
-          node build/tasks/_kinetica-runtime_linkJsTest/kinetica-runtime_test.mjs
-          node build/tasks/_kinetica-test_linkJsTest/kinetica-test_test.mjs
+          node build/artifacts/CompiledWebArtifact/kinetica-runtimejsTestrelease/kotlin-output/kinetica-runtime_test.mjs
+          node build/artifacts/CompiledWebArtifact/kinetica-testjsTestrelease/kotlin-output/kinetica-test_test.mjs
 
       # Fails when a tracked artifact's gzip size grows >10% over the committed baseline.
       - name: Bundle size check
@@ -227,13 +228,15 @@ jobs:
       - name: Publish compiler plugin
         run: ./kotlin publish mavenLocal -m kinetica-compiler
 
-      # kinetica-runtime's own test sources need internal (friend) access, which the
-      # toolchain does not provide to Native test compilations yet; the runtime still
-      # compiles and is exercised natively as a dependency of every module below.
+      # kinetica-runtime and kinetica-render-core joined this list on Kotlin Toolchain 0.12:
+      # their test sources need internal (friend) access and cinterop on the test classpath,
+      # neither of which 0.11 gave Native test compilations (KNT-0042, KTC-5573).
       - name: Native test suite (macosArm64)
         run: |
           set -euo pipefail
           ./kotlin test --platform macosArm64 \
+            -m kinetica-runtime \
+            -m kinetica-render-core \
             -m kinetica-test \
             -m kinetica-forms \
             -m kinetica-data \

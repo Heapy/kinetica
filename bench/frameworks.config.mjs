@@ -29,7 +29,7 @@ export const frameworks = [
     build: { cmd: process.execPath, args: ["bench/build-kinetica.mjs"] },
     profile: {
       kind: "linked-js",
-      entry: "build/tasks/_browser-bench_linkJs/browser-bench.mjs",
+      entry: "build/artifacts/CompiledWebArtifact/browser-benchjsrelease/kotlin-output/browser-bench.mjs",
       define: { KINETICA_DEBUG_DIAGNOSTICS: "false" },
     },
   },
@@ -94,7 +94,7 @@ export const frameworks = [
     build: { cmd: process.execPath, args: ["bench/build-compose.mjs"] },
     profile: {
       kind: "linked-js",
-      entry: "build/tasks/_browser-bench-compose_linkJs/browser-bench-compose.mjs",
+      entry: "build/artifacts/CompiledWebArtifact/browser-bench-composejsrelease/kotlin-output/browser-bench-compose.mjs",
     },
   },
 ];

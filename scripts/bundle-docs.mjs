@@ -10,6 +10,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { brotliCompressSync, constants as zlibConstants, gzipSync } from "node:zlib";
 import { run } from "./lib/run.mjs";
+import { JS_VARIANT_ARGS, jsOutputDir } from "./lib/js-output.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..");
@@ -27,13 +28,11 @@ try {
 const targets = [
   {
     module: "docs-client",
-    linkDir: "_docs-client_linkJs",
     bundleDir: "_docs-client_bundle",
     entry: "docs-client.mjs",
   },
   {
     module: "server-components-client",
-    linkDir: "_server-components-client_linkJs",
     bundleDir: "_server-components-client_bundle",
     entry: "server-components-client.mjs",
   },
@@ -104,12 +103,12 @@ function writeBrotli(file) {
 const kotlin = process.platform === "win32" ? "kotlin.bat" : "./kotlin";
 if (!skipKotlinBuild) {
   for (const target of targets) {
-    run(kotlin, ["build", "-m", target.module], { cwd: repoRoot });
+    run(kotlin, ["build", ...JS_VARIANT_ARGS, "-m", target.module], { cwd: repoRoot });
   }
 }
 
 for (const target of targets) {
-  const linkDir = join(repoRoot, "build", "tasks", target.linkDir);
+  const linkDir = jsOutputDir(repoRoot, target.module);
   const linkEntry = join(linkDir, target.entry);
   const bundleDir = join(repoRoot, "build", "tasks", target.bundleDir);
   const bundleFile = join(bundleDir, target.entry);

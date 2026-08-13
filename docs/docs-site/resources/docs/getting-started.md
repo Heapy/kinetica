@@ -50,7 +50,7 @@ fun main() {
 ```html
 <!-- web/index.html -->
 <div id="app"></div>
-<script type="module" src="../../../build/tasks/_my-app_linkJs/my-app.mjs"></script>
+<script type="module" src="../../../build/artifacts/CompiledWebArtifact/my-appjsrelease/kotlin-output/my-app.mjs"></script>
 ```
 
 ## Build and run
@@ -58,9 +58,9 @@ fun main() {
 <!-- code: kotlin (wrapper CLI), scripts/verify-browser.mjs -->
 
 ```
-./kotlin build -m my-app        # emits build/tasks/_my-app_linkJs/my-app.mjs
-./kotlin test -m my-module      # run a module's tests
-./kotlin show modules           # inspect the project model
+./kotlin build -v release -m my-app   # links build/artifacts/CompiledWebArtifact/my-appjsrelease/kotlin-output/my-app.mjs
+./kotlin test -m my-module            # run a module's tests
+./kotlin show modules                 # inspect the project model
 ```
 
 `js/app` output is an ES-module graph; serve the repository root with any static file server and

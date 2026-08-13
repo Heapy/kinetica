@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { run } from "./lib/run.mjs";
+import { JS_VARIANT_ARGS, jsEntryPoint } from "./lib/js-output.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..");
@@ -36,8 +37,8 @@ run(process.execPath, [
 if (!skipKotlinBuild) {
   const kotlin = process.platform === "win32" ? "kotlin.bat" : "./kotlin";
   run(kotlin, ["publish", "mavenLocal", "-m", "kinetica-compiler"], { cwd: repoRoot });
-  run(kotlin, ["build", "-m", "browser-game-of-life"], { cwd: repoRoot });
-  run(kotlin, ["build", "-m", "browser-game-of-life-compose"], { cwd: repoRoot });
+  run(kotlin, ["build", ...JS_VARIANT_ARGS, "-m", "browser-game-of-life"], { cwd: repoRoot });
+  run(kotlin, ["build", ...JS_VARIANT_ARGS, "-m", "browser-game-of-life-compose"], { cwd: repoRoot });
 }
 
 const targets = [
@@ -45,7 +46,7 @@ const targets = [
     id: "kinetica",
     label: "Kinetica",
     mark: "K",
-    source: join(repoRoot, "build", "tasks", "_browser-game-of-life_linkJs", "browser-game-of-life.mjs"),
+    source: jsEntryPoint(repoRoot, "browser-game-of-life"),
     bundle: join(repoRoot, "build", "tasks", "_browser-game-of-life_bundle", "main.mjs"),
   },
   {
@@ -59,13 +60,7 @@ const targets = [
     id: "compose-html",
     label: "Compose HTML",
     mark: "C",
-    source: join(
-      repoRoot,
-      "build",
-      "tasks",
-      "_browser-game-of-life-compose_linkJs",
-      "browser-game-of-life-compose.mjs",
-    ),
+    source: jsEntryPoint(repoRoot, "browser-game-of-life-compose"),
     bundle: join(repoRoot, "build", "tasks", "_browser-game-of-life-compose_bundle", "main.mjs"),
   },
   {

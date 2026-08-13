@@ -15,6 +15,7 @@ import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
+import { jsOutputDir } from "./lib/js-output.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const baselinePath = join(repoRoot, "bench", "size-baseline.json");
@@ -26,14 +27,14 @@ const args = new Set(process.argv.slice(2));
 // name -> { dir, pattern } (sums all matching files) or { file }
 const TRACKED = {
   "kinetica/browser-bench-bundle": { file: "build/tasks/_browser-bench_bundle/browser-bench.bundle.mjs" },
-  "kinetica/browser-bench-js": { dir: "build/tasks/_browser-bench_linkJs", pattern: /\.mjs$/ },
+  "kinetica/browser-bench-js": { dir: jsOutputDir("", "browser-bench"), pattern: /\.mjs$/ },
   "kinetica/docs-client-bundle": { file: "build/tasks/_docs-client_bundle/docs-client.mjs" },
-  "kinetica/docs-client-js": { dir: "build/tasks/_docs-client_linkJs", pattern: /\.mjs$/ },
+  "kinetica/docs-client-js": { dir: jsOutputDir("", "docs-client"), pattern: /\.mjs$/ },
   "kinetica/server-components-client-bundle": {
     file: "build/tasks/_server-components-client_bundle/server-components-client.mjs",
   },
   "kinetica/server-components-client-js": {
-    dir: "build/tasks/_server-components-client_linkJs",
+    dir: jsOutputDir("", "server-components-client"),
     pattern: /\.mjs$/,
   },
   "bench/vanilla": { file: "bench/dist/vanilla/main.js" },
