@@ -68,9 +68,17 @@ while IFS= read -r dir; do
 done < <(find "$maven_local/$group_path" -mindepth 2 -maxdepth 2 -type d -name "$version")
 
 echo "==> signing and checksumming"
-gpg_args=(--batch --yes --armor --detach-sign --local-user "$GPG_KEY_ID")
+gpg_args=(--yes --armor --detach-sign --local-user "$GPG_KEY_ID")
 if [ -n "${GPG_PASSPHRASE:-}" ]; then
-  gpg_args=(--pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" "${gpg_args[@]}")
+  # Non-interactive: the passphrase goes straight to gpg, no agent prompt involved.
+  gpg_args=(--batch --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" "${gpg_args[@]}")
+else
+  # Interactive: pinentry asks once and gpg-agent caches it for the remaining files. Without
+  # GPG_TTY it cannot find a terminal and fails with "Inappropriate ioctl for device"; with
+  # --batch it would not be allowed to ask at all, hence neither is used here.
+  tty -s || { echo "no terminal for the gpg passphrase prompt: set GPG_PASSPHRASE" >&2; exit 1; }
+  GPG_TTY="$(tty)"
+  export GPG_TTY
 fi
 
 count=0
