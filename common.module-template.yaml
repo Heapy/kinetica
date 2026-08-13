@@ -11,7 +11,11 @@ settings:
         dependency: io.heapy.kinetica:kinetica-compiler:0.3.0
 
 repositories:
-  - mavenLocal
+  # Serves two roles: the compiler plugin is consumed from here, and published modules can be
+  # staged here with `./kotlin publish mavenLocal` to inspect a publication before Central.
+  - id: mavenLocal
+    url: mavenLocal
+    publish: true
 
 settings@android:
   android:

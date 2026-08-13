@@ -4,6 +4,7 @@ product:
 
 apply:
   - ../common.module-template.yaml
+  - ../publish.module-template.yaml
 
 dependencies:
   - ../kinetica-runtime

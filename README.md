@@ -74,3 +74,11 @@ plugin version).
 CI runs JVM tests for all modules, builds the JS targets, and drives the browser + docs
 verification suites (`.github/workflows/ci.yml`). Pushes to `main` publish the docs image to
 `ghcr.io/heapy/kinetica-docs` (`.github/workflows/docs-image.yml`).
+
+## Releasing
+
+`GPG_KEY_ID=... ./publish.sh` builds a signed Maven Central bundle at
+`build/kinetica-<version>.zip`; `--upload` also POSTs it as a deployment that Central validates
+and holds until you release it by hand. Coordinates live in `publish.module-template.yaml`.
+`kinetica-gtk` is excluded by default — it needs GTK dev headers, so publish it from Linux with
+`PUBLISH_MODULES=kinetica-gtk`.

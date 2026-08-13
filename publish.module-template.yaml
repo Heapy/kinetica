@@ -1,0 +1,40 @@
+# Maven Central publication settings shared by every published module.
+#
+# artifactId is not set here on purpose: it defaults to the module name, and the module's own
+# `description` becomes the POM description, which Central requires. The `io.heapy` namespace
+# covers this group, so no separate namespace registration is needed.
+#
+# ── Releasing ────────────────────────────────────────────────────────────────────────────────
+# Uncomment the two lines below, then:
+#
+#   export KOTLIN_TOOLCHAIN_MAVEN_CENTRAL_USERNAME=...   # Central Portal user token
+#   export KOTLIN_TOOLCHAIN_MAVEN_CENTRAL_PASSWORD=...
+#   export KOTLIN_TOOLCHAIN_SIGNING_KEY="$(gpg --export-secret-keys --armor <KEY_ID>)"
+#   export KOTLIN_TOOLCHAIN_SIGNING_KEY_PASSPHRASE=...
+#   ./kotlin publish mavenCentral
+#
+# Publishing mode stays `manual` (the default): the bundle is uploaded and validated, then waits
+# for a human to release it in the Portal UI.
+#
+# They are not enabled by default because the toolchain rejects `mavenCentral: enabled` without
+# `signArtifacts: true`, and signing then applies to *every* publication of the module —
+# including `./kotlin publish mavenLocal`, which every build in this repo starts with. Leaving
+# them on would demand a PGP key from CI and from anyone who just wants to compile the project.
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+
+settings:
+  publishing:
+    enabled: true
+    group: io.heapy.kinetica
+    version: 0.3.0
+    publishSources: true
+    # mavenCentral: enabled
+    # signArtifacts: true
+    pom:
+      url: https://github.com/Heapy/kinetica
+      scm: https://github.com/Heapy/kinetica.git
+      developers:
+        - name: Ruslan Ibrahimau
+      licenses:
+        - name: The Apache License, Version 2.0
+          url: https://www.apache.org/licenses/LICENSE-2.0.txt
