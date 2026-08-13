@@ -161,9 +161,15 @@ function ensureAgentJar() {
   if (existsSync(agentJar)) {
     return;
   }
+  // The toolchain's dependency cache lives under its shared cache dir (outside the repo) and
+  // uses the Maven layout; Gradle's module cache is the fallback for machines that have it.
+  const home = process.env.HOME ?? "";
+  const toolchainCache = process.platform === "darwin"
+    ? join(home, "Library/Caches/JetBrains/Kotlin")
+    : join(home, ".cache/JetBrains/Kotlin");
   const bundle = findFirstExisting([
-    join(root, ".kotlin/shared/.m2.cache/org.jacoco/org.jacoco.agent"),
-    join(process.env.HOME ?? "", ".gradle/caches/modules-2/files-2.1/org.jacoco/org.jacoco.agent"),
+    join(toolchainCache, ".m2.cache/org/jacoco/org.jacoco.agent"),
+    join(home, ".gradle/caches/modules-2/files-2.1/org.jacoco/org.jacoco.agent"),
   ], (file) => file.endsWith(`org.jacoco.agent-${jacocoVersion}.jar`));
 
   if (bundle == null) {

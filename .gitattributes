@@ -1,0 +1,3 @@
+# The Kotlin Toolchain wrapper for Windows ships with CRLF; cmd.exe mis-handles labels and
+# goto in LF-only batch files, so keep it out of the repo's LF normalization.
+*.bat text eol=crlf

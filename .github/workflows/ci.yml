@@ -270,14 +270,12 @@ jobs:
           path: build
           key: kinetica-linux-native-build-${{ runner.os }}-${{ hashFiles('.github/actions/setup-kinetica/action.yml', '.github/workflows/ci.yml', 'kotlin', 'project.yaml', 'common.module-template.yaml', '**/module.yaml', '**/plugin.yaml', '**/*.kt', '**/*.java', '**/resources/**', '**/testResources/**') }}
 
-      # The wrapper provisions Kotlin/Native into the repo-local .kotlin/konan
-      # (KONAN_DATA_DIR); cache both konan locations keyed by the pinned Kotlin version.
+      # The Kotlin/Native toolchain download is ~1 GB; key it by the Kotlin version pinned
+      # in the shared module template.
       - name: Cache Kotlin/Native toolchain
         uses: actions/cache@v5
         with:
-          path: |
-            ~/.konan
-            .kotlin/konan
+          path: ~/.konan
           key: kinetica-konan-linux-${{ hashFiles('common.module-template.yaml') }}
 
       - uses: ./.github/actions/setup-kinetica
