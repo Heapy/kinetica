@@ -58,6 +58,13 @@ echo "==> publishing $group:*:$version to $maven_local"
 # A stale artifact of the same version would silently end up in the bundle, so drop the previous
 # staging of this group/version first. Only our own coordinates are touched.
 rm -rf "${maven_local:?}/$group_path"/*/"$version"
+# The line above just deleted the compiler plugin every other module compiles with, and the
+# toolchain resolves it as an ordinary external dependency — it has no ordering edge to the
+# module that produces it. So publish it on its own first, exactly like every build in this
+# repository starts, and only then the rest.
+if [[ ",$modules," == *",kinetica-compiler,"* ]]; then
+  ./kotlin publish mavenLocal -m kinetica-compiler
+fi
 # `publish` takes one comma-separated -m; repeating the flag silently keeps only the last module.
 ./kotlin publish mavenLocal -m "$modules"
 
