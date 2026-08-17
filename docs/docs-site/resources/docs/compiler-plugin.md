@@ -39,7 +39,7 @@ fun AnnotatedApp() {
 
 ## Enabling it
 
-<!-- code: common.module-template.yaml, samples/annotated/module.yaml, kinetica-compiler/src/KineticaCommandLineProcessor.kt (pluginOptions) -->
+<!-- code: common.module-template.yaml, samples/annotated/module.yaml, kinetica-compiler/src/KineticaCommandLineProcessor.kt (pluginOptions), kinetica-gradle-plugin/src/KineticaGradlePlugin.kt -->
 
 Every Kinetica module applies the shared template (`common.module-template.yaml`), which wires:
 
@@ -49,7 +49,7 @@ settings:
   kotlin:
     compilerPlugins:
       - id: io.heapy.kinetica.compiler
-        dependency: io.heapy.kinetica:kinetica-compiler:0.3.0
+        dependency: io.heapy.kinetica:kinetica-compiler:0.4.0
         options:
           moduleId: my-app
           serverSourceSet: serverMain
@@ -58,8 +58,28 @@ settings:
 
 Further options and their defaults: `sourcePipeline: lightTree` (`psi` turns on source
 generation), `transforms: all` (`off` is the IR kill switch for debugging), and
-`checks: error` (FIR authoring-rule diagnostics; `warning` downgrades them). See
-`samples/annotated` for the working wiring.
+`checks: error` (FIR authoring-rule diagnostics; the only other value is `off`, which
+unregisters the checkers — there is no severity downgrade). See `samples/annotated` for the
+working wiring.
+
+In a Gradle build the same options live in the `kinetica { }` block that the
+[`io.heapy.kinetica` plugin](/docs/getting-started) adds — one name per compiler option:
+
+```kotlin
+// build.gradle.kts
+kinetica {
+    moduleId = "my-app"
+    serverSourceSet = "jvmMain"
+    clientSourceSet = "jsMain"
+    sourcePipeline = "psi"   // passed to JVM compilations only
+    transforms = "all"
+    checks = "error"
+}
+```
+
+`sourcePipeline = "psi"` is the one place the two build systems differ: the PSI pipeline exists
+only in the JVM compiler pipeline, so in a multiplatform project the Gradle plugin passes it to
+the JVM compilations and withholds it everywhere else, where it would fail the build.
 
 ## IR passes
 

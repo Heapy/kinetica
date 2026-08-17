@@ -7,6 +7,7 @@ modules:
   - ./kinetica-compiler
   - ./kinetica-data
   - ./kinetica-forms
+  - ./kinetica-gradle-plugin
   - ./kinetica-gtk
   - ./kinetica-markdown
   - ./kinetica-motion

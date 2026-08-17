@@ -27,8 +27,15 @@ cd "$repo_root"
 # kinetica-gtk is deliberately absent: it targets linuxX64 and needs GTK dev headers, so it can
 # only be published from a Linux host. Run this script there with PUBLISH_MODULES=kinetica-gtk
 # to add it to a release.
-default_modules="kinetica-compiler,kinetica-runtime,kinetica-render-core,kinetica-browser,kinetica-appkit,kinetica-data,kinetica-forms,kinetica-markdown,kinetica-motion,kinetica-persist,kinetica-router,kinetica-test,kinetica-theme"
+default_modules="kinetica-compiler,kinetica-gradle-plugin,kinetica-runtime,kinetica-render-core,kinetica-browser,kinetica-appkit,kinetica-data,kinetica-forms,kinetica-markdown,kinetica-motion,kinetica-persist,kinetica-router,kinetica-test,kinetica-theme"
 modules="${PUBLISH_MODULES:-$default_modules}"
+
+# The Gradle plugin resolves io.heapy.kinetica:kinetica-compiler at its own version, so a bundle
+# carrying one without the other is broken on arrival. Checked before anything is published.
+if [[ ",$modules," == *",kinetica-gradle-plugin,"* && ",$modules," != *",kinetica-compiler,"* ]]; then
+  echo "kinetica-gradle-plugin needs kinetica-compiler in the same release: add it to PUBLISH_MODULES" >&2
+  exit 1
+fi
 
 group="io.heapy.kinetica"
 group_path="io/heapy/kinetica"
@@ -53,6 +60,12 @@ echo "==> publishing $group:*:$version to $maven_local"
 rm -rf "${maven_local:?}/$group_path"/*/"$version"
 # `publish` takes one comma-separated -m; repeating the flag silently keeps only the last module.
 ./kotlin publish mavenLocal -m "$modules"
+
+# `plugins { id("io.heapy.kinetica") }` resolves a pom-only marker the toolchain knows nothing
+# about; it is written into the same local repository and picked up by the staging loop below.
+if [[ ",$modules," == *",kinetica-gradle-plugin,"* ]]; then
+  MAVEN_LOCAL_REPO="$maven_local" "$repo_root/scripts/gradle-plugin-marker.sh"
+fi
 
 echo "==> staging $stage"
 rm -rf "$stage" "$bundle"

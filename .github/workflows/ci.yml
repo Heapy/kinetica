@@ -41,6 +41,7 @@ jobs:
           set -euo pipefail
           ./kotlin test --platform jvm \
             -m kinetica-compiler \
+            -m kinetica-gradle-plugin \
             -m kinetica-runtime \
             -m kinetica-markdown \
             -m kinetica-router \
@@ -202,7 +203,9 @@ jobs:
   macos:
     name: macOS native
     runs-on: macos-latest
-    timeout-minutes: 30
+    # 40 rather than 30: this job also publishes the release modules and builds the Gradle
+    # consumer fixture.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v6
 
@@ -244,6 +247,11 @@ jobs:
             -m kinetica-router \
             -m kinetica-motion \
             -m kinetica-theme
+
+      # Runs here rather than in the JVM job: it publishes kinetica-runtime & co to the local
+      # Maven repository, and their macosArm64 targets cannot be built on a Linux runner.
+      - name: Gradle plugin consumer check
+        run: node scripts/verify-gradle-plugin.mjs
 
       # Smoke-build the native macOS sample: compiles kinetica-appkit (the AppKit renderer) and
       # links a macosArm64 executable. GUI launch is not automated (no display in CI); the build

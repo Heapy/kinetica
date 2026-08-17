@@ -44,7 +44,11 @@ the distinction does not matter — the content is in the first response either 
 
 ## Gradle wiring worth copying
 
-Kinetica is compiler-plugin-only and does not publish a Gradle subplugin yet, so the plugin jar is
+**This section is on its way out.** From 0.4.0 Kinetica publishes the `io.heapy.kinetica` Gradle
+plugin, which does all of the wiring below plus the runtime dependencies; this example keeps the
+manual form until that release is on Central, since it consumes only published artifacts.
+
+Kinetica 0.3.0 is compiler-plugin-only and publishes no Gradle subplugin, so the plugin jar is
 resolved through its own configuration and passed to every Kotlin compilation:
 
 ```kotlin

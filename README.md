@@ -49,6 +49,7 @@ See [`docs/README.md`](docs/README.md).
 | `kinetica-router` / `-forms` / `-motion` / `-data` / `-persist` / `-theme` / `-markdown` | first-party batteries |
 | `kinetica-test` | headless component test harness |
 | `kinetica-compiler` | K2 compiler plugin — mandatory: frame/slot ordinals, skip transform, FIR authoring rules, server/client boundary |
+| `kinetica-gradle-plugin` | `io.heapy.kinetica` for Gradle consumers: applies the compiler plugin to every compilation, `kinetica { }` options, version-matched runtime dependencies |
 | `samples/` | browser apps, four-way Game of Life comparison, server-components demo, annotated (compiler-plugin) sample |
 | `docs/` | the documentation site + Docker packaging |
 | `examples/gradle-ssr` | standalone Gradle 9.7 consumer of the released artifacts: SSR + island hydration + the SEO metadata that goes with it |

@@ -8,7 +8,7 @@ settings:
       - -Xexpect-actual-classes
     compilerPlugins:
       - id: io.heapy.kinetica.compiler
-        dependency: io.heapy.kinetica:kinetica-compiler:0.3.0
+        dependency: io.heapy.kinetica:kinetica-compiler:0.4.0
 
 repositories:
   # Serves two roles: the compiler plugin is consumed from here, and published modules can be
@@ -22,7 +22,12 @@ settings@android:
     namespace: io.heapy.kinetica
 
 dependencies:
-  - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1
+  # Both leak into Kinetica's public API — EffectScope extends CoroutineScope, and the companions
+  # of @Serializable types like Role implement kotlinx.serialization's SerializerFactory — so
+  # consumers must get them on the compile classpath. Without `exported` the toolchain publishes
+  # every dependency as runtime-scoped, and a Gradle consumer cannot compile against Kinetica.
+  - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1: exported
+  - org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0: exported
 
 test-dependencies:
   - org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.1
