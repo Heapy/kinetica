@@ -1,10 +1,13 @@
 @file:OptIn(org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi::class)
 
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
-
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.kotlin.serialization)
+    // Everything Kinetica needs: the mandatory K2 compiler plugin on every compilation of every
+    // target, plus kinetica-runtime in commonMain and kinetica-browser in jsMain at the same
+    // version. Before 0.4.0 this file resolved the plugin jar itself and pushed -Xplugin into
+    // each KotlinCompilationTask by hand.
+    alias(libs.plugins.kinetica)
 }
 
 repositories {
@@ -12,21 +15,6 @@ repositories {
     // the ones a local `./kotlin publish mavenLocal` leaves in ~/.m2.
     mavenCentral()
 }
-
-// The Kinetica compiler plugin ships as a plain jar (no Gradle subplugin yet), so it is resolved
-// through its own configuration and handed to every Kotlin compilation as -Xplugin=<jar>.
-val kineticaCompiler = configurations.resolvable("kineticaCompiler") {
-    isTransitive = false
-}
-
-dependencies {
-    add(kineticaCompiler.name, libs.kinetica.compiler)
-}
-
-val kineticaPluginArgument: Provider<String> =
-    kineticaCompiler.flatMap { configuration ->
-        configuration.elements.map { jars -> "-Xplugin=${jars.single().asFile.absolutePath}" }
-    }
 
 kotlin {
     jvmToolchain(21)
@@ -48,9 +36,8 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            implementation(libs.kinetica.runtime)
-            // Kinetica exposes kotlinx.serialization at runtime only; island props and JSON-LD
-            // are built here, so the compile-time dependency is declared explicitly.
+            // Island props and JSON-LD are built by this example's own code, so it declares the
+            // serialization library it uses directly rather than leaning on Kinetica's.
             implementation(libs.kotlinx.serialization.json)
         }
         jvmMain.dependencies {
@@ -65,14 +52,7 @@ kotlin {
             implementation(kotlin("test"))
             implementation(libs.ktor.server.test.host)
         }
-        jsMain.dependencies {
-            implementation(libs.kinetica.browser)
-        }
     }
-}
-
-tasks.withType<KotlinCompilationTask<*>>().configureEach {
-    compilerOptions.freeCompilerArgs.add(kineticaPluginArgument)
 }
 
 // One `./gradlew jvmRun` builds the browser island too: the webpack output is packed into the
