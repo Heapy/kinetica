@@ -67,6 +67,51 @@ fun main() {
 open the page. JVM apps (`product: jvm/app`) run with `./kotlin run -m my-server` and package to
 an executable jar with `./kotlin package`.
 
+## From Gradle
+
+<!-- code: kinetica-gradle-plugin/src/KineticaGradlePlugin.kt, scripts/fixtures/gradle-plugin-consumer/build.gradle.kts, examples/gradle-ssr -->
+
+Kinetica is built with the toolchain but consumed from any Kotlin build. For Gradle, the
+`io.heapy.kinetica` plugin does the wiring:
+
+```kotlin
+// settings.gradle.kts — a fresh project resolves plugins from the portal only
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+```
+
+```kotlin
+// build.gradle.kts
+plugins {
+    kotlin("multiplatform") version "2.4.10"
+    id("io.heapy.kinetica") version "0.4.0"
+}
+
+repositories {
+    mavenCentral()
+}
+
+kotlin {
+    jvm()
+    js { browser() }
+}
+```
+
+That is the whole setup. The plugin applies the mandatory
+[compiler plugin](/docs/compiler-plugin) to every compilation of every target and adds
+`kinetica-runtime` to `commonMain` — plus `kinetica-browser` to a JS target's main source set — at
+its own version. `kinetica { addRuntimeDependencies = false }` hands the dependencies back to you;
+everything else the plugin exposes is on the compiler-plugin page.
+
+Kotlin **2.4.10** is the version Kinetica is published with. klib metadata is not forward
+compatible, so a mismatch fails the compilation — the plugin warns about it before that happens.
+The plugin itself needs Gradle 8.11+ and a JDK 17+ Kotlin daemon; the compiled application still
+targets whatever your toolchain says.
+
 ## Components are plain functions
 
 <!-- code: kinetica-runtime/src/Annotations.kt (UiComponent), kinetica-runtime/src/ComponentScope.kt (state, each) -->

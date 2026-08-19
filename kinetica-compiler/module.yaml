@@ -9,6 +9,11 @@ repositories:
     publish: true
 
 settings:
+  jvm:
+    # The plugin jar is loaded into the consumer's Kotlin compile daemon, whose JVM this project
+    # does not control — a JDK 17 daemon (the common case for Android and Spring builds) cannot
+    # load the toolchain's default Java 21 bytecode and fails with UnsupportedClassVersionError.
+    release: 17
   kotlin:
     version: 2.4.10
     languageVersion: 2.4

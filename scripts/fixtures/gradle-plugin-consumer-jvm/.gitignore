@@ -1,0 +1,2 @@
+# Gradle's own project cache; build/ and .kotlin/ are ignored repo-wide.
+.gradle/

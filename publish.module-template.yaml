@@ -26,7 +26,7 @@ settings:
   publishing:
     enabled: true
     group: io.heapy.kinetica
-    version: 0.3.0
+    version: 0.4.0
     publishSources: true
     # mavenCentral: enabled
     # signArtifacts: true

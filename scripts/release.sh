@@ -27,8 +27,15 @@ cd "$repo_root"
 # kinetica-gtk is deliberately absent: it targets linuxX64 and needs GTK dev headers, so it can
 # only be published from a Linux host. Run this script there with PUBLISH_MODULES=kinetica-gtk
 # to add it to a release.
-default_modules="kinetica-compiler,kinetica-runtime,kinetica-render-core,kinetica-browser,kinetica-appkit,kinetica-data,kinetica-forms,kinetica-markdown,kinetica-motion,kinetica-persist,kinetica-router,kinetica-test,kinetica-theme"
+default_modules="kinetica-compiler,kinetica-gradle-plugin,kinetica-runtime,kinetica-render-core,kinetica-browser,kinetica-appkit,kinetica-data,kinetica-forms,kinetica-markdown,kinetica-motion,kinetica-persist,kinetica-router,kinetica-test,kinetica-theme"
 modules="${PUBLISH_MODULES:-$default_modules}"
+
+# The Gradle plugin resolves io.heapy.kinetica:kinetica-compiler at its own version, so a bundle
+# carrying one without the other is broken on arrival. Checked before anything is published.
+if [[ ",$modules," == *",kinetica-gradle-plugin,"* && ",$modules," != *",kinetica-compiler,"* ]]; then
+  echo "kinetica-gradle-plugin needs kinetica-compiler in the same release: add it to PUBLISH_MODULES" >&2
+  exit 1
+fi
 
 group="io.heapy.kinetica"
 group_path="io/heapy/kinetica"
@@ -51,8 +58,21 @@ echo "==> publishing $group:*:$version to $maven_local"
 # A stale artifact of the same version would silently end up in the bundle, so drop the previous
 # staging of this group/version first. Only our own coordinates are touched.
 rm -rf "${maven_local:?}/$group_path"/*/"$version"
+# The line above just deleted the compiler plugin every other module compiles with, and the
+# toolchain resolves it as an ordinary external dependency — it has no ordering edge to the
+# module that produces it. So publish it on its own first, exactly like every build in this
+# repository starts, and only then the rest.
+if [[ ",$modules," == *",kinetica-compiler,"* ]]; then
+  ./kotlin publish mavenLocal -m kinetica-compiler
+fi
 # `publish` takes one comma-separated -m; repeating the flag silently keeps only the last module.
 ./kotlin publish mavenLocal -m "$modules"
+
+# `plugins { id("io.heapy.kinetica") }` resolves a pom-only marker the toolchain knows nothing
+# about; it is written into the same local repository and picked up by the staging loop below.
+if [[ ",$modules," == *",kinetica-gradle-plugin,"* ]]; then
+  MAVEN_LOCAL_REPO="$maven_local" "$repo_root/scripts/gradle-plugin-marker.sh"
+fi
 
 echo "==> staging $stage"
 rm -rf "$stage" "$bundle"

@@ -1,0 +1,36 @@
+product: jvm/lib
+
+# common.module-template.yaml is deliberately not applied: it registers the Kinetica compiler
+# plugin, and this module is build tooling, not a Kinetica UI module.
+apply:
+  - ../publish.module-template.yaml
+
+repositories:
+  - id: mavenLocal
+    url: mavenLocal
+    publish: true
+
+settings:
+  jvm:
+    # Gradle daemons run on JDK 17+; the toolchain default (21) would make the plugin unloadable
+    # for anyone whose daemon is on 17.
+    release: 17
+  kotlin:
+    version: 2.4.10
+    # Gradle 9.7 embeds Kotlin 2.4.0, so the plugin must not carry newer metadata than that.
+    languageVersion: 2.4
+    apiVersion: 2.4
+
+dependencies:
+  # Gradle publishes no API jar to Maven Central; dev.gradleplugins redistributes it. 8.11.1 is
+  # the newest redistribution and sets the supported floor: Gradle 8.11+, 9.x included.
+  - dev.gradleplugins:gradle-api:8.11.1: compile-only
+  - org.jetbrains.kotlin:kotlin-gradle-plugin-api:2.4.10: compile-only
+
+test-dependencies:
+  - dev.gradleplugins:gradle-api:8.11.1
+  - org.jetbrains.kotlin:kotlin-gradle-plugin-api:2.4.10
+  # Only for the contract test: the option names below must equal KineticaCompilerContract's.
+  - ../kinetica-compiler
+
+description: "Gradle plugin that wires the Kinetica K2 compiler plugin and runtime into Kotlin builds."
