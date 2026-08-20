@@ -25,7 +25,12 @@ const extraData = extraPath ? loadOptional(extraPath) : null;
 
 import { colorFor, frameworks } from "../frameworks.config.mjs";
 
-const ALL_FW_ORDER = frameworks.map((f) => f.name).filter((f) => f in data.results);
+const hasMainData = (name) =>
+  name in (data.results ?? {}) ||
+  data.startup?.[name] !== undefined ||
+  data.memory?.[name] !== undefined ||
+  data.animation?.[name] !== undefined;
+const ALL_FW_ORDER = frameworks.map((f) => f.name).filter(hasMainData);
 // Canvas renderers build no DOM, so they are not peers of the frameworks in the main table:
 // they are excluded from it, from the geometric mean, and — the one that would quietly corrupt
 // everything else — from `fastest(id)`, which is a Math.min over the order passed to
@@ -90,7 +95,9 @@ const fmt = (x, d = 1) => Number(x).toLocaleString("en-US", { minimumFractionDig
 
 function rampColor(factor, maxFactor) {
   // log scale: 1.0 -> lightest, maxFactor -> darkest
-  const t = Math.min(1, Math.log(factor) / Math.log(Math.max(maxFactor, 1.01)));
+  const normalizedFactor = Number.isFinite(factor) && factor > 0 ? Math.max(1, factor) : 1;
+  const normalizedMax = Number.isFinite(maxFactor) ? Math.max(maxFactor, 1.01) : 1.01;
+  const t = Math.max(0, Math.min(1, Math.log(normalizedFactor) / Math.log(normalizedMax)));
   return RAMP[Math.round(t * (RAMP.length - 1))];
 }
 
@@ -357,7 +364,12 @@ if (treeData?.tree) {
 // --- canvas renderers (deliberately outside the main ranking, see CANVAS_RENDERERS) ---
 
 let canvasSection = "";
-const canvasFws = CANVAS_FW_ORDER.filter((f) => (data.benchmarks ?? []).some((b) => data.results[f]?.[b.id]));
+const canvasFws = CANVAS_FW_ORDER.filter((f) =>
+  Object.values(data.results?.[f] ?? {}).some(Boolean) ||
+  data.startup?.[f] !== undefined ||
+  data.memory?.[f] !== undefined ||
+  data.animation?.[f] !== undefined,
+);
 const canvasBenches = (data.benchmarks ?? []).filter((b) => canvasFws.some((f) => data.results[f]?.[b.id]));
 // main.fastest() is Infinity for an operation no DOM framework measured (a canvas-only run),
 // in which case the section shows durations without a comparison column.
@@ -413,7 +425,7 @@ if (canvasFws.length > 0) {
         return `<td class="cell" title="${fmt(m.afterLoadMb)} MB right after load · ${fmt(m.after5xReplaceMb)} MB after 5× replace · ${fmt(m.afterCreateClear10Mb)} MB after 10× create/clear"><span class="ms">${fmt(m.after1kMb)} MB</span></td>`;
       })
     : "";
-  const animationRows = data.animation && canvasFws.some((f) => data.animation[f] && !data.animation[f].error)
+  const animationRows = data.animation && canvasFws.some((f) => data.animation[f])
     ? summaryRow("sustained updates", (f) => {
         const a = data.animation[f];
         if (!a || a.error) return `<td class="cell empty">—</td>`;
