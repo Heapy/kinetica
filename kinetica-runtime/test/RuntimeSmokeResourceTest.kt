@@ -16,13 +16,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
-/*
- * Frame-era port of the RuntimeSmokeTest resource & boundary sections: resources, actions,
- * loading/error boundaries, suspendSubtree, and effect-error routing. Explicit
- * `suspendSubtree(key = ...)` arguments were dropped: the compiler only frames the keyless
- * form (explicit keys were part of the deleted string-keyed model).
- */
-
 private data object SmokeTodosKey : ResourceKey
 
 private var smokeTodoLoads = 0
@@ -114,12 +107,9 @@ private fun ComponentScope.SmokeInFlightResources() {
     }
 }
 
-// The barebones Node runner does not await runTest promises, so async tests in one file
-// run interleaved. The two stale-load tests used to share gate/loads/current vars; those
-// collaborators now live in a per-test probe (with a per-test resource key) passed as a
-// component parameter.
 private data class SmokeStaleKey(val id: Int) : ResourceKey
 
+// Keep gates and resource keys per test: the JS runner may interleave tests in this file.
 private class StaleProbe(salt: Int) {
     val key = SmokeStaleKey(salt)
     var gate = CompletableDeferred<String>()
@@ -349,7 +339,7 @@ private fun ComponentScope.SmokePartialContentBoundary() {
     }
 }
 
-// Shared by the two suspendSubtree tests below that used to race on one release gate.
+// Keep the release gate per test: the JS runner may interleave tests in this file.
 private class SubtreeProbe {
     val release = CompletableDeferred<Unit>()
 }

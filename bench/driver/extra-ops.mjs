@@ -1,8 +1,3 @@
-// Extra large-table operations that are outside scaling.mjs's select/swap/update set.
-// Sets up an N-row table unmeasured, then measures one traced click for append/remove/clear.
-//
-//   node bench/driver/extra-ops.mjs --frameworks=kinetica,react,vanilla --size=100000 --samples=1
-
 import { mkdirSync, writeFileSync } from "node:fs";
 import { arch, cpus, platform, totalmem } from "node:os";
 import { dirname, join } from "node:path";

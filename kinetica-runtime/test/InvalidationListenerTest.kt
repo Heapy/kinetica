@@ -4,10 +4,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * KNT-0045: the invalidation-listener hook renderer schedulers build on (browser rAF loop
- * KNT-0040, AppKit main-thread marshal). The runtime only notifies — it never re-renders.
- */
 class InvalidationListenerTest {
     @Test
     fun listenerFiresOnManualInvalidateWithCause() {
@@ -30,7 +26,6 @@ class InvalidationListenerTest {
         runtime.onInvalidation { cause -> causes += cause }
 
         runtime.render {
-            // Read the cell inside the render pass so the runtime subscribes to it.
             cell.value
         }
         cell.value = 1
@@ -46,8 +41,6 @@ class InvalidationListenerTest {
         val causes = mutableListOf<String>()
         runtime.onInvalidation { cause ->
             causes += cause
-            // Re-entering the runtime from the listener must not deadlock: the notification
-            // happens outside the runtime lock by contract.
             assertTrue(runtime.hasPendingInvalidation)
             if (cause == "outer") {
                 runtime.invalidate("nested")

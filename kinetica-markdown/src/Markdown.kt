@@ -53,13 +53,13 @@ public fun parseMarkdown(source: String): List<MdBlock> {
                     code.append(lines[index]).append('\n')
                     index++
                 }
-                if (index < lines.size) index++ // consume closing fence
+                if (index < lines.size) index++
                 blocks += MdCodeBlock(language, code.toString().trimEnd('\n'))
             }
 
             trimmed.startsWith("<!--") -> {
                 while (index < lines.size && !lines[index].contains("-->")) index++
-                if (index < lines.size) index++ // consume the line closing the comment
+                if (index < lines.size) index++
             }
 
             trimmed.startsWith(":::") -> {
@@ -95,7 +95,7 @@ public fun parseMarkdown(source: String): List<MdBlock> {
 
             isTableStart(lines, index) -> {
                 val header = parseTableRow(lines[index])
-                index += 2 // header + separator
+                index += 2
                 val rows = mutableListOf<List<List<MdInline>>>()
                 while (index < lines.size && lines[index].trim().let { it.startsWith("|") || it.contains(" | ") }) {
                     rows += parseTableRow(lines[index])
@@ -196,8 +196,6 @@ private fun parseTableRow(line: String): List<List<MdInline>> =
     line.trim().removePrefix("|").removeSuffix("|")
         .split("|")
         .map { cell -> parseInlines(cell.trim()) }
-
-// --- inline parsing ---
 
 public fun parseInlines(source: String): List<MdInline> {
     val inlines = mutableListOf<MdInline>()

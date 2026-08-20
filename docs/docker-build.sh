@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# Builds the kinetica-docs Docker image: packages the site, bundles both client modules and
-# the benchmark demo pages/report, stages artifacts into a minimal build context, and runs
-# docker build. Requires `npm install` (or `npm ci`) in bench/ first.
-# Set STAGE_ONLY=1 to stop after preparing docs/.docker-stage for docker buildx.
+# Requires bench npm dependencies. STAGE_ONLY=1 prepares the buildx context without building.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,10 +12,8 @@ cd "$repo_root"
 ./kotlin package -m docs-site
 node scripts/bundle-docs.mjs
 
-# Behavior-identical Game of Life apps + committed trace report/results.
 node scripts/build-game-of-life.mjs
 
-# Benchmark demo pages + report, published alongside the docs site (see performance.md).
 node bench/build.mjs
 node bench/build-kinetica.mjs
 node bench/build-compose.mjs

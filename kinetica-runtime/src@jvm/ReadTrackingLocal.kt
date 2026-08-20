@@ -31,13 +31,6 @@ internal actual class ReadTrackingLocal actual constructor() {
         stack.addAll(frames)
     }
 
-    /**
-     * Carries the observer frame with the coroutine via a [ThreadContextElement]: whenever the
-     * coroutine resumes on a thread the element pushes the observer onto THAT thread's stack, and
-     * pops it when the coroutine suspends or completes. Because the element lives in the coroutine
-     * context it is inherited by nested [withContext] hops, so a cell read after a dispatcher hop
-     * still finds the observer on the resume thread, and the origin thread's stack is left clean.
-     */
     actual suspend fun <T> collectSuspend(
         observer: (Cell<*>) -> Unit,
         block: suspend () -> T,
@@ -47,11 +40,7 @@ internal actual class ReadTrackingLocal actual constructor() {
         }
 }
 
-/**
- * A [ThreadContextElement] whose thread-context "state" is the presence of [observer] on the
- * current thread's read-tracking stack. [updateThreadContext] runs on each resume (push),
- * [restoreThreadContext] on each suspend/complete (pop) — balanced across the coroutine's life.
- */
+/** Carries the observer across coroutine thread hops while keeping per-thread stacks balanced. */
 private class ReadTrackingContextElement(
     private val local: ReadTrackingLocal,
     private val observer: (Cell<*>) -> Unit,

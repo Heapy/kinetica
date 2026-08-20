@@ -19,9 +19,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertSame
 
 class BrowserChildShapeTest {
-    /**
-     * KSND-107 (sources: INF-034, RCT-015, VUE-113).
-     */
     @Test
     fun textUpdatesMutateSameTextNodeInPlace() {
         installTestDocument()
@@ -58,9 +55,6 @@ class BrowserChildShapeTest {
         }
     }
 
-    /**
-     * KSND-108 (sources: INF-034, INF-171, PRE-044, RCT-002, VUE-089).
-     */
     @Test
     fun textHostSwitchAtSamePositionLeavesSiblingsUntouched() {
         installTestDocument()
@@ -105,9 +99,6 @@ class BrowserChildShapeTest {
         }
     }
 
-    /**
-     * KSND-109 (sources: INF-172, RCT-016, PRE-127).
-     */
     @Test
     fun leadingAndTrailingTextTogglesLeaveHostIdentityAndNoOrphans() {
         installTestDocument()
@@ -155,9 +146,6 @@ class BrowserChildShapeTest {
         }
     }
 
-    /**
-     * KSND-110 (sources: INF-170, RCT-015).
-     */
     @Test
     fun adjacentTextChildrenRemainSeparateAndIndependentlyPatched() {
         installTestDocument()
@@ -200,9 +188,6 @@ class BrowserChildShapeTest {
         }
     }
 
-    /**
-     * KSND-111 (sources: INF-035, PRE-036, PRE-038, RCT-017).
-     */
     @Test
     fun emptyStringAndZeroTextKeepAStableTextNode() {
         installTestDocument()
@@ -241,9 +226,6 @@ class BrowserChildShapeTest {
         }
     }
 
-    /**
-     * KSND-112 (sources: RCT-002, PRE-037, VUE-109).
-     */
     @Test
     fun switchingHostTagsReplacesElementAndDoesNotLeakAttributesOrEvents() {
         installTestDocument()
@@ -286,9 +268,6 @@ class BrowserChildShapeTest {
         }
     }
 
-    /**
-     * KSND-113 (sources: INF-177, PRE-120, PRE-126).
-     */
     @Test
     fun siblingFragmentsGrowAtTheirOwnBoundary() {
         installTestDocument()
@@ -318,9 +297,6 @@ class BrowserChildShapeTest {
         }
     }
 
-    /**
-     * KSND-114 (sources: INF-029, RCT-013, PRE-055).
-     */
     @Test
     fun independentNullTogglesBetweenFixedSiblingsKeepFixedSiblingIdentity() {
         installTestDocument()

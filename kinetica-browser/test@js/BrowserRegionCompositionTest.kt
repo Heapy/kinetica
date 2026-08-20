@@ -47,11 +47,6 @@ private fun ComponentScope.BrowserRegionCompositionApp(probe: BrowserRegionCompo
 }
 
 class BrowserRegionCompositionTest {
-    /**
-     * C1: two composed non-skippable `each` regions both record ordinal 0; the unkeyed
-     * divider routes through `patchRegionedChildren`, which matches both new regions
-     * against the old B-row range and orphans the B DOM.
-     */
     @Test
     fun appendingFirstComposedRegionPreservesSecondRegionDom() {
         installTestDocument()

@@ -13,10 +13,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertSame
 
 class BrowserNonKeyedRegionTest {
-    /**
-     * C2: unchanged non-certified each rows should preserve DOM identity; this is red because
-     * non-keyed regions currently replace the whole range on every adjacent render.
-     */
     @Test
     fun unchangedNonKeyedEachRowsPreserveDomIdentity() {
         installTestDocument()

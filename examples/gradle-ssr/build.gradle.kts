@@ -3,10 +3,7 @@
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.kotlin.serialization)
-    // Everything Kinetica needs: the mandatory K2 compiler plugin on every compilation of every
-    // target, plus kinetica-runtime in commonMain and kinetica-browser in jsMain at the same
-    // version. Before 0.4.0 this file resolved the plugin jar itself and pushed -Xplugin into
-    // each KotlinCompilationTask by hand.
+    // Applies the compiler plugin to every target and adds matching runtime dependencies.
     alias(libs.plugins.kinetica)
 }
 

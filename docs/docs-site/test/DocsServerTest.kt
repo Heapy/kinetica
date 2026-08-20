@@ -161,7 +161,6 @@ class DocsServerTest {
         assertEquals(200, added.statusCode())
         assertEquals("""{"languages":["Kotlin","Rust"]}""", added.body())
 
-        // duplicates are ignored, case-insensitively
         val duplicate = postDemoStack(baseUrl, cookie, """{"language": "rust"}""")
         assertEquals(200, duplicate.statusCode())
         assertEquals("""{"languages":["Kotlin","Rust"]}""", duplicate.body())
@@ -174,7 +173,6 @@ class DocsServerTest {
         assertEquals(500, javascript.statusCode())
         assertTrue("undefined is not a function" in javascript.body())
 
-        // failed submissions never touch the stack
         val afterFailures = getDemoStack(baseUrl, cookie)
         assertEquals("""{"languages":["Kotlin","Rust"]}""", afterFailures.body())
 
@@ -185,11 +183,9 @@ class DocsServerTest {
         val oversized = postDemoStack(baseUrl, cookie, """{"language": "${"x".repeat(41)}"}""")
         assertEquals(400, oversized.statusCode())
 
-        // another visitor (no cookie) gets an isolated session
         val stranger = getResponse("$baseUrl/demo/api/stack")
         assertEquals("""{"languages":["Kotlin"]}""", stranger.body())
 
-        // an unknown cookie is replaced with a fresh session
         val expired = getDemoStack(baseUrl, "kinetica-demo-session=no-such-session")
         assertEquals(200, expired.statusCode())
         assertTrue(expired.headers().firstValue("Set-Cookie").isPresent)

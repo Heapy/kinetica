@@ -186,8 +186,6 @@ class DocsServer(
         exchange.respondText(contentType = "text/html", body = renderDocPage(page, source, assetUrls))
     }
 
-    // --- the server-components demo, hosted inside the docs site ---
-
     private fun ComponentScope.DemoPage() {
         host("main", props = mapOf("class" to "page-shell")) {
             host("header", props = mapOf("class" to "hero")) {
@@ -276,8 +274,6 @@ class DocsServer(
         val request = transport.decodeActionRequest(body)
         transport.encodeActionResponse(dispatcher.dispatch(request))
     }
-
-    // --- the data-fetching demo on /docs/resources: one language stack per visitor session ---
 
     private val demoSessions = object : LinkedHashMap<String, DemoStackSession>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, DemoStackSession>): Boolean =
@@ -373,8 +369,6 @@ class DocsServer(
         val snapshot = synchronized(demoSessions) { languages.toList() }
         return JsonObject(mapOf("languages" to JsonArray(snapshot.map(::JsonPrimitive)))).toString()
     }
-
-    // --- static assets ---
 
     private fun respondBundleAsset(
         exchange: HttpExchange,

@@ -263,8 +263,6 @@ if (scenarioPatterns.length > 0 && !runOps && !runStartup && !runMemory && !runA
   process.exit(1);
 }
 
-// --- main ---
-
 const server = await startServer(repoRoot, PORT);
 const browser = await launchChromium();
 console.log(`chromium ${browser.version()}, serving ${repoRoot} on :${PORT}`);
@@ -311,7 +309,7 @@ for (const fwName of selectedFrameworks) {
         if (parsed.error) {
           failures++;
           if (failures > 4) throw new Error(`${fwName}/${bench.id}: too many trace failures (${parsed.error})`);
-          i--; // retry this sample
+          i--;
           continue;
         }
         samples.push(parsed.durationMs);
@@ -338,8 +336,8 @@ for (const fwName of selectedFrameworks) {
     }
   }
 
-  // startup: 5 untraced cold loads for mount time + resource weight (comparable with
-  // historical parts), then 2 traced loads for script-evaluate time and TBT.
+  // Five untraced cold loads measure mount/resource weight; two traced loads measure evaluation
+  // and total blocking time.
   if (runStartup) {
     const mountTimes = [];
     let resources = [];
@@ -361,7 +359,7 @@ for (const fwName of selectedFrameworks) {
       try {
         gzipBytes += gzipSync(readFileSync(join(repoRoot, r.name.replace(/^\//, "")))).length;
       } catch {
-        gzipBytes += r.bytes; // fallback if the URL doesn't map to a file
+        gzipBytes += r.bytes;
       }
     }
 

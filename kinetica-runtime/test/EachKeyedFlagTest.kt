@@ -4,15 +4,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 
-/**
- * NodeFlags.CHILDREN_KEYED certification: `each` proves "every child is exactly one node
- * keyed by its unique row key" and `host` stamps the flag — renderers may then run keyed
- * reconciliation without re-scanning children. Anything the proof doesn't cover must stay
- * unflagged (a wrong flag would mis-reconcile), so the poisoning cases matter most.
- *
- * Frame-era port: `each` may only be called inside a `@UiComponent` function, so every
- * scenario lives in a private top-level component below.
- */
 private data class FlagItem(val id: Int, val label: String)
 
 private val flagItems = listOf(FlagItem(1, "one"), FlagItem(2, "two"), FlagItem(3, "three"))
@@ -124,7 +115,6 @@ private fun ComponentScope.KeyedRowsTwoNodesPerRow() {
 
 @UiComponent(skippable = false)
 private fun ComponentScope.KeyedRowsStaticHostKey() {
-    // host keys not derived from the row key could collide across rows — not certifiable
     host("tbody") {
         each(flagItems, key = { it.id }) { item ->
             host("tr", key = "static") { text(item.label, semantics = null) }
@@ -181,7 +171,6 @@ class EachKeyedFlagTest {
             KeyedRowsCertified()
         }.tree as HostNode
         render()
-        // second render reuses cached rows; certification must come from the row cache
         assertEquals(NodeFlags.CHILDREN_KEYED, render().flags)
     }
 
@@ -198,7 +187,6 @@ class EachKeyedFlagTest {
             KeyedTemplateRowsCertified()
         }.tree as HostNode
         render()
-        // second render reuses cached rows; certification must come from the row cache
         assertEquals(NodeFlags.CHILDREN_KEYED, render().flags)
     }
 
@@ -220,7 +208,6 @@ class EachKeyedFlagTest {
             SkeletonKeyTemplateRowsCertified()
         }.tree as HostNode
         render()
-        // second render reuses cached rows; certification must come from the row cache
         assertEquals(NodeFlags.CHILDREN_KEYED, render().flags)
     }
 

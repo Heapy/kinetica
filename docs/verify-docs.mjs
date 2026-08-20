@@ -1,5 +1,4 @@
-// End-to-end verification of the docs site: SSR pages, live examples, hydrated demo island.
-// Usage: DOCS_BASE_URL=http://127.0.0.1:8080 node docs/verify-docs.mjs
+// DOCS_BASE_URL=http://127.0.0.1:8080 node docs/verify-docs.mjs
 import { existsSync } from "node:fs";
 import http from "node:http";
 import https from "node:https";
@@ -71,7 +70,6 @@ page.on("pageerror", (e) => errors.push(e.message));
 page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
 
 try {
-  // health + all doc pages render server-side
   const health = await fetch(`${base}/healthz`);
   if (!health.ok) throw new Error("healthz failed");
   const home = await fetch(base).then((r) => r.text());
@@ -111,7 +109,6 @@ try {
   );
   console.log("OK   static assets are hashed, Brotli-compressed, and cacheable");
 
-  // live example: counter mounts and is interactive
   await page.goto(`${base}/docs/state`, { waitUntil: "networkidle" });
   await page.waitForSelector('[data-example="counter"] button', { timeout: 10_000 });
   await page.click('[data-example="counter"] [data-testid="ex-increment"]');
@@ -121,7 +118,6 @@ try {
   );
   console.log("OK   live counter example mounts and reacts");
 
-  // live example: keyed list reverse
   await page.goto(`${base}/docs/lists-and-keys`, { waitUntil: "networkidle" });
   await page.waitForSelector('[data-example="keyed-list"] li', { timeout: 10_000 });
   const before = await page.$$eval('[data-example="keyed-list"] li', (n) => n.map((x) => x.textContent));
@@ -132,7 +128,6 @@ try {
   );
   console.log("OK   keyed-list example reorders");
 
-  // live example: resource-fetch loads the per-session stack, fails on Java, recovers on retry
   const stack = '[data-example="resource-fetch"]';
   await page.goto(`${base}/docs/resources`, { waitUntil: "networkidle" });
   await page.waitForSelector(`${stack} li`, { timeout: 10_000 });
@@ -162,7 +157,6 @@ try {
   );
   console.log("OK   resource-fetch example loads per-session data, surfaces the backend NPE, retries clean");
 
-  // live example: effect-timer ticks while running and stops cleanly
   const timer = '[data-example="effect-timer"]';
   await page.goto(`${base}/docs/effects`, { waitUntil: "networkidle" });
   await page.waitForSelector(`${timer} [data-testid="timer-toggle"]`, { timeout: 10_000 });
@@ -181,7 +175,6 @@ try {
   if (stoppedAt !== stillAt) throw new Error(`timer kept ticking after stop: ${stoppedAt} -> ${stillAt}`);
   console.log("OK   effect-timer example ticks via watch and stops on cancel");
 
-  // live example: motion toggle plays a frame-driven hide animation and settles at the target
   const motion = '[data-example="motion-toggle"]';
   await page.goto(`${base}/docs/motion`, { waitUntil: "networkidle" });
   await page.waitForSelector(`${motion} [data-testid="motion-toggle-button"]`, { timeout: 10_000 });
@@ -203,7 +196,6 @@ try {
   );
   console.log("OK   motion example animates frame by frame and settles at the target");
 
-  // live example: form-signup validates then submits
   const form = '[data-example="form-signup"]';
   await page.goto(`${base}/docs/forms`, { waitUntil: "networkidle" });
   await page.waitForSelector(`${form} [data-testid="signup-submit"]`, { timeout: 10_000 });
@@ -221,7 +213,6 @@ try {
   );
   console.log("OK   form-signup example blocks invalid submits and accepts valid ones");
 
-  // server-components demo: hydration island + typed action + stream
   await page.goto(`${base}/examples/server-components`, { waitUntil: "networkidle" });
   await page.getByText("Hydration plan loaded: 1 client island").waitFor({ timeout: 10_000 });
   await page.waitForFunction(() =>

@@ -1,6 +1,5 @@
-// Browser benchmark for the four behavior-identical Game of Life implementations.
-// Operation duration follows the repository's main benchmark methodology: trusted click
-// EventDispatch start through the last Paint/Commit in a Chrome performance trace.
+// Duration follows the main benchmark contract: trusted-click EventDispatch through the final
+// Paint/Commit in the Chrome trace.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";

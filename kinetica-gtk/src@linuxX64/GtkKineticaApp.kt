@@ -48,14 +48,9 @@ import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.staticCFunction
 import kotlinx.cinterop.toKString
 
-/** The widget handle type the reconciler tracks: a plain GTK4 widget pointer. */
 public typealias GtkWidgetPtr = CPointer<GtkWidget>
 
-/**
- * Mount [content] into [container] (a `GtkBox` the window owns) and render once. Mirrors
- * `renderAppKitApp`/`mountKineticaApp`: a top-level function so the Kinetica compiler plugin
- * recognises the `@UiComponent`-typed [content] parameter from the consuming module.
- */
+/** The top-level wrapper lets the compiler number [content] into a region frame. */
 public fun renderGtkApp(
     container: GtkWidgetPtr,
     runtime: KineticaRuntime = KineticaRuntime(debug = true),
@@ -63,12 +58,8 @@ public fun renderGtkApp(
 ): GtkKineticaApp = GtkKineticaApp(container, runtime, content).also { it.renderUntilSettled() }
 
 /**
- * Retained-mode GTK4 renderer on the shared `kinetica-render-core` reconciler (KNT-0047): the
- * mirror of `AppKitKineticaApp`. Signals are wired per widget through [GtkEventDispatcher]
- * (`clicked`/`toggled`/`changed`/`activate` → `KineticaRuntime.dispatch`); programmatic state
- * pushes are guarded so controlled-state resyncs don't re-enter the dispatcher (GTK emits
- * `changed`/`toggled` for programmatic writes too, unlike AppKit). Off-main invalidations are
- * marshalled onto the GTK main loop via `g_idle_add`, coalesced to one hop.
+ * Retained GTK4 renderer. Programmatic controlled-state writes suppress GTK's emitted signals,
+ * and off-main invalidations coalesce into one main-loop hop.
  */
 public class GtkKineticaApp(
     private val container: GtkWidgetPtr,
@@ -93,7 +84,6 @@ public class GtkKineticaApp(
         }
     }
 
-    /** Drain pending invalidations; called from the dispatcher on the GTK main thread. */
     public fun renderUntilSettled() {
         render()
         while (runtime.hasPendingInvalidation) {
@@ -111,11 +101,7 @@ public class GtkKineticaApp(
         selfRef.dispose()
     }
 
-    /**
-     * Marshal an off-main invalidation onto the GTK main loop. `g_idle_add` callbacks run on the
-     * main context; returning 0 (`G_SOURCE_REMOVE`) makes the source one-shot. Coalesced by the
-     * same hop guard as the AppKit marshal.
-     */
+    /** Returning `G_SOURCE_REMOVE` makes the coalesced main-loop callback one-shot. */
     private fun scheduleMainThreadRender() {
         if (!mainHopScheduled.compareAndSet(expectedValue = false, newValue = true)) return
         g_idle_add(
@@ -132,11 +118,7 @@ public class GtkKineticaApp(
     }
 }
 
-/**
- * [HostAdapter] over GTK4. All containers are `GtkBox`es (column/row and the app root), so
- * child management uses the box API; GTK's anchor primitives are "after a sibling", so the
- * reconciler's before-anchors are translated via `gtk_widget_get_prev_sibling`.
- */
+/** Translates reconciler before-anchors to GTK's after-sibling box operations. */
 internal class GtkHostAdapter(
     private val dispatcher: GtkEventDispatcher,
 ) : HostAdapter<GtkWidgetPtr> {
@@ -148,7 +130,6 @@ internal class GtkHostAdapter(
             "button" -> makeButton(node)
             "checkbox" -> makeCheckbox(node)
             "textInput" -> makeEntry(node)
-            // Unknown tag: a neutral vertical box keeps the tree navigable.
             else -> gtk_box_new(GtkOrientation.GTK_ORIENTATION_VERTICAL, 0)!!
         }
         return widget
@@ -198,8 +179,7 @@ internal class GtkHostAdapter(
     }
 
     override fun applySemantics(view: GtkWidgetPtr, semantics: Semantics?, nativeTag: String) {
-        // POC scope: the testTag lands as the widget name (queryable via gtk inspector/AT-SPI
-        // path); role/label mapping to full AT-SPI properties is a follow-up.
+        // Widget names expose test tags; richer AT-SPI semantics are unsupported.
         gtk_widget_set_name(view, semantics?.testTag)
     }
 
@@ -221,8 +201,7 @@ internal class GtkHostAdapter(
         val box = container.reinterpret<GtkBox>()
         val sibling = if (before == null) null else gtk_widget_get_prev_sibling(before)
         if (before == null) {
-            // Move to the end: reorder after the current last child is awkward to compute; the
-            // remove+append pair is equivalent for a widget already owned by this box.
+            // GTK has no direct end anchor; remove+append preserves the existing widget.
             gtk_box_remove(box, child)
             gtk_box_append(box, child)
         } else {
@@ -263,8 +242,6 @@ internal class GtkHostAdapter(
         dispatcher.unregisterAll(view)
     }
 
-    // --- tag → widget factories --------------------------------------------------------------
-
     private fun makeButton(node: HostNode): GtkWidgetPtr {
         val button = gtk_button_new_with_label(foldedCaption(node))!!
         if (node.props["enabled"] == "false") gtk_widget_set_sensitive(button, 0)
@@ -302,11 +279,8 @@ internal class GtkHostAdapter(
 private val LEAF_WIDGET_TAGS: Set<String> = setOf("button", "checkbox", "textInput")
 
 /**
- * Signal hub: widget+signal → event id. One [StableRef]'d instance is the `user_data` of every
- * `g_signal_connect_data`; the per-signal static handlers (they cannot capture — see
- * [staticCFunction]) look the binding up and dispatch. [suppressed] guards programmatic
- * writes — GTK emits `changed`/`toggled` for those too, and echoing them into
- * [KineticaRuntime.dispatch] would loop the render.
+ * Signal hub stored as each callback's `user_data`. [suppressed] prevents programmatic GTK
+ * changes from echoing into [KineticaRuntime.dispatch].
  */
 internal class GtkEventDispatcher(
     private val runtime: KineticaRuntime,
@@ -370,10 +344,7 @@ internal class GtkEventDispatcher(
     }
 }
 
-// staticCFunction lambdas cannot capture, so each signal gets its own top-level handler that
-// knows the signal name as a literal; the dispatcher instance travels through user_data.
-// NOTE the if-style bodies: a trailing safe-call chain would type the lambda as `Unit?`,
-// which the staticCFunction lowering cannot map to a C return type (ICE in the K/N backend).
+// staticCFunction cannot capture; if-style bodies also avoid an unlowerable `Unit?` C return.
 
 private val ClickedHandler: GCallback = staticCFunction { widget: GtkWidgetPtr?, data: COpaquePointer? ->
     if (data != null) data.asStableRef<GtkEventDispatcher>().get().fire(widget, "clicked")

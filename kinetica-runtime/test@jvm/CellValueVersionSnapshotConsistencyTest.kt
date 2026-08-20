@@ -7,35 +7,14 @@ import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertNull
 
-/**
- * R09 — the version increment used to run in `notifyWrite`, OUTSIDE the lock
- * block that commits `current`. That means the new
- * value becomes visible before the version is bumped, so there is a window in
- * which a reader observes the new value paired with the OLD version.
- *
- * Desired/atomic behavior: for a monotonically-numbered stream of writes where the
- * k-th write sets value == k (and therefore commits version == k), any reader that
- * reads `value` and THEN reads `version` must never see `version < value`. Reading
- * value first and version second can only ever move forward in time, so a smaller
- * version than the value just read is proof that the (value, version) commit is not
- * atomic.
- *
- * This test FAILS on the current buggy code because the reader catches the
- * new-value-with-stale-version window.
- */
 class CellValueVersionSnapshotConsistencyTest {
     @Test
     fun readerNeverSeesNewValueWithStaleVersion() {
-        // Each distinct Int write advances the version by exactly one, so after the
-        // k-th write value == k and version == k. neverEqual guarantees every write
-        // is treated as a change.
         val cell = MutableCellImpl(0, EqualityPolicy.neverEqual<Int>())
         val observable: ObservableCell<Int> = cell
 
         val writes = 5_000_000
         val stop = AtomicBoolean(false)
-        // First violation observed: value read that is strictly greater than the
-        // version read immediately afterwards.
         val violation = AtomicReference<String?>(null)
         val started = CountDownLatch(2)
 

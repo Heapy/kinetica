@@ -1,6 +1,3 @@
-// Recomputes every committed benchmark summary and checks that the two published views
-// (HTML report and docs page) still agree with the raw sample JSON.
-
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";

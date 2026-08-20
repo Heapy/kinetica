@@ -43,8 +43,7 @@ public fun ComponentScope.host(
     key: Any? = null,
     content: ComponentScope.() -> Unit = {},
 ) {
-    // Without frame bindings the caller's map is emitted as-is: HostNode treats props as
-    // an immutable value, and copying every node's props dominated the create profile.
+    // Without frame bindings, preserve the caller's immutable map instead of copying every node.
     val mergedProps = if (frameProps.isEmpty()) {
         props
     } else {

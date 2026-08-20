@@ -12,37 +12,22 @@ import io.heapy.kinetica.materializeDeep
 import io.heapy.kinetica.reconcileKey
 
 /**
- * Backend-agnostic retained reconciler for native renderers (KNT-0046): diffs a fresh
- * [Node] tree against the [MountedNode] shadow tree and applies the minimal widget mutations
- * through a [HostAdapter]. Child reconciliation follows the browser renderer's strategy
- * (head/tail converge scan, keyed middle with LIS-stable moves, positional fallback) minus the
- * DOM-only idioms — no template cloning (input is [materializeDeep]-normalized), no event
- * delegation, no regioned pass (deferred to the KNT-0025 unified op-model).
- *
- * Perf posture: correctness-first, small-tree-honest — no scratch pooling, no identity
- * short-circuit (every subtree is visited, which also makes controlled-state resync trivial).
- * Revisit if native trees grow bench-relevant; the browser keeps its own tuned path by design.
+ * Backend-agnostic reconciler for materialized native widget trees. Keyed lists use LIS-stable
+ * moves; other lists patch positionally.
  */
 public class Reconciler<V : Any>(
     private val adapter: HostAdapter<V>,
 ) {
-    /** Mount [node] (normalized first) into [container], appending at the end. */
     public fun mount(node: Node, container: V): MountedNode<V> =
         mountChild(node.materializeDeep(), container, before = null)
 
-    /**
-     * Patch [previous] to render [next] (normalized first). Returns the mounted root — the same
-     * instance when the root kind matched, a fresh one when the root was replaced.
-     */
+    /** Returns [previous] when its root kind matches, otherwise the replacement root. */
     public fun patch(previous: MountedNode<V>, next: Node, container: V): MountedNode<V> =
         patchChild(previous, next.materializeDeep(), container, endAnchor = null)
 
-    /** Tear down the whole mounted subtree: adapter cleanup + physical removal. */
     public fun unmount(mounted: MountedNode<V>, container: V) {
         unmountChild(mounted, container, removePhysically = true)
     }
-
-    // --- mounting ----------------------------------------------------------------------------
 
     private fun mountChild(node: Node, container: V, before: V?): MountedNode<V> = when (node) {
         is HostNode -> {
@@ -74,8 +59,6 @@ public class Reconciler<V : Any>(
         // Unreachable after materializeDeep; kept defensive rather than throwing mid-render.
         is TemplateNode -> mountChild(node.materialize().materializeDeep(), container, before)
     }
-
-    // --- patching ----------------------------------------------------------------------------
 
     private fun patchChild(
         previous: MountedNode<V>,
@@ -127,8 +110,7 @@ public class Reconciler<V : Any>(
             )
         }
         if (adapter.isControlledTag(next.tag)) {
-            // Always resync — the widget may have drifted even when props compare equal
-            // (mirrors the browser's controlled-input resync, KNT-0034).
+            // Widget state may drift even when the rendered props compare equal.
             adapter.syncControlledState(view, next)
         }
         previous.node = next
@@ -176,8 +158,6 @@ public class Reconciler<V : Any>(
         return mounted
     }
 
-    // --- child lists -------------------------------------------------------------------------
-
     /**
      * Reconcile [mounted] (mutated in place) against [nextNodes] inside [container].
      * [endAnchor] is the widget that follows this child block in the container — non-null only
@@ -194,13 +174,11 @@ public class Reconciler<V : Any>(
         val newSize = nextNodes.size
         if (oldSize == 0 && newSize == 0) return
 
-        // Head converge scan.
         var head = 0
         val maxScan = minOf(oldSize, newSize)
         while (head < maxScan && hasSamePatchTarget(mounted[head], nextNodes[head])) {
             head++
         }
-        // Tail converge scan (never overlapping the head region).
         var tail = 0
         while (
             tail < maxScan - head &&
@@ -287,11 +265,7 @@ public class Reconciler<V : Any>(
         }
     }
 
-    /**
-     * Keyed reconciliation is safe when every new middle child carries a unique key and every
-     * old middle child is a keyed host. Mirrors the browser's `shouldReconcileKeyed`; the
-     * [NodeFlags.CHILDREN_KEYED] certification (checked by the caller) skips these scans.
-     */
+    /** Keyed reconciliation requires unique new keys and keyed old hosts. */
     private fun shouldReconcileKeyed(
         mounted: List<MountedNode<V>>,
         nextNodes: List<Node>,
@@ -318,8 +292,6 @@ public class Reconciler<V : Any>(
         is MountedNode.Fragment<V> -> next is FragmentNode
         is MountedNode.Empty<V> -> next is ClientRef
     }
-
-    // --- unmount / move ----------------------------------------------------------------------
 
     private fun unmountChild(mounted: MountedNode<V>, container: V, removePhysically: Boolean) {
         when (mounted) {

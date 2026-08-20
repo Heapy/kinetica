@@ -1,6 +1,3 @@
-// Aggregates self-time (hitCount) per function across all samples of one framework/op,
-// grouped by "shortUrl:functionName" so repeated call sites collapse into one row.
-// Reads <run>/profiles/<fw>-<op>-<i>.cpuprofile written by run.mjs --profile.
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { repoRoot, parseArgs } from "./driver/common.mjs";
@@ -16,7 +13,7 @@ function shortUrl(url) {
 }
 
 function analyze(files) {
-  const self = new Map(); // key -> hits
+  const self = new Map();
   const totalByFile = new Map();
   let totalHits = 0;
   let totalSamples = 0;

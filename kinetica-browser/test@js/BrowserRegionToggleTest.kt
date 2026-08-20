@@ -13,10 +13,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertSame
 
 class BrowserRegionToggleTest {
-    /**
-     * C3: a persistent static sibling should survive adjacent each presence toggles; this is
-     * red because omitting the each changes the static-gap key and remounts the header.
-     */
     @Test
     fun staticSiblingSurvivesAdjacentEachPresenceToggle() {
         installTestDocument()

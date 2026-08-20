@@ -33,9 +33,6 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class EffectCleanupOrderingTest {
-    /**
-     * KSND-090 (sources: SVL-110, PRE-108, PRE-109, SOL-012, VUE-068).
-     */
     @Test
     fun launchEffectPairsInitAndCancelAcrossBranchToggles() = runTest {
         val probe = EffectLogProbe()
@@ -59,9 +56,6 @@ class EffectCleanupOrderingTest {
         }
     }
 
-    /**
-     * KSND-091 (sources: VUE-067, VUE-072, SVL-087, SOL-004).
-     */
     @Test
     fun watchStopsAfterOwningBranchIsDisposedAndRearmsOnReturn() = runTest {
         val probe = WatchBranchProbe()
@@ -93,9 +87,6 @@ class EffectCleanupOrderingTest {
         }
     }
 
-    /**
-     * KSND-092 (sources: RCT-414, VUE-131).
-     */
     @Test
     fun removingOneKeyedRowCancelsOnlyThatRowsEffect() = runTest {
         val probe = KeyedRowsProbe(rows = listOf("A", "B"))
@@ -125,9 +116,6 @@ class EffectCleanupOrderingTest {
         }
     }
 
-    /**
-     * KSND-093 (sources: RCT-415).
-     */
     @Test
     fun reorderedRowsDoNotChurnEffectsAndAllCleanUpOnDispose() = runTest {
         val probe = KeyedRowsProbe(rows = listOf("A", "B"))
@@ -160,10 +148,6 @@ class EffectCleanupOrderingTest {
         }
     }
 
-    /**
-     * KSND-094 (sources: RCT-401, RCT-407, RCT-408, SVL-086, PRE-101, INF-102, VUE-186).
-     * Kinetica certifies every nested cleanup completes exactly once.
-     */
     @Test
     fun nestedDisposalCompletesEveryCleanupExactlyOnce() = runTest {
         val probe = EffectLogProbe()
@@ -182,7 +166,7 @@ class EffectCleanupOrderingTest {
             root.dispose()
             waitUntil { probe.log.count { it.startsWith("cancel ") } == 3 }
             val completed = probe.log.toList()
-            // completion order is unspecified by design; certifying an order would require synchronous/joined cleanup (feature).
+            // Cleanup completion order is deliberately unspecified.
             assertEquals(setOf("cancel G", "cancel C", "cancel P"), completed.toSet())
             assertEquals(3, completed.size)
             assertEquals(1, completed.count { it == "cancel G" })
@@ -193,9 +177,6 @@ class EffectCleanupOrderingTest {
         }
     }
 
-    /**
-     * KSND-095 (sources: infra gap (exitGroup abandonment), RuntimeSmokeSlots).
-     */
     @Test
     fun exitGroupAbandonmentCleansRetainedEffectExactlyOnce() = runTest {
         val probe = ExitAbandonmentProbe()
@@ -226,9 +207,6 @@ class EffectCleanupOrderingTest {
         }
     }
 
-    /**
-     * KSND-096 (sources: RCT-411, RCT-412, PRE-116, SVL-081).
-     */
     @Test
     fun layoutEffectRunsBeforePostCommitWatchOnInitialAndUpdateCommit() = runTest {
         val probe = EffectLogProbe()
@@ -246,9 +224,6 @@ class EffectCleanupOrderingTest {
         }
     }
 
-    /**
-     * KSND-097 (sources: PRE-106, VUE-206, SVL-011).
-     */
     @Test
     fun effectWritingCellSettlesWithOneExtraCommittedRender() = runTest {
         val root = KineticaTest.render {
@@ -276,9 +251,6 @@ class EffectCleanupOrderingTest {
         }
     }
 
-    /**
-     * KSND-098 (sources: PRE-107, INF-123, RCT-519, VUE-072).
-     */
     @Test
     fun pendingEffectOfRemovedComponentDoesNotLeaveOrphanedInit() = runTest {
         val probe = EffectLogProbe()
@@ -303,9 +275,6 @@ class EffectCleanupOrderingTest {
         }
     }
 
-    /**
-     * KSND-099 (sources: VUE-066, VUE-069, VUE-061, SVL-019d, SVL-083).
-     */
     @Test
     fun watchBatchingUsesFinalValueAndDeclarationOrder() = runTest {
         val probe = EffectLogProbe()

@@ -23,9 +23,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertSame
 
 class BrowserHostPropPatchTest {
-    /**
-     * KSND-129 (sources: RCT-307, RCT-314, INF-140, PRE-074, VUE-148).
-     */
     @Test
     fun arbitraryHostPropAddUpdateRemoveRoundTripsInPlace() {
         installTestDocument()
@@ -58,9 +55,6 @@ class BrowserHostPropPatchTest {
         }
     }
 
-    /**
-     * KSND-130 (sources: RCT-314, PRE-096).
-     */
     @Test
     fun dataAndAriaPropsPatchVerbatimAndDropRemovedAttributes() {
         installTestDocument()
@@ -97,9 +91,6 @@ class BrowserHostPropPatchTest {
         }
     }
 
-    /**
-     * KSND-131 (sources: RCT-309, PRE-077, INF-143).
-     */
     @Test
     fun buttonEnabledTogglingSetsDisabledForDslAndRawHostNodes() {
         installTestDocument()
@@ -162,9 +153,6 @@ class BrowserHostPropPatchTest {
         }
     }
 
-    /**
-     * KSND-132 (sources: BrowserMappingTest).
-     */
     @Test
     fun semanticsTestTagRoleAndLabelPatchAcrossRenders() {
         installTestDocument()
@@ -205,9 +193,6 @@ class BrowserHostPropPatchTest {
         }
     }
 
-    /**
-     * KSND-133 (sources: VUE-135, SVL-048, SVL-049, PRE-081).
-     */
     @Test
     fun unchangedPropsCauseZeroConnectedAttributeWrites() {
         installTestDocument()
@@ -241,9 +226,6 @@ class BrowserHostPropPatchTest {
         }
     }
 
-    /**
-     * KSND-134 (sources: BrowserMappingTest, RCT-322).
-     */
     @Test
     fun unsafePropsStayFilteredWhenIntroducedByPatch() {
         installTestDocument()
@@ -280,10 +262,6 @@ class BrowserHostPropPatchTest {
         }
     }
 
-    /**
-     * KSND-135 (sources: SVL-049).
-     */
-    // KSND-135: Prop-hole null removal is pinned to patchTemplateValues nextValue == null removeAttribute (BrowserKineticaApp.kt:613-616); key holes patch the effective template reconcile key in patchTemplate (BrowserKineticaApp.kt:550-562), so prop/key null fallback behavior intentionally differs.
     @Test
     fun templatePropHoleRemovalClearsAttributeInsteadOfRestoringSkeletonDefault() {
         installTestDocument()

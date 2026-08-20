@@ -8,21 +8,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
-/**
- * R06 — BackStack does a non-atomic read-modify-write.
- *
- * `BackStack.push` / `pop` / `replaceAll` do `value = value + x`, i.e. they READ the
- * current list, compute a new one, then WRITE it back. `MutableCellImpl` only holds
- * its write lock around the assignment, not around the read — and `BackStack` does not
- * use the atomic `MutableCell.update`. So two threads that push concurrently can both
- * read the same list snapshot, each append their own route, and the second write clobbers
- * the first: one push is silently lost.
- *
- * The desired behavior is that N concurrent successful pushes each land: the final stack
- * size equals the initial size plus the number of successful pushes, and every pushed
- * route is present. This test asserts that correct behavior and therefore FAILS on the
- * current buggy code (lost updates make the final size smaller than expected).
- */
 class BackStackConcurrentMutationIsAtomicTest {
     private data class TestRoute(val id: Int) : Route
 
@@ -42,8 +27,6 @@ class BackStackConcurrentMutationIsAtomicTest {
         val workers = (0 until threadCount).map { t ->
             thread(name = "push-$t") {
                 ready.countDown()
-                // Release all threads simultaneously to maximize contention on the
-                // read-modify-write window.
                 start.await()
                 for (i in 0 until pushesPerThread) {
                     stack.push(TestRoute(t * pushesPerThread + i))
@@ -66,7 +49,6 @@ class BackStackConcurrentMutationIsAtomicTest {
         val finalStack = stack.value
         val expectedSize = 1 + expectedPushes
 
-        // Every unique route that was pushed must survive (no lost updates).
         val distinctPushed = finalStack.filter { it != initial }.toSet().size
         assertEquals(
             expectedPushes,
@@ -81,7 +63,6 @@ class BackStackConcurrentMutationIsAtomicTest {
                 "$expectedSize (initial + $expectedPushes pushes) but got ${finalStack.size}.",
         )
 
-        // Sanity: no push should have thrown; if any did, surface it.
         if (workers.any { it.isAlive }) {
             fail("Some worker threads are still alive after join timeout")
         }

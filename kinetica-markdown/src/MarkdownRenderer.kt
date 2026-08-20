@@ -16,7 +16,6 @@ public data class MarkdownOptions(
     val codeHighlighter: CodeHighlighter = MarkdownCodeHighlighter,
 )
 
-/** Parses [source] and emits it as Kinetica host nodes. */
 public fun ComponentScope.markdown(
     source: String,
     options: MarkdownOptions = MarkdownOptions(),

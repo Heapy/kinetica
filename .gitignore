@@ -1,15 +1,12 @@
-# Reference checkouts (separate .git, huge — not part of this project)
+# Large external reference checkouts.
 /projects/
 
-# Build outputs and toolchain caches
 build/
 **/build/
 .kotlin/
 
-# Project Worktrees
 .worktrees/
 
-# Local tooling (vendored per machine, provisioned in CI)
 .tools/
 .playwright-browsers/
 .npm-cache/
@@ -18,15 +15,12 @@ build/
 # scripts/release.sh. Never commit it.
 /publish.sh
 
-# IDE / OS
 .idea/
 .DS_Store
 
-# JS
 **/node_modules/
 *.log
 
-# Generated / staging
 /kinetica-gtk/cinterop/gtk4.def
 /bench/dist/
 /bench/results/dom-count-*.json

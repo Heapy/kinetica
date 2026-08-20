@@ -1,8 +1,3 @@
-# Kinetica documentation site — self-contained image.
-# Build via docs/docker-build.sh (it stages the jar + bundled JS first), or manually:
-#   ./kotlin package -m docs-site
-#   node scripts/bundle-docs.mjs
-#   docs/docker-build.sh
 FROM eclipse-temurin:21-jre
 
 WORKDIR /app

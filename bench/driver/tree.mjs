@@ -1,12 +1,5 @@
-// Deep-tree benchmark driver (UIBench-style). Runs against each framework's tree app
-// (config `treeUrl`; contract: depth 4 / fanout 6 keyed tree = 1555 nodes, 1296 leaves;
-// buttons run/update/reverse/noop + a status counter). Measures where the flat keyed
-// table can't: deep keyed subtree moves, propagation through nesting, and pure
-// re-render overhead when data hasn't changed (noop).
-//
-//   node driver/tree.mjs --frameworks=kinetica --samples=3
-//
-// Results: results/tree/part-<framework>.json, merged by run-all into results/tree.json.
+// UIBench-style depth-4/fanout-6 keyed trees expose nested moves, propagation, and unchanged-data
+// render overhead that the flat table cannot measure.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";

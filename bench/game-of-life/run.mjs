@@ -1,6 +1,3 @@
-// One-command Game of Life benchmark lifecycle:
-// dependencies -> model tests -> production builds -> measurements -> docs sync -> validation -> comparison.
-
 import { execFileSync, spawnSync } from "node:child_process";
 import { constants, accessSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
@@ -160,7 +157,6 @@ function findChromiumExecutable(root) {
           accessSync(path, constants.X_OK);
           return path;
         } catch {
-          // Keep looking for an executable browser binary.
         }
       }
     }

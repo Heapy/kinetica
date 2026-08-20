@@ -1,5 +1,4 @@
-// referenceClass/referenceFunctions are deprecated in favor of the finder API;
-// migrating the symbol resolvers is tracked separately.
+// Deprecated symbol lookup remains until the separately tracked finder-API migration.
 @file:Suppress("DEPRECATION")
 
 package io.heapy.kinetica.compiler
@@ -74,13 +73,9 @@ internal class KineticaHoistSymbols private constructor(
             val emptyList = pluginContext
                 .referenceFunctions(CallableId(FqName("kotlin.collections"), Name.identifier("emptyList")))
                 .firstOrNull() ?: return null
-            // The hoister only populates these core parameters; every other HostNode parameter
-            // (flags, regions, and any future additive field) MUST have a default and is left to
-            // it in buildHostNode. Match by CONTAINMENT, not exact-set equality, so adding a
-            // defaulted HostNode field never again silently disables hoisting — the `regions`
-            // field (KNT-0033) did exactly that under the previous `==` match, and because
-            // hoisting-off is a perf regression rather than a compile error, only the compiler's
-            // own KineticaIrHoistCompileTest caught it.
+            // Match by containment: additive HostNode fields must stay defaulted. Exact matching
+            // silently disabled hoisting when `regions` was added (KNT-0033), causing a performance
+            // regression with no compile error; KineticaIrHoistCompileTest is the backstop.
             val requiredHostNodeParameters = setOf("tag", "props", "children", "key", "semantics")
             val constructor = hostNode.constructors.firstOrNull { symbol ->
                 val parameterNames = symbol.owner.parameters

@@ -35,7 +35,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ErrorBoundarySoundnessTest {
-    /** KSND-068 (sources: SVL-100, SOL-103, PRE-147, RCT-420). */
     @Test
     fun initialRenderThrowShowsFallbackAndKeepsOutsideSiblings() {
         val probe = BoundaryProbe()
@@ -52,7 +51,6 @@ class ErrorBoundarySoundnessTest {
         }
     }
 
-    /** KSND-069 (sources: SVL-101, INF-129, RCT-418). */
     @Test
     fun updateThrowReplacesContentWithFallbackAndCommits() {
         val probe = BoundaryProbe()
@@ -77,7 +75,6 @@ class ErrorBoundarySoundnessTest {
         }
     }
 
-    /** KSND-070 (sources: SOL-104, SVL-102, PRE-155). */
     @Test
     fun retryAfterConditionIsFixedRestoresContent() {
         val probe = BoundaryProbe()
@@ -101,7 +98,6 @@ class ErrorBoundarySoundnessTest {
         }
     }
 
-    /** KSND-071 (sources: SVL-107). */
     @Test
     fun retryWhileStillFailingReturnsToSingleStableFallback() {
         val probe = BoundaryProbe()
@@ -129,7 +125,6 @@ class ErrorBoundarySoundnessTest {
         }
     }
 
-    /** KSND-072 (sources: SVL-102, SOL-101, RCT-423). */
     @Test
     fun nestedBoundaryInnerCatchesAndOuterContentStaysMounted() {
         val probe = BoundaryProbe()
@@ -150,7 +145,6 @@ class ErrorBoundarySoundnessTest {
         }
     }
 
-    /** KSND-073 (sources: SOL-105, SVL-106, PRE-150). */
     @Test
     fun throwingFallbackEscalatesToOuterBoundary() {
         val probe = BoundaryProbe()
@@ -170,7 +164,6 @@ class ErrorBoundarySoundnessTest {
         }
     }
 
-    /** KSND-074 (sources: RCT-418, memory:boundary-slot-collision). */
     @Test
     fun fallbackAndContentSlotsRemainIsolatedAcrossErrorRetryCycles() {
         val probe = BoundaryProbe()
@@ -193,8 +186,7 @@ class ErrorBoundarySoundnessTest {
             root.click(hasTestTag("fix"))
             root.click(hasTestTag("retry"))
             val recovered = root.htmlSnapshot()
-            // Boundary branch frames deactivate like other retained frame families (KSND-043):
-            // transient slots/events are disposed, but ordinary branch state survives mode switches.
+            // Branch deactivation disposes transient slots and events but retains ordinary state.
             assertTrue("content:2" in recovered)
             assertFalse("fallback:" in recovered)
             root.input(hasTestTag("content-input"), "gamma")
@@ -211,7 +203,6 @@ class ErrorBoundarySoundnessTest {
         }
     }
 
-    /** KSND-075 (sources: PRE-157, INF-129, SVL-105). */
     @Test
     fun perRowBoundariesKeepSiblingStateAndFailureFollowsKey() {
         val probe = RowBoundaryProbe()
@@ -240,7 +231,6 @@ class ErrorBoundarySoundnessTest {
         }
     }
 
-    /** KSND-076 (sources: RCT-421, SOL-009, INF-128). */
     @Test
     fun eventHandlerThrowSurfacesButRuntimeRemainsUsable() {
         val root = KineticaTest.render {
@@ -266,7 +256,6 @@ class ErrorBoundarySoundnessTest {
         }
     }
 
-    /** KSND-077 (sources: SVL-103, RCT-422, PRE-113). */
     @Test
     fun launchEffectThrowUnderBoundaryDoesNotCorruptLaterUpdates() = runTest {
         val probe = EffectBoundaryProbe()
@@ -291,7 +280,6 @@ class ErrorBoundarySoundnessTest {
         }
     }
 
-    /** KSND-078 (sources: SVL-109, SOL-100, INF-130). */
     @Test
     fun unhandledRenderErrorThrowsToCallerAndFreshRenderWorks() {
         val failing = BoundaryProbe()
@@ -316,7 +304,6 @@ class ErrorBoundarySoundnessTest {
         }
     }
 
-    /** KSND-079 (sources: SOL-106, SOL-112, extends BoundaryRetryEventTest). */
     @Test
     fun errorBoundaryAndLoadingBoundaryRecoverFailingResourceOnRetry() = runTest {
         val probe = ResourceBoundaryProbe("errorBoundaryAndLoadingBoundaryRecoverFailingResourceOnRetry")

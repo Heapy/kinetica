@@ -15,10 +15,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertSame
 
 class BrowserNestedControlledInputTest {
-    /**
-     * C5: a controlled input nested under a memoized surviving wrapper should resync; this is
-     * red because the wrapper identity short-circuit skips the nested checkbox patch.
-     */
     @Test
     fun shrinkingWrappedControlledCheckboxListResyncsSurvivor() {
         installTestDocument()

@@ -29,19 +29,6 @@ import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.readText
 import kotlin.math.sqrt
 
-/**
- * JVM microbenchmark suite for the parts of Kinetica the browser suite can't isolate:
- * reactive propagation (cells, derived chains, diamonds), render-pipeline Node
- * construction, and markdown SSR throughput. Hand-rolled harness (warmup + timed
- * invocations, medians, a volatile blackhole) — coarser than JMH but plugin-free and
- * fast enough for per-PR regression tracking. Results are only comparable on one
- * machine/JVM, like the browser suite.
- *
- *   ./kotlin run -m bench-jvm                          # all benchmarks
- *   ./kotlin run -m bench-jvm -- --filter=render       # substring filter
- *   ./kotlin run -m bench-jvm -- --warmup=10 --samples=30 --out=custom.json
- */
-
 object Blackhole {
     @Volatile
     var sink: Any? = null
@@ -50,7 +37,6 @@ object Blackhole {
 class Benchmark(
     val id: String,
     val label: String,
-    /** ops per timed invocation; per-op time = invocation time / batch */
     val batch: Int = 1,
     val setup: () -> Unit = {},
     val op: () -> Any?,
@@ -73,15 +59,13 @@ fun stats(samples: List<Double>): Stats {
     return Stats(median, mean, stddev, sorted.first(), sorted.last())
 }
 
-// --- shared fixtures ---
-
 data class Row(val id: Int, val label: String)
 
 private fun buildRows(count: Int, from: Int = 1): List<Row> =
     List(count) { Row(id = from + it, label = "row label ${from + it}") }
 
-// The browser-bench table structure, minus DOM: measures host-DSL walking, Node
-// allocation and event registration — the create-op cost that P3 targets.
+// Mirrors the browser-bench table without DOM, measuring host-DSL traversal, node allocation,
+// and event registration.
 // @UiComponent enables the IR hoisting/interning transforms (rows: List is unstable, so no
 // skippable wrap — which also keeps each-row memoization intact).
 @UiComponent
@@ -135,8 +119,6 @@ fun main(args: Array<String>) {
     val repoRoot = findRepoRoot()
     val outPath = options["out"]?.let(Path::of)
         ?: repoRoot.resolve("bench/results/jvm/results.json")
-
-    // --- fixtures shared between setup and op closures ---
 
     lateinit var fanoutSource: MutableCell<Int>
     lateinit var fanoutJoin: Cell<Int>
@@ -195,8 +177,6 @@ fun main(args: Array<String>) {
             label = "cached read of a join over 10,000 unchanged dependencies",
             batch = 100,
             setup = {
-                // reuses the graph built by derived_fanout_10k's setup ordering: rebuilt
-                // here so the benchmark stands alone under --filter
                 fanoutSource = store(0)
                 val mids = List(10_000) { index ->
                     derive { fanoutSource.value + index }
@@ -233,9 +213,7 @@ fun main(args: Array<String>) {
                 chainTail.value
             },
         ),
-        // NOTE: the lazy heal is recursive (settle -> dep.version -> settle...), so chains
-        // beyond ~1.5-2k levels overflow the JVM stack — pre-existing, found by this probe;
-        // an iterative settle is the eventual fix if deep graphs ever matter.
+        // Recursive lazy healing can overflow the JVM stack at substantially greater depths.
         Benchmark(
             id = "derived_chain_lazy_500",
             label = "write + lazy read through 500-deep derived chain (complexity probe: 1k should cost ~2x this = linear)",

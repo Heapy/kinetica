@@ -1,29 +1,12 @@
-// Harness for frameworks that paint into a <canvas> instead of building a DOM (Compose
-// Multiplatform on skiko). It serves the same contract as makeHarness in common.mjs, so the
-// benchmark definitions in bench.mjs are unchanged — only the way state is observed differs.
-//
-// Two deliberate deviations from the DOM path, both documented in bench/README.md:
-//
-//   * Assertions read `window.__bench.frame`, a snapshot the app publishes from its draw phase.
-//     It therefore describes a frame that was actually painted, which is the property the DOM
-//     assertions get for free by querying the DOM after a render.
-//   * Clicks are coordinate clicks (page.mouse.click) on rectangles the app publishes. These
-//     are trusted input events exactly like Playwright's element clicks, so the trace anchor
-//     (`EventDispatch` of type click) is identical; only the targeting differs, because there
-//     is no element to target.
-//
-// Row-level clicks are derived arithmetically from one published origin (`rowGeometry`) rather
-// than from per-row rectangles: publishing 10,000 row positions would be measured work that no
-// other framework in the suite performs. Rows are fixed-height, so row N's centre is exact.
+// Assertions use a draw-phase snapshot, while trusted coordinate clicks preserve the DOM
+// harness's EventDispatch trace anchor. Row coordinates derive from one fixed-height origin so
+// the canvas app does not publish 10,000 positions as extra measured work.
 
-// Matches openPage's default-timeout rationale: an automation guard, not part of any measured
-// duration (those come from trace timestamps). The Column variant's remove-10k already runs for
-// ~37s on a fast machine, which leaves no margin at 60s on a slower CI runner.
+// This automation guard is outside trace-derived durations and matches openPage.
 const TIMEOUT = 180_000;
 const POLLING = 100;
 
-// The suite only ever reads the ids at these positions (replace/remove/swap assertions), and
-// the app publishes exactly those — asking for another position is a bug, not a missing feature.
+// Publishing only asserted positions avoids adding per-row bridge work to canvas measurements.
 const PUBLISHED_ID_POSITIONS = [1, 2, 5, 999];
 
 export function makeCanvasHarness(page) {

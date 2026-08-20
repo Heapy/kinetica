@@ -17,16 +17,6 @@ import kotlin.test.assertIs
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-/*
- * Frame-era port of the RuntimeSmokeTest core: state/derived/cells, events, effects,
- * watch, context, and duplicate-key handling. Every slot-consuming body lives in a private
- * top-level @UiComponent component, parameterized through top-level vars and scope-free
- * store() cells; tests drive them with `runtime.render(scope) { App() }` and dispatch
- * event ids read from node props.
- */
-
-// --- stateDerivedAndEventsProduceSerializableNodeValues ---
-
 @UiComponent(skippable = false)
 private fun ComponentScope.SmokeCounterApp() {
     var count by state { 0 }
@@ -39,8 +29,6 @@ private fun ComponentScope.SmokeCounterApp() {
         }
     }
 }
-
-// --- derivedStoreFragmentInvalidatesRuntimeUntilNoLongerObserved ---
 
 private data class SmokeProfile(val name: String, val age: Int)
 
@@ -57,8 +45,6 @@ private fun ComponentScope.SmokeProfileName() {
     }
 }
 
-// --- runtimeDefaultOverloadsAndManualInvalidationAreExplicit ---
-
 private var smokePayload: Any? = null
 
 @UiComponent(skippable = false)
@@ -68,8 +54,6 @@ private fun ComponentScope.SmokePayloadButton() {
     }
 }
 
-// --- equalityPoliciesAndDerivedCellsCoverReferentialAndEqualValueEdges ---
-
 private val smokePositiveCount = store(1)
 
 @UiComponent(skippable = false)
@@ -77,8 +61,6 @@ private fun ComponentScope.SmokePositiveProbe() {
     val positive by derived { smokePositiveCount.value > 0 }
     text("Positive: $positive")
 }
-
-// --- componentScopeDefaultHelpersCoverFragmentSkipsSlotsAndEmptyExitGroups ---
 
 @UiComponent
 private suspend fun ComponentScope.SmokeSuspendKeyedProbe() {
@@ -95,8 +77,6 @@ private fun ComponentScope.SmokeFragmentAndEmptyExit() {
     exitGroup(key = "empty", visible = true) {
     }
 }
-
-// --- inputAndCheckboxDslCoverNullPayloadAndPassiveEdges ---
 
 private var smokeDraft = "initial"
 
@@ -125,8 +105,6 @@ private fun ComponentScope.SmokeDirectionProbe() {
     host("empty")
 }
 
-// --- runtimeRenderSuspendCommitsSuspendComponentNodes ---
-
 @UiComponent
 private suspend fun ComponentScope.SmokeSuspendCounter() {
     delay(10)
@@ -135,8 +113,6 @@ private suspend fun ComponentScope.SmokeSuspendCounter() {
         text("Count: $count")
     }
 }
-
-// --- eventsKeepStableHostIdsAndReadLatestCommittedState ---
 
 @UiComponent(skippable = false)
 private fun ComponentScope.SmokeStableEventCounter() {
@@ -150,8 +126,6 @@ private fun ComponentScope.SmokeStableEventCounter() {
     }
 }
 
-// --- directHostEventCallbacksKeepStableIdsAcrossRenders ---
-
 @UiComponent(skippable = false)
 private fun ComponentScope.SmokeDirectCallbackCounter() {
     var count by state { 0 }
@@ -160,8 +134,6 @@ private fun ComponentScope.SmokeDirectCallbackCounter() {
         text("Count: $count")
     }
 }
-
-// --- hostEventRegistryEvictsHandlersThatStopRendering ---
 
 private var smokeRegistryRows: List<Int> = emptyList()
 private var smokeRegistryClicks = 0
@@ -177,8 +149,6 @@ private fun ComponentScope.SmokeRowButtons() {
     }
 }
 
-// --- launchEffect tests ---
-
 private var smokeLaunchStarts = 0
 private var smokeLaunchObservedDuringRender = -1
 private var smokeLaunchStartedGate = CompletableDeferred<Unit>()
@@ -193,9 +163,7 @@ private fun ComponentScope.SmokeLaunchOnce() {
     text("Effect")
 }
 
-// The non-awaiting JS runner interleaves async tests, so the effect visibility flag and
-// start/dispose gates shared by the three cancellation tests live in a per-test probe
-// passed as a component parameter (see the watch tests below for the pattern).
+// Keep async state per test: the JS runner may interleave tests in this file.
 private class EffectProbe {
     var visible = true
     val started = CompletableDeferred<Unit>()
@@ -226,8 +194,6 @@ private fun ComponentScope.SmokeDefaultCleanupEffect(probe: EffectProbe) {
     text("Visible: ${probe.visible}")
 }
 
-// --- visibleOnlyLazyEachDisposesEffectsAndRefsForHiddenItems ---
-
 @UiComponent(skippable = false)
 private fun ComponentScope.SmokeLazyEffectRows(probe: EffectProbe) {
     lazyEach(
@@ -247,11 +213,7 @@ private fun ComponentScope.SmokeLazyEffectRows(probe: EffectProbe) {
     }
 }
 
-// --- watch tests ---
-// The barebones Node runner does not await runTest promises, so async tests in one file
-// run interleaved. Every mutable collaborator therefore lives in a per-test probe passed
-// as a component parameter — never in shared top-level state.
-
+// Keep async state per test: the JS runner may interleave tests in this file.
 private class WatchProbe {
     val observed = mutableListOf<Int>()
     var countCell: MutableCell<Int>? = null
@@ -305,8 +267,6 @@ private fun ComponentScope.SmokeWatchSelfRestarting(probe: WatchProbe) {
     }
     text("Count: ${count.value}")
 }
-
-// --- duplicate keys ---
 
 @UiComponent(skippable = false)
 private fun ComponentScope.SmokeDupEach() {
@@ -583,8 +543,6 @@ class RuntimeSmokeCoreTest {
         assertTrue(neverEqualRuntime.hasPendingInvalidation)
         assertEquals("same", renderNeverEqual())
 
-        // Scope-free derived cells (derive {}) keep the lazy recompute-once contract; the
-        // slot-backed derived {} inside components is covered by SmokePositiveProbe below.
         val source = store(1)
         var computes = 0
         val bucket = derive {
@@ -763,16 +721,12 @@ class RuntimeSmokeCoreTest {
             renders += 1
             TextNode("A-$renders")
         }
-        // A write to a cell the factory never read must NOT defeat the skip (writes to
-        // cells the factory DOES read are covered by
-        // skippableNodeRerendersWhenHoistedStoreChanges).
         val cell = store(0)
         cell.value = 1
         val third = scope.skippableNode("app.Header", inputs = listOf("A")) {
             renders += 1
             TextNode("A-$renders")
         }
-        // A changed input still re-runs the factory.
         val fourth = scope.skippableNode("app.Header", inputs = listOf("B")) {
             renders += 1
             TextNode("B-$renders")
@@ -938,21 +892,17 @@ class RuntimeSmokeCoreTest {
         val firstIds = collectClickEventIds(render(listOf(1, 2, 3)))
         assertEquals(3, firstIds.distinct().size)
 
-        // replacing every keyed row must not grow the registry
         val secondIds = collectClickEventIds(render(listOf(4, 5, 6)))
         assertEquals(3, secondIds.distinct().size)
 
         val tree = render(listOf(7, 8, 9))
         val removedId = collectClickEventIds(tree).last()
 
-        // shrinking the list evicts the dropped rows' handlers
         val remainingId = collectClickEventIds(render(listOf(7))).single()
 
-        // dispatching an evicted id is a graceful no-op
         runtime.dispatch(removedId)
         assertEquals(0, smokeRegistryClicks)
 
-        // disposing the scope releases everything it registered
         scope.dispose()
         runtime.dispatch(remainingId)
         assertEquals(0, smokeRegistryClicks)
@@ -1129,8 +1079,6 @@ class RuntimeSmokeCoreTest {
             listOf("watch started", "watch restarted"),
             runtime.journal().filter { it.kind == JournalKind.WatchRestart }.map { it.message },
         )
-        // Cancel the watch task: the observed list is shared across tests, and on JS a
-        // pending task from this test would fire into the next test's cleared list.
         scope.dispose()
     }
 
@@ -1174,6 +1122,7 @@ class RuntimeSmokeCoreTest {
                 }
             }
         }
+        // Prevent this pending watch from firing after the interleaved JS runner advances tests.
         scope.dispose()
     }
 
@@ -1267,7 +1216,6 @@ class RuntimeSmokeCoreTest {
 
         val loop = runtime.journal().single { it.kind == JournalKind.WatchLoop }
         assertEquals("watch loop stopped", loop.message)
-        // The effect key is the watch's frame slot ordinal now (state = 0, watch = 1).
         assertEquals("watch:1", loop.attributes["effectKey"])
         assertEquals("4", loop.attributes["restarts"])
         assertEquals("3", loop.attributes["limit"])

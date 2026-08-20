@@ -154,10 +154,8 @@ private fun RowItem(id: Int, label: String, selected: Boolean, onSelect: (Int) -
             BasicText(label, style = rowTextStyle, maxLines = 1)
         }
         Cell(Modifier.width(REMOVE_COLUMN_WIDTH).benchClickable { onRemove(id) }) {
-            // stands in for <span class="remove-icon">
             Box(Modifier.width(10.dp).height(10.dp).background(Color(0xFF999999)))
         }
-        // col-rest
         Cell(Modifier.weight(1f)) {}
     }
 }

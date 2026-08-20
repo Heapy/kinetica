@@ -47,7 +47,6 @@ import org.w3c.dom.events.Event
 import kotlin.js.Promise
 import kotlin.time.TimeSource
 
-/** Mounts the live examples embedded in documentation pages via `::: example <name>`. */
 fun main() {
     val slots = document.querySelectorAll("[data-example]")
     for (index in 0 until slots.length) {

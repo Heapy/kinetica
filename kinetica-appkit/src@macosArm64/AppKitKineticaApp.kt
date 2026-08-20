@@ -35,12 +35,7 @@ import platform.darwin.NSObject
 import platform.darwin.dispatch_async
 import platform.darwin.dispatch_get_main_queue
 
-/**
- * Mount [content] into [contentView] and render once. Mirrors `mountKineticaApp` from the browser
- * renderer: a top-level function (rather than a direct constructor call at the call site) so the
- * Kinetica compiler plugin recognises the `@UiComponent`-typed [content] parameter from the
- * consuming module and numbers its body into a region frame.
- */
+/** The top-level wrapper lets the compiler number [content] into a region frame. */
 @OptIn(ExperimentalForeignApi::class)
 public fun renderAppKitApp(
     contentView: NSView,
@@ -49,27 +44,9 @@ public fun renderAppKitApp(
 ): AppKitKineticaApp = AppKitKineticaApp(contentView, runtime, content).also { it.renderUntilSettled() }
 
 /**
- * Retained-mode AppKit renderer on the shared `kinetica-render-core` reconciler (KNT-0046): the
- * first render mounts AppKit views inside [contentView]; every subsequent render diffs the fresh
- * `Node` tree against the [MountedNode] shadow tree and patches widgets in place (keyed-LIS child
- * moves, prop diffs, controlled-state resync). Views are retained across renders, so focus and
- * in-progress typing survive; [restoreFocus] covers the replace-the-focused-widget edge.
- *
- * Event wiring: Kinetica encodes host events as `event:<name>` props whose value is an opaque
- * event id resolvable via [KineticaRuntime.dispatch]. [AppKitEventDispatcher] (one shared
- * [NSObject]) is the target of every actionable [NSControl] (click/toggle/submit via
- * target-action) and the [NSTextFieldDelegateProtocol] delegate of every wired text field
- * (`controlTextDidChange` → `event:onInput` with the field text as payload). Bindings are
- * registered per widget and dropped in [HostAdapter.teardownHost] — no whole-map resets.
- *
- * Async invalidations (effects on `Dispatchers.Default` writing cells off the main thread) are
- * observed via [KineticaRuntime.onInvalidation] and marshalled onto the main queue by
- * [scheduleMainThreadRender]; N invalidations coalesce into one hop.
- *
- * Obj-C interop note: AppKit's `BOOL`-backed properties (`isEditable`, `isBordered`, `isEnabled`,
- * `drawsBackground`, ...) and the `NS_ENUM` constants (`NSBezelStyle`, `NSButtonType`) are exposed
- * by Kotlin/Native as explicit `setX()` setters and top-level `val`s respectively — not as Kotlin
- * properties or nested enum cases.
+ * Retained AppKit renderer with per-widget bindings and coalesced main-queue invalidations.
+ * Kotlin/Native exposes AppKit's `BOOL` properties as `setX()` methods and `NS_ENUM` constants as
+ * top-level values, not Kotlin properties or nested enum cases.
  */
 @OptIn(ExperimentalForeignApi::class)
 public class AppKitKineticaApp(
@@ -85,10 +62,6 @@ public class AppKitKineticaApp(
     private val mainHopScheduled = AtomicBoolean(false)
     private val invalidationRegistration = runtime.onInvalidation { scheduleMainThreadRender() }
 
-    /**
-     * Render once. Use [renderUntilSettled] from event handlers and after the initial mount so the
-     * UI reflects every invalidation produced synchronously by the render pass itself.
-     */
     public fun render() {
         val tree = runtime.render(scope, content).tree
         val focusedIdentifier = captureFocusIdentifier()
@@ -102,10 +75,6 @@ public class AppKitKineticaApp(
         restoreFocus(focusedIdentifier)
     }
 
-    /**
-     * Drain pending invalidations. Called from [AppKitEventDispatcher] on the main thread after an
-     * event dispatch, and from the application's bootstrap after the initial mount.
-     */
     public fun renderUntilSettled() {
         render()
         while (runtime.hasPendingInvalidation) {
@@ -123,13 +92,7 @@ public class AppKitKineticaApp(
         runtime.dispose()
     }
 
-    /**
-     * Marshal an off-main invalidation (an effect on `Dispatchers.Default` writing a cell) onto
-     * the main queue and drain it there. Coalescing: invalidations arriving before the hop runs
-     * fold into that hop (single [AtomicBoolean] guard). Synchronous click-path invalidations
-     * fire this too, but their hop lands after [AppKitEventDispatcher] already drained —
-     * [KineticaRuntime.hasPendingInvalidation] is false by then and the hop no-ops.
-     */
+    /** Coalesces off-main invalidations into one main-queue render hop. */
     private fun scheduleMainThreadRender() {
         if (!mainHopScheduled.compareAndSet(expectedValue = false, newValue = true)) return
         dispatch_async(dispatch_get_main_queue()) {
@@ -140,16 +103,10 @@ public class AppKitKineticaApp(
         }
     }
 
-    // --- root pinning ------------------------------------------------------------------------------------------
-
     /**
-     * Fill [contentView] — whose frame AppKit itself manages — with the mounted Kinetica root by
-     * pinning the root view to the container's edges. We deliberately do NOT touch the
-     * contentView's own `translatesAutoresizingMaskIntoConstraints` or constrain it to its
-     * superview (the private theme frame) — that produces unsatisfiable-constraint breaks.
-     * Views are retained across patches now, so re-pinning happens only when the root view was
-     * actually replaced (the old view's constraints died with it). Only a single-view root has a
-     * well-defined "fill"; a multi-child fragment root keeps its natural size.
+     * Pins only a single mounted root to [contentView]. Do not constrain [contentView] itself to
+     * AppKit's private theme frame; doing so creates unsatisfiable constraints. Multi-child
+     * fragments retain their natural size.
      */
     private fun pinRootIfChanged() {
         val root = mountedRoot?.let(::singleViewOf) ?: return
@@ -167,8 +124,6 @@ public class AppKitKineticaApp(
         is MountedNode.Fragment<NSView> -> mounted.children.singleOrNull()?.let(::singleViewOf)
         is MountedNode.Empty<NSView> -> null
     }
-
-    // --- focus preservation ------------------------------------------------------------------------------------
 
     /**
      * Identifier (the `testTag` semantics) of the currently focused widget. Text fields focus
@@ -203,11 +158,6 @@ public class AppKitKineticaApp(
     }
 }
 
-/**
- * [HostAdapter] over AppKit: tag → widget factories, prop application, NSStackView-aware child
- * management, semantics → accessibility, and per-widget event (un)binding via the shared
- * [AppKitEventDispatcher].
- */
 @OptIn(ExperimentalForeignApi::class)
 internal class AppKitHostAdapter(
     private val dispatcher: AppKitEventDispatcher,
@@ -225,7 +175,6 @@ internal class AppKitHostAdapter(
             "button" -> makeButton(node)
             "checkbox" -> makeCheckbox(node)
             "textInput" -> makeTextField(node)
-            // Unknown tag: a neutral container keeps the tree navigable.
             else -> NSView()
         }
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -321,10 +270,7 @@ internal class AppKitHostAdapter(
         (view as? NSControl)?.let(dispatcher::unregister)
     }
 
-    // --- tag → widget factories --------------------------------------------------------------------------------
-
     private fun makeLabel(text: String): NSTextField {
-        // A non-editable, non-bordered text field is AppKit's idiomatic label.
         return NSTextField().apply {
             setStringValue(text)
             setBordered(false)
@@ -346,8 +292,6 @@ internal class AppKitHostAdapter(
     }
 
     private fun makeButton(node: HostNode): NSButton {
-        // The button's title comes from its single text child (mirrors the DOM renderer, where a
-        // <button> wraps a text node); the reconciler folds the child instead of mounting it.
         return NSButton().apply {
             setTitle(foldedCaption(node))
             setBordered(true)
@@ -370,8 +314,6 @@ internal class AppKitHostAdapter(
     private fun foldedCaption(node: HostNode): String =
         (node.children.singleOrNull() as? TextNode)?.value.orEmpty()
 
-    // --- semantics → accessibility -----------------------------------------------------------------------------
-
     private fun appKitAccessibilityRoleFor(role: Role?, nativeTag: String): String? = when (role) {
         Role.Button -> "AXButton"
         Role.Checkbox -> "AXCheckBox"
@@ -387,21 +329,10 @@ internal class AppKitHostAdapter(
     }
 }
 
-/**
- * Host tags whose text children are absorbed into the widget's own caption/value rather than
- * mounted as separate views (`NSButton.title` is the whole caption; mounting the child too would
- * double-render it).
- */
+/** Tags whose text is represented by widget state rather than a child view. */
 private val LEAF_WIDGET_TAGS: Set<String> = setOf("button", "checkbox", "textInput")
 
-/**
- * The single [NSObject] shared by every actionable widget: target of the `clicked:` action
- * (buttons, checkboxes, text-field submit) and [NSTextFieldDelegateProtocol] delegate of wired
- * text fields (`controlTextDidChange` → `event:onInput` with the field text as payload). Each
- * dispatch drives [renderUntilSettled] so the UI settles synchronously on the main thread.
- *
- * One target (rather than one per control) keeps the Obj-C method-dispatch surface tiny.
- */
+/** Shared action target and text-field delegate; each dispatch drains renders synchronously. */
 @OptIn(ExperimentalForeignApi::class)
 internal class AppKitEventDispatcher(
     private val runtime: KineticaRuntime,
@@ -434,7 +365,6 @@ internal class AppKitEventDispatcher(
         field.delegate = this
     }
 
-    /** Drop a widget's bindings on unmount so dead controls don't accumulate. */
     fun unregister(control: NSControl) {
         actionBindings.remove(control)
         if (control is NSTextField) {
@@ -452,11 +382,9 @@ internal class AppKitEventDispatcher(
         inputBindings.clear()
     }
 
-    // Kotlin/Native forbids companion-object fields on Obj-C subclasses, so the action selector name
-    // is a top-level constant instead.
     private val actionBindings: MutableMap<NSControl, String> = mutableMapOf()
     private val inputBindings: MutableMap<NSTextField, String> = mutableMapOf()
 }
 
-/** The Obj-C selector AppKit invokes on [AppKitEventDispatcher]; mirrors the `clicked(sender:)` method. */
+// Kotlin/Native forbids companion fields on Obj-C subclasses.
 private const val ACTION_SELECTOR: String = "clicked:"

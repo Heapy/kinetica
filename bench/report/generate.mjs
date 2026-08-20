@@ -31,20 +31,15 @@ const hasMainData = (name) =>
   data.memory?.[name] !== undefined ||
   data.animation?.[name] !== undefined;
 const ALL_FW_ORDER = frameworks.map((f) => f.name).filter(hasMainData);
-// Canvas renderers build no DOM, so they are not peers of the frameworks in the main table:
-// they are excluded from it, from the geometric mean, and — the one that would quietly corrupt
-// everything else — from `fastest(id)`, which is a Math.min over the order passed to
-// buildResults. A virtualized list winning create-10k would otherwise re-base every DOM
-// framework's factor. Their numbers get their own section, measured against the same baseline.
+// Exclude canvas renderers before computing fastest/geomean; virtualized canvas results must not
+// re-base factors for DOM frameworks.
 const CANVAS_RENDERERS = new Set(
   frameworks.filter((f) => f.renderer === "canvas").map((f) => f.name),
 );
 const FW_ORDER = ALL_FW_ORDER.filter((f) => !CANVAS_RENDERERS.has(f));
 const CANVAS_FW_ORDER = ALL_FW_ORDER.filter((f) => CANVAS_RENDERERS.has(f));
 const FW_LABEL = Object.fromEntries(frameworks.map((f) => [f.name, f.label]));
-// categorical slots by config position (validated light+dark, color follows entity)
 const FW_COLOR = Object.fromEntries(frameworks.map((f) => [f.name, colorFor(f.name)]));
-// sequential blue ramp for the table shading (factor vs fastest)
 const RAMP = ["#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7", "#3987e5", "#2a78d6", "#256abf", "#1c5cab", "#184f95", "#104281", "#0d366b"];
 
 const escapeHtml = (value) => String(value)
@@ -94,14 +89,11 @@ const reuseEntries = Object.entries(reuseArtifacts).flatMap(([suite, artifact]) 
 const fmt = (x, d = 1) => Number(x).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 
 function rampColor(factor, maxFactor) {
-  // log scale: 1.0 -> lightest, maxFactor -> darkest
   const normalizedFactor = Number.isFinite(factor) && factor > 0 ? Math.max(1, factor) : 1;
   const normalizedMax = Number.isFinite(maxFactor) ? Math.max(maxFactor, 1.01) : 1.01;
   const t = Math.max(0, Math.min(1, Math.log(normalizedFactor) / Math.log(normalizedMax)));
   return RAMP[Math.round(t * (RAMP.length - 1))];
 }
-
-// --- generic results-table builder (used for the main, throttled and tree tables) ---
 
 function buildResults(benchList, resultsMap, fwOrder) {
   const benches = (benchList ?? []).filter((b) => fwOrder.some((f) => resultsMap?.[f]?.[b.id]));
@@ -165,8 +157,6 @@ function resultsTableHtml({ tableRows, geoCells }, fwOrder) {
 const main = buildResults(data.benchmarks, data.results, FW_ORDER);
 const benches = main.benches;
 
-// --- chart builders (plain HTML/CSS horizontal bars) ---
-
 function barChart({ title, subtitle, rows, unit, note }) {
   const max = Math.max(...rows.map((r) => r.value));
   const bars = rows
@@ -222,8 +212,6 @@ const smallMultiples = benches
   })
   .join("");
 
-// --- GC time table (ops where any framework spends >1ms in GC) ---
-
 const gcBenches = benches.filter((b) =>
   FW_ORDER.some((f) => (data.results[f]?.[b.id]?.gcMedianMs ?? 0) > 1),
 );
@@ -258,8 +246,6 @@ if (gcBenches.length > 0) {
     </div>
   </section>`;
 }
-
-// --- scaling curves (optional results/scaling.json and results/stress.json) ---
 
 function scalingSectionHtml(source, { title, subtitle }) {
   if (!source?.scaling) return "";
@@ -308,8 +294,6 @@ const stressSection = scalingSectionHtml(stressData, {
   subtitle: "This opt-in tier runs only Kinetica, React and Vanilla JS to amplify large-table bookkeeping costs.",
 });
 
-// --- sustained updates (animation) ---
-
 let animationSection = "";
 const animFws = FW_ORDER.filter((f) => data.animation?.[f] && !data.animation[f].error);
 if (animFws.length > 0) {
@@ -341,8 +325,6 @@ if (animFws.length > 0) {
   </section>`;
 }
 
-// --- deep tree (optional results/tree.json) ---
-
 let treeSection = "";
 if (treeData?.tree) {
   const treeFws = FW_ORDER.filter((f) => treeData.tree[f]);
@@ -360,8 +342,6 @@ if (treeData?.tree) {
   </section>`;
   }
 }
-
-// --- canvas renderers (deliberately outside the main ranking, see CANVAS_RENDERERS) ---
 
 let canvasSection = "";
 const canvasFws = CANVAS_FW_ORDER.filter((f) =>
@@ -467,8 +447,6 @@ if (canvasFws.length > 0) {
   </section>`;
 }
 
-// --- CPU-throttled pass (optional results/throttled.json) ---
-
 let throttledSection = "";
 if (throttledData?.results) {
   const thFws = FW_ORDER.filter((f) => throttledData.results[f]);
@@ -486,7 +464,6 @@ if (throttledData?.results) {
   }
 }
 
-// startup & memory
 const weightChart = barChart({
   title: "JS payload (gzip)",
   subtitle: "kilobytes of JavaScript shipped to render the app",
@@ -543,7 +520,6 @@ const memoryChart = barChart({
   unit: "MB",
 });
 
-// memory churn / leak table
 const churnFws = FW_ORDER.filter((f) => data.memory?.[f]?.after5xReplaceMb !== undefined);
 let churnTable = "";
 if (churnFws.length > 0) {

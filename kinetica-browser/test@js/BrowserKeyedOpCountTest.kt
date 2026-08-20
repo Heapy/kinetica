@@ -13,9 +13,6 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class BrowserKeyedOpCountTest {
-    /**
-     * KSND-014 (sources: PRE-004, INF-002).
-     */
     @Test
     fun appendAddsExactlyOneInsert() {
         installTestDocument()
@@ -33,9 +30,6 @@ class BrowserKeyedOpCountTest {
         }
     }
 
-    /**
-     * KSND-015 (sources: PRE-006, VUE-091, INF-003).
-     */
     @Test
     fun prependAddsOneInsertAndLeavesSurvivorsUntouched() {
         installTestDocument()
@@ -52,9 +46,6 @@ class BrowserKeyedOpCountTest {
         }
     }
 
-    /**
-     * KSND-016 (sources: PRE-005, PRE-007, INF-004).
-     */
     @Test
     fun removeHeadAndTailUseOneRemoveEach() {
         installTestDocument()
@@ -81,9 +72,6 @@ class BrowserKeyedOpCountTest {
         }
     }
 
-    /**
-     * KSND-017 (sources: PRE-009, PRE-017, INF-004).
-     */
     @Test
     fun contiguousMiddleRemovalUsesOnlyRemoves() {
         installTestDocument()
@@ -101,9 +89,6 @@ class BrowserKeyedOpCountTest {
         }
     }
 
-    /**
-     * KSND-018 (sources: PRE-012, PRE-013).
-     */
     @Test
     fun adjacentSwapsUseOneMove() {
         installTestDocument()
@@ -132,9 +117,6 @@ class BrowserKeyedOpCountTest {
         }
     }
 
-    /**
-     * KSND-019 (sources: PRE-015, PRE-010, PRE-011).
-     */
     @Test
     fun singleElementMovesInLongerListsUseOneMove() {
         installTestDocument()
@@ -177,9 +159,6 @@ class BrowserKeyedOpCountTest {
         }
     }
 
-    /**
-     * KSND-020 (sources: PRE-016, VUE-106).
-     */
     @Test
     fun fullReverseOfTenUsesAtMostNineMoves() {
         installTestDocument()
@@ -200,9 +179,6 @@ class BrowserKeyedOpCountTest {
         }
     }
 
-    /**
-     * KSND-021 (sources: PRE-026).
-     */
     @Test
     fun growingWindowDiffUsesTwoRemovesAndTwoInserts() {
         installTestDocument()
@@ -227,9 +203,6 @@ class BrowserKeyedOpCountTest {
         }
     }
 
-    /**
-     * KSND-022 (sources: INF-178, Playwright bulk-clear self-test).
-     */
     @Test
     fun clearAllUsesBulkPathWithoutPerChildRemoves() {
         installTestDocument()
@@ -245,9 +218,6 @@ class BrowserKeyedOpCountTest {
         }
     }
 
-    /**
-     * KSND-023 (sources: PRE-022).
-     */
     @Test
     fun middleRangeReplacementLeavesSurvivorsUntouched() {
         installTestDocument()
@@ -273,9 +243,6 @@ class BrowserKeyedOpCountTest {
         }
     }
 
-    /**
-     * KSND-024 (sources: RCT-001, INF-039, VUE-135, PRE-081).
-     */
     @Test
     fun identicalRerenderUsesZeroDomOps() {
         installTestDocument()
@@ -322,7 +289,7 @@ private fun runListUpdate(
     }
 }
 
-// Records renderer-level ops only when the RECEIVER is connected to the document tree.
+// Count operations only when the receiver is connected to the test document.
 private fun installOpLog(): dynamic = js(
     """
     (function () {

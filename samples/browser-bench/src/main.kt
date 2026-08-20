@@ -256,8 +256,6 @@ fun ComponentScope.BenchApp(requestRender: () -> Unit = {}) {
     }
 }
 
-// --- tree benchmark app (UIBench-style; served from the same page with ?app=tree) ---
-//
 // Contract shared with bench/frameworks/*/tree.*: depth 4, fanout 6 => 1555 nodes,
 // 1296 leaves. "run" rebuilds the tree with fresh ids, "update" re-labels every 10th
 // leaf (preorder) with " !<tick>", "reverse" reverses the root's children, "noop"

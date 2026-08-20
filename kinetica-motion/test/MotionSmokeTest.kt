@@ -69,10 +69,8 @@ class MotionSmokeTest {
         assertTrue(opacity.advanceBy(250))
         assertClose(2.5f, opacity.value)
 
-        // An unrelated recomposition must not restart the in-flight tween.
         render()
 
-        // 750ms more must complete the original 1000ms tween, not begin a new one.
         assertFalse(opacity.advanceBy(750))
         assertClose(10f, opacity.value)
     }

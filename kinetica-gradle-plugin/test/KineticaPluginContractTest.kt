@@ -10,11 +10,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/**
- * The Gradle plugin duplicates the compiler contract as string constants (it must not depend on
- * `kinetica-compiler` at compile time) and its coordinates are baked in by hand. Both are only
- * safe because this test fails when they drift.
- */
 class KineticaPluginContractTest {
     @Test
     fun bakedVersionMatchesThePublishedOne() {
@@ -47,7 +42,6 @@ class KineticaPluginContractTest {
         }
     }
 
-    /** The two build systems must ask for the same compiler plugin build. */
     @Test
     fun compilerCoordinateMatchesTheToolchainTemplate() {
         val template = repositoryRoot().resolve("common.module-template.yaml")
@@ -75,7 +69,6 @@ class KineticaPluginContractTest {
         assertEquals(KineticaCompilerContract.optionChecks, KineticaCoordinates.optionChecks)
     }
 
-    /** Gradle resolves `id("io.heapy.kinetica")` through this descriptor and nothing else. */
     @Test
     fun pluginDescriptorNamesALoadablePluginClass() {
         val resource = javaClass.classLoader.getResource(DESCRIPTOR_PATH)
@@ -97,10 +90,6 @@ class KineticaPluginContractTest {
         )
     }
 
-    /**
-     * Gradle derives the marker coordinates from the plugin id, so the descriptor's file name and
-     * the marker the release script writes have to agree — nothing else checks this pairing.
-     */
     @Test
     fun markerScriptPublishesTheIdTheDescriptorDeclares() {
         val root = repositoryRoot()

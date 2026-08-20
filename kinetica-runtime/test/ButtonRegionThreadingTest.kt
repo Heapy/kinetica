@@ -57,10 +57,6 @@ private fun ComponentScope.RowRegionContrastApp(probe: ButtonRegionProbe) {
 }
 
 class ButtonRegionThreadingTest {
-    /**
-     * C6b: `button` must thread `lastCollectedRegions` into its emitted `HostNode`; red while
-     * the same direct `each` records regions for `host`/`column`/`row` but `button.regions` is empty.
-     */
     @Test
     fun buttonKeepsEachChildRegionsLikeOtherHostContainers() {
         val probe = ButtonRegionProbe()

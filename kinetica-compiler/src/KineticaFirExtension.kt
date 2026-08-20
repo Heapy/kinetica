@@ -63,7 +63,7 @@ internal val KINETICA_PACKAGE: FqName = FqName("io.heapy.kinetica")
 internal val UI_COMPONENT_CLASS_ID: ClassId = ClassId(KINETICA_PACKAGE, Name.identifier("UiComponent"))
 internal val COMPONENT_SCOPE_CLASS_ID: ClassId = ClassId(KINETICA_PACKAGE, Name.identifier("ComponentScope"))
 
-/** Slot- or event-ordinal-consuming runtime DSL (rule A + D). */
+/** Runtime DSL calls that consume slot or event ordinals. */
 private val SLOT_DSL_NAMES = setOf(
     "state", "derived", "launchEffect", "watch", "event",
     "hostRef", "imperativeHandle", "resource", "frameValue",
@@ -74,7 +74,7 @@ private val SLOT_DSL_NAMES = setOf(
 /** Region constructs that disambiguate loop iterations by user key (allowed in loops). */
 private val LOOP_SAFE_REGION_NAMES = setOf("keyed", "suspendKeyed", "each", "lazyEach")
 
-/** Region constructs whose function-typed content arguments must be lambda literals (rule C). */
+/** Region constructs whose function-typed content arguments must be literal lambdas. */
 private val REGION_CONTENT_PARAMETERS = mapOf(
     "keyed" to setOf("content"),
     "suspendKeyed" to setOf("content"),
@@ -190,13 +190,11 @@ private object KineticaCallChecker : FirExpressionChecker<FirFunctionCall>(MppCh
 
         val containment = context.classifyContainment(session)
 
-        // Rule A: slot DSL and region constructs require a @UiComponent function body.
         if ((isSlotDsl || isRegionConstruct) && containment != KineticaContainment.COMPONENT_BODY) {
             reporter.reportOn(expression.source, KineticaFirErrors.SLOT_CALL_OUTSIDE_COMPONENT, name, context)
             return
         }
 
-        // Rule B: component calls also allow @UiComponent-typed lambda literals.
         if (isComponentCall && containment == KineticaContainment.OUTSIDE) {
             reporter.reportOn(expression.source, KineticaFirErrors.COMPONENT_CALL_OUTSIDE_COMPONENT, name, context)
             return
@@ -204,7 +202,7 @@ private object KineticaCallChecker : FirExpressionChecker<FirFunctionCall>(MppCh
 
         val consumesCompilerOrdinal = expression.consumesCompilerOrdinal(session)
 
-        // Rule D: static ordinals cannot tell loop iterations apart. Optional host-event
+        // Static ordinals cannot tell loop iterations apart. Optional host-event
         // calls with no definitely-present handler do not consume an ordinal at runtime.
         if (!isLoopSafeRegion && consumesCompilerOrdinal && context.isDirectlyInsideLoop(session)) {
             reporter.reportOn(expression.source, KineticaFirErrors.SLOT_CALL_IN_LOOP, name, context)
@@ -227,7 +225,6 @@ private object KineticaCallChecker : FirExpressionChecker<FirFunctionCall>(MppCh
             }
         }
 
-        // Rule C: region content arguments must be literal lambdas.
         if (isRegionConstruct) {
             val mapping = (expression.argumentList as? FirResolvedArgumentList)?.mapping ?: return
             for ((argument, parameter) in mapping) {
@@ -381,7 +378,6 @@ private data class LambdaHost(
     }
 }
 
-/** Finds the resolved call parameter that directly owns [lambda], if it has one. */
 private fun findLambdaHost(
     elements: List<FirElement>,
     index: Int,
@@ -414,7 +410,6 @@ private fun findLambdaHost(
     return null
 }
 
-/** Whether the anonymous function at [index] is a fresh region-content boundary. */
 private fun isRegionContentArgument(
     elements: List<FirElement>,
     index: Int,

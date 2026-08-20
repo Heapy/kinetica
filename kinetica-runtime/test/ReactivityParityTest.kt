@@ -7,9 +7,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ReactivityParityTest {
-    /**
-     * KSND-080 (sources: SVL-001, SOL-020, VUE-029).
-     */
     @Test
     fun diamondObserversSeeOnlyConsistentPairs() {
         val probe = object {
@@ -49,9 +46,6 @@ class ReactivityParityTest {
         subscription.dispose()
     }
 
-    /**
-     * KSND-081 (sources: SVL-006, SOL-021, VUE-027, VUE-033).
-     */
     @Test
     fun twoSourceJoinRecomputesAndNotifiesOncePerWave() {
         val probe = object {
@@ -112,9 +106,6 @@ class ReactivityParityTest {
         joinSubscription.dispose()
     }
 
-    /**
-     * KSND-082 (sources: VUE-013, SOL-029).
-     */
     @Test
     fun deepChainPropagatesOnceInOnePass() {
         val source = store(0)
@@ -133,9 +124,6 @@ class ReactivityParityTest {
         val leaf = chain.last()
         val leafPublished = mutableListOf<Int>()
         val subscriptions = mutableListOf<Disposable>()
-        // A JVM probe with only penultimate + terminal observed failed with
-        // recomputes [3 x 28, 2 x 2]; unobserved intermediates currently
-        // recompute differently.
         for (cell in chain) {
             subscriptions += cell.observe {}
         }
@@ -151,9 +139,6 @@ class ReactivityParityTest {
         subscriptions.forEach { it.dispose() }
     }
 
-    /**
-     * KSND-083 (sources: SOL-004, SOL-024, VUE-006, SVL-009).
-     */
     @Test
     fun dynamicDependencySwapDropsStaleEdges() {
         val flag = store(true)
@@ -223,9 +208,6 @@ class ReactivityParityTest {
         assertFalse(isDependent(right, selected))
     }
 
-    /**
-     * KSND-084 (sources: SVL-019a, SOL-022, VUE-035).
-     */
     @Test
     fun unchangedIntermediatePrunesDownstreamObservers() {
         val source = store(0)
@@ -263,9 +245,6 @@ class ReactivityParityTest {
         subscription.dispose()
     }
 
-    /**
-     * KSND-085 (sources: SVL-014, SOL-025, VUE-041).
-     */
     @Test
     fun disconnectedDerivedReconnectsWithCurrentValue() {
         val gate = store(true)
@@ -322,9 +301,6 @@ class ReactivityParityTest {
         subscription.dispose()
     }
 
-    /**
-     * KSND-086 (sources: SVL-115, SVL-003, SVL-008, VUE-021, SOL-003).
-     */
     @Test
     fun unobservedReadsDoNotLeakAndDisposalReleasesSources() {
         val source = store(1)
@@ -361,9 +337,6 @@ class ReactivityParityTest {
         assertEquals(0, dependentCount(source))
     }
 
-    /**
-     * KSND-087 (sources: SOL-009, VUE-058).
-     */
     @Test
     fun throwingRecomputeRecoversAndListenerExceptionsAreIsolated() {
         val source = store(1)
@@ -409,8 +382,6 @@ class ReactivityParityTest {
         }
         val secondSubscription = noisyObservable.observe { secondPublished += noisy.value }
 
-        // These assertFailsWith checks certify propagate-to-writer semantics:
-        // the first listener's exception surfaces at the write site.
         assertFailsWith<RuntimeException> {
             noisy.value = 1
         }
@@ -423,9 +394,6 @@ class ReactivityParityTest {
         secondSubscription.dispose()
     }
 
-    /**
-     * KSND-088 (sources: SVL-019, SOL-028).
-     */
     @Test
     fun observeBeforeReadActivatesDelivery() {
         val source = store(1)
@@ -450,9 +418,6 @@ class ReactivityParityTest {
         subscription.dispose()
     }
 
-    /**
-     * KSND-089 (sources: VUE-007, SOL-002, PRE-111).
-     */
     @Test
     fun sameValueWritesDoNotNotifyIncludingNanPolicyAndDerivedSilence() {
         val intCell = store(5)

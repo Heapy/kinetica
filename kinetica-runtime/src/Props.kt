@@ -1,10 +1,9 @@
 package io.heapy.kinetica
 
 /**
- * Array-backed immutable props for host nodes. Building and comparing small prop sets
- * dominates Node construction on list-heavy screens; for the 1–4 entry case a flat
- * `[name, value, name, value]` array beats a hash map on allocation count, and lookups
- * are a short scan with an identity fast path (prop names are interned literals). Full
+ * Array-backed immutable props for host nodes. For the 1–4 entry case a flat
+ * `[name, value, name, value]` array avoids hash-map allocations, and lookups are a short scan
+ * with an identity fast path (prop names are interned literals). Full
  * [Map] semantics are preserved — equality, hash code, iteration order, serialization —
  * so nodes built with [propsOf] compare equal to nodes built with `mapOf`.
  */

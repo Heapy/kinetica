@@ -23,10 +23,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class BatchOrderingTest {
-    /**
-     * KSND-115 (sources: RCT-515, SOL-007, VUE-024, INF-119).
-     * Certifies per-source-write propagation waves inside one event plus one render commit.
-     */
     @Test
     fun multipleWritesInOneEventRunPerWriteWavesAndCommitOnce() {
         val probe = MultiWriteProbe()
@@ -52,10 +48,6 @@ class BatchOrderingTest {
         }
     }
 
-    /**
-     * KSND-116 (sources: SVL-005, SOL-007, VUE-062).
-     * Certifies write-then-revert remains wave-consistent and commits once.
-     */
     @Test
     fun writeThenRevertKeepsPublicObserversConsistentAndCommitsOnce() = runTest {
         val probe = RevertWriteProbe()
@@ -89,10 +81,6 @@ class BatchOrderingTest {
         }
     }
 
-    /**
-     * KSND-117 (sources: SVL-006, VUE-027, SOL-021).
-     * Certifies two source writes run two propagation waves while the event commits once.
-     */
     @Test
     fun twoCellsFeedingOneDerivedRunTwoWavesAndCommitOnce() {
         val probe = TwoCellDerivedProbe()
@@ -130,9 +118,6 @@ class BatchOrderingTest {
         }
     }
 
-    /**
-     * KSND-118 (sources: SVL-011, SVL-019b, VUE-036).
-     */
     @Test
     fun writeReadDerivedWriteAgainKeepsFreshMidReadAndFinalCommit() {
         val probe = ReadBetweenWritesProbe()
@@ -156,9 +141,6 @@ class BatchOrderingTest {
         }
     }
 
-    /**
-     * KSND-119 (sources: RCT-516, RCT-524, INF-126).
-     */
     @Test
     fun backToBackDispatchesEachCommitOnceInOrder() {
         val root = KineticaTest.render {
@@ -199,9 +181,6 @@ class BatchOrderingTest {
         }
     }
 
-    /**
-     * KSND-120 (sources: RCT-523, KineticaTestSmoke).
-     */
     @Test
     fun scopeFreeStoreWritesCoalesceIntoOneCellWriteRender() = runTest {
         val probe = ScopeFreeStoreProbe()
@@ -234,9 +213,6 @@ class BatchOrderingTest {
         }
     }
 
-    /**
-     * KSND-121 (sources: SVL-089, VUE-009, SOL-008).
-     */
     @Test
     fun convergentSelfWriteEffectReachesFixpointWithinAwaitIdle() = runTest {
         val root = KineticaTest.render {
@@ -275,9 +251,6 @@ class BatchOrderingTest {
         }
     }
 
-    /**
-     * KSND-122 (sources: VUE-059, VUE-080, VUE-062).
-     */
     @Test
     fun watchWritingDifferentCellSettlesWithoutRetriggeringItself() = runTest {
         val probe = WatchDifferentCellProbe()

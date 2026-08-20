@@ -30,8 +30,7 @@ public object NodeFlags {
      * `each` -> `host` cooperation in the render DSL: `each` certifies that every row emitted
      * exactly one node keyed by that row's (deduplicated, hence unique) row key, and `host`
      * stamps the flag when those rows are its entire child list. A renderer seeing the flag on
-     * both the previous and next node may run keyed reconciliation directly instead of scanning
-     * all children (two hash sets per patch — the 10k-table partial-op tax).
+     * both the previous and next node may run keyed reconciliation without rescanning children.
      */
     public const val CHILDREN_KEYED: Int = 1
 

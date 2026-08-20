@@ -28,12 +28,8 @@ import org.w3c.dom.Node as DomNode
 import org.w3c.dom.events.Event
 
 /**
- * Retained-mode DOM renderer: the first render mounts a shadow tree ([Mounted]) alongside the
- * DOM; every subsequent render diffs the fresh [Node] tree against it and applies the minimal
- * patch — prop updates in place, keyed child reconciliation with LIS-based moves, text updates
- * via nodeValue. Events are delegated from the root element, so nodes carry no listeners and
- * event rebinding is free. Focus survives patches naturally; restoration runs only when the
- * focused element's subtree was actually replaced.
+ * Retained DOM renderer with LIS-based keyed moves and root-delegated events. Focus is restored
+ * only when a patch disconnects the active element.
  */
 public class BrowserKineticaApp(
     private val rootElement: Element,
@@ -137,8 +133,6 @@ public class BrowserKineticaApp(
         }
     }
 
-    // --- event delegation ---
-
     private fun handleDelegatedEvent(event: Event) {
         if (event.type == "keydown" && event.asDynamic().key != "Enter") {
             return
@@ -224,8 +218,6 @@ public class BrowserKineticaApp(
         runtime.dispatch(eventId, payload)
         render(restoredFocus = null)
     }
-
-    // --- mounting ---
 
     private fun mount(node: Node, parent: Element, anchor: DomNode?, path: String): Mounted =
         when (node) {
@@ -347,8 +339,6 @@ public class BrowserKineticaApp(
         clientRefCount++
         return MountedClientRef(node, element)
     }
-
-    // --- patching ---
 
     private fun patch(mounted: Mounted, next: Node, parent: Element, path: String): Mounted {
         if (mounted.currentNode === next && !mounted.containsControlledInputHost) {
@@ -665,8 +655,6 @@ public class BrowserKineticaApp(
         return current
     }
 
-    // --- child reconciliation ---
-
     private fun patchChildren(
         parent: Element,
         mounted: MutableList<Mounted>,
@@ -683,9 +671,7 @@ public class BrowserKineticaApp(
             clearOwnedChildren(parent, mounted)
             return
         }
-        // CHILDREN_KEYED on both sides is a construction-time proof that every child is a
-        // uniquely-keyed HostNode, so the O(children) verification scan (two hash sets per
-        // patch — the dominant bookkeeping cost of partial ops on big tables) is skipped.
+        // CHILDREN_KEYED proves both lists contain uniquely keyed hosts, avoiding a two-set scan.
         val certifiedKeyed = prevFlags and NodeFlags.CHILDREN_KEYED != 0 &&
             nextFlags and NodeFlags.CHILDREN_KEYED != 0 &&
             mounted.isNotEmpty() && next.isNotEmpty()
@@ -1373,8 +1359,6 @@ public class BrowserKineticaApp(
         }
     }
 
-    // --- debug / hydration attributes ---
-
     private fun refreshGeneratedAttributes() {
         refreshAttributes(mountedRoot ?: return, "")
     }
@@ -1434,8 +1418,6 @@ public class BrowserKineticaApp(
         }
     }
 }
-
-// --- mounted shadow tree ---
 
 private sealed class Mounted {
     abstract val currentNode: Node

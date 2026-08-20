@@ -49,9 +49,8 @@ internal class HostEventGroup {
 }
 
 /**
- * One instance of a numbering region: the ordinal-addressed storage cell tree that
- * replaces the string-keyed `slots`/`hostEvents` maps. Frames form a tree — component
- * calls and boundary branches create fixed children (addressed by a static child
+ * One instance of a numbering region: an ordinal-addressed storage tree. Component calls and
+ * boundary branches create fixed children (addressed by a static child
  * ordinal), `keyed {}` and `each` rows create keyed children (child ordinal + user key).
  *
  * A frame with `table == null` runs in growable mode: arrays expand on demand and
@@ -95,14 +94,12 @@ internal class Frame(
     /** Lazily assigned namespace for component-scoped resource caches. */
     internal var resourceNamespace: String? = null
 
-    /** Memoized output of this frame's subtree (skippable component / each row). */
     internal var skipCache: FrameSkipCache? = null
     internal var keptGeneration: Int = -1
         private set
     internal var deactivated: Boolean = false
         private set
 
-    /** Returns true when this is the first entry in [generation], so the scope records the frame once. */
     internal fun markEntered(generation: Int): Boolean {
         val first = enteredGeneration != generation
         enteredGeneration = generation
@@ -135,8 +132,6 @@ internal class Frame(
         forEachChildFrame { it.markKept(generation) }
     }
 
-    // --- Slots ---
-
     internal fun <T> slot(ordinal: Int, generation: Int, transient: Boolean, initial: () -> T): T {
         ensureSlotCapacity(ordinal)
         slotTouch?.set(ordinal, generation)
@@ -164,15 +159,12 @@ internal class Frame(
         if (ordinal !in list) list += ordinal
     }
 
-    /** Replaces a slot's holder (identity-keyed slots such as resources); disposes nothing. */
     internal fun setSlotValue(ordinal: Int, generation: Int, transient: Boolean, value: Any?) {
         ensureSlotCapacity(ordinal)
         slotTouch?.set(ordinal, generation)
         growableTransient?.set(ordinal, transient)
         slots[ordinal] = value
     }
-
-    // --- Events ---
 
     internal fun event(
         ordinal: Int,
@@ -192,8 +184,6 @@ internal class Frame(
         if (role == EVENT_ROLE_PRIMARY) group.primary = id else group.secondary = id
         return id
     }
-
-    // --- Children ---
 
     internal fun enterFixedChild(ordinal: Int, table: FrameTable?, generation: Int): Frame {
         ensureChildCapacity(ordinal)
@@ -242,7 +232,6 @@ internal class Frame(
         return map.getOrPut(table) { Frame(table, this) }
     }
 
-    /** Keeps a fixed child alive for this render without entering it (memoized skip hit). */
     internal fun touchFixedChild(ordinal: Int, generation: Int) {
         ensureChildCapacity(ordinal)
         childEnterStamp!![ordinal] = generation
@@ -324,8 +313,6 @@ internal class Frame(
         removeAllEvents(runtime)
         deactivated = true
     }
-
-    // --- Lifecycle ---
 
     internal fun commitChecks(generation: Int, runtime: KineticaRuntime) {
         val transientFlags = growableTransient
@@ -411,8 +398,6 @@ internal class Frame(
         removeAllEvents(runtime)
         deactivated = true
     }
-
-    // --- Internals ---
 
     private fun removeAllEvents(runtime: KineticaRuntime) {
         events?.let { groups ->
