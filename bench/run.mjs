@@ -46,9 +46,10 @@ const SUITE_SCENARIOS = {
   ],
   size: ["size"],
   build: ["build"],
+  calibration: ["calibration"],
 };
 const ALL_SUITES = Object.keys(SUITE_SCENARIOS);
-const DEFAULT_SUITES = ["main", "tree", "scaling", "jvm", "size", "build"];
+const DEFAULT_SUITES = ["main", "tree", "scaling", "jvm", "size", "build", "calibration"];
 const DEFAULT_BROWSER_SUITES = ["main", "tree", "scaling"];
 const BROWSER_SUITES = [...DEFAULT_BROWSER_SUITES, "stress", "extra"];
 const STRESS_FRAMEWORK_NAMES = ["kinetica", "react", "vanilla"];
@@ -1105,7 +1106,7 @@ function annotateReuseArtifact(path, suite, reuseResult) {
 function materializeGitBaseline(ref) {
   const dir = mkdtempSync(join(tmpdir(), "kinetica-bench-baseline-"));
   const files = [
-    "results.json", "throttled.json", "tree.json", "scaling.json", "sizes.json",
+    "results.json", "throttled.json", "tree.json", "scaling.json", "sizes.json", "calibration.json",
     "run.json", "jvm/results.json",
   ];
   let copied = 0;
@@ -1153,7 +1154,7 @@ function copyIfPresent(source, target) {
 }
 
 function promoteRun({ reportPath, comparisonResult, manifest }) {
-  const rootFiles = ["results.json", "throttled.json", "tree.json", "scaling.json", "sizes.json"];
+  const rootFiles = ["results.json", "throttled.json", "tree.json", "scaling.json", "sizes.json", "calibration.json"];
   for (const file of rootFiles) copyIfPresent(join(resultsDir, file), join(acceptedResultsDir, file));
   for (const framework of frameworks) {
     const part = `part-${framework.name}.json`;
@@ -1639,6 +1640,16 @@ if (suites.includes("jvm")) {
   ]);
 }
 
+// Calibration times a click of known cost through each measurement path. It is a property of the
+// paths, not of the frameworks, so it runs once per run rather than per framework — and it fails
+// the run, because a path that has stopped measuring elapsed time invalidates everything above.
+if (suites.includes("calibration")) {
+  run(process.execPath, [
+    join(benchDir, "driver", "calibrate.mjs"),
+    `--out=${join(resultsDir, "calibration.json")}`,
+  ], { env: baseEnv });
+}
+
 if (suites.includes("size") || suites.includes("build")) {
   run(process.execPath, [
     join(repoRoot, "scripts", "size-report.mjs"),
@@ -1760,6 +1771,7 @@ if (!config.dryRun) {
       extra: artifact(join(resultsDir, "extra-ops", `results-${config.extraSize}.json`)),
       jvm: artifact(join(resultsDir, "jvm", "results.json")),
       sizesAndBuild: artifact(join(resultsDir, "sizes.json")),
+      calibration: artifact(join(resultsDir, "calibration.json")),
       report: artifact(reportPath),
       profiles: profileArtifacts?.outDir ?? null,
       profileSummary: profileArtifacts?.summaryPath ?? null,

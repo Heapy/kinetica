@@ -1,6 +1,24 @@
-// Assertions use a draw-phase snapshot, while trusted coordinate clicks preserve the DOM
-// harness's EventDispatch trace anchor. Row coordinates derive from one fixed-height origin so
+// Assertions use a draw-phase snapshot. Row coordinates derive from one fixed-height origin so
 // the canvas app does not publish 10,000 positions as extra measured work.
+//
+// This harness also times its own operations, instead of going through parseTrace, because a
+// Chrome trace cannot see this renderer at either end of the window. Calibrated against clicks
+// of known cost (bench/driver/calibrate.mjs): both ends measured in the page, from a capture-phase
+// `pointerdown` to the frame's `drawnAt`, this reports slope 0.9953 with 6.5ms of fixed
+// overhead — against the DOM path's 0.9935 / 7.1ms, so the two produce the same quantity.
+//
+//   * Start. parseTrace opens the window on `EventDispatch` of type click, but Compose runs its
+//     handler on **pointerup**, so the browser only dispatches `click` after the operation has
+//     finished — measured: pointerdown +0.0, pointerup +1.4 (a 1000ms operation runs here),
+//     mouseup +1001.8, click +1001.8, draw +1005.0. A click-anchored window opens after the
+//     work it is supposed to contain.
+//   * End. A canvas frame emits no Blink `Paint` and no `Commit`. Where the frame provably
+//     lands the trace holds zero events, `gpu`/`viz`/`cc` categories included, so any paint the
+//     trace does offer belongs to unrelated DOM-layer activity.
+//
+// The cost of owning the timing is GC attribution: the per-operation GC figures come from trace
+// events inside the measured window, and this window is not expressed in trace time. Canvas
+// entries therefore report no GC.
 
 // This automation guard is outside trace-derived durations and matches openPage.
 const TIMEOUT = 180_000;
@@ -89,6 +107,27 @@ export function makeCanvasHarness(page) {
     },
     async labelHasTick() {
       return page.evaluate(() => /( !\d+)$/.test(window.__bench?.frame?.firstLabel ?? ""));
+    },
+    // Present only on this harness; driver/bench.mjs prefers it over measureTracedClick.
+    async measureOperation(action, wait) {
+      await page.evaluate(() => {
+        window.__benchMark = { start: null };
+        window.addEventListener(
+          "pointerdown",
+          () => { if (window.__benchMark.start === null) window.__benchMark.start = performance.now(); },
+          { capture: true, once: true },
+        );
+      });
+      await action();
+      await wait();
+      const { start, drawnAt } = await page.evaluate(() => ({
+        start: window.__benchMark?.start ?? null,
+        drawnAt: window.__bench?.frame?.drawnAt ?? null,
+      }));
+      if (start === null) return { error: "no pointerdown recorded" };
+      if (drawnAt === null) return { error: "app published no draw timestamp" };
+      if (drawnAt < start) return { error: "draw predates the click" };
+      return { durationMs: drawnAt - start, clickDispatchMs: 0, gcMs: 0, gcCount: 0 };
     },
   };
 }

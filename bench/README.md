@@ -145,6 +145,7 @@ driver/bench.mjs        ← main driver: 13 ops + startup + memory churn + anima
 driver/tree.mjs         ← deep-tree driver (create/update/reverse/no-op on 1,555 nodes)
 driver/scaling.mjs      ← standard 1k–20k and opt-in 10k–100k stress curves
 driver/extra-ops.mjs    ← ad-hoc large-table append/remove/clear investigations
+driver/calibrate.mjs    ← times a click of KNOWN cost through each measurement path (guard)
 driver/server.mjs       ← static file server rooted at the REPO ROOT (port 4573)
 results/runs/<id>/              ← immutable local run artifacts (gitignored)
 results/part-<name>.json        ← accepted canonical per-framework results
@@ -259,18 +260,26 @@ Also collected per framework:
 click. Two are in `driver/canvas-harness.mjs`: assertions read `window.__bench.frame`, a
 snapshot the app publishes **from its draw phase** — so it describes a frame that was actually
 painted, which is what the DOM assertions get for free — and clicks are `page.mouse.click` on
-published rectangles, which are trusted events with the same `EventDispatch` trace anchor as an
-element click. The third is in `parseTrace` (`driver/common.mjs`), selected by `renderer:
-"canvas"`: the window ends at the end of the **first run** of paint/commit activity after the
-click (`anchor: "cluster"`), and a `Commit` on its own counts. A canvas layer updates through a
-compositor commit and produces no Blink `Paint` at all, so the default "last paint anywhere
-after the click" anchor attaches to whatever repaints the DOM layers next — measured on this
-app to be an unrelated repaint 100–350 ms after the frame the click produced, which turned
-every cheap operation into a flat ~104 ms and inflated `create10k` by ~390 ms. The same app
-sustains 120 fps in the animate loop, which that latency would make impossible. Warmup/samples,
-viewport and the post-click settle are shared, and the DOM frameworks keep the original anchor
-byte-for-byte. The memory leak probe needs `__mount`/`__unmount`; Compose's
-`ComposeViewport` exposes no teardown, so those two checkpoints report "—" instead of a number.
+published rectangles, which are trusted events. The third is that the canvas harness **times its
+own operations** instead of going through `parseTrace`, because a Chrome trace cannot see this
+renderer at either end of the window:
+
+- **Start.** `parseTrace` opens on `EventDispatch` of type click, but Compose runs its handler on
+  **pointerup**, so the browser dispatches `click` only after the operation has finished.
+  Measured on a click whose work takes 1000 ms: pointerdown +0.0, pointerup +1.4 (the work runs
+  here), mouseup +1001.8, click +1001.8, draw +1005.0.
+- **End.** A canvas frame emits no Blink `Paint` and no `Commit`. Where the frame provably lands
+  the trace holds **zero** events, `gpu`/`viz`/`cc` categories included, so any paint the trace
+  does offer belongs to unrelated DOM-layer activity.
+
+So canvas durations run from a capture-phase `pointerdown` to the frame's `drawnAt`, both taken
+in the page on one clock. `bench/driver/calibrate.mjs` is what says the two paths are comparable: with a
+click of known cost it reports slope 0.994 / 6.8 ms overhead for the DOM path and 0.996 / 6.1 ms
+for the canvas one. The cost of owning the timing is GC attribution — the per-operation GC
+figures come from trace events inside the measured window, and this window is not expressed in
+trace time — so canvas entries report no GC. Warmup/samples and viewport are shared. The memory
+leak probe needs `__mount`/`__unmount`; `ComposeViewport` exposes no teardown, so those two
+checkpoints report "—".
 
 `--throttle=N` applies CDP `Emulation.setCPUThrottlingRate` to the op and animation contexts
 (startup/memory stay unthrottled). Throttled parts land in the run's `throttled/`
@@ -337,6 +346,26 @@ JS output and the bench bundles, compares against `bench/size-baseline.json`, an
 on >10% gzip growth. CI enforces it; intentional growth is accepted with `--update-baseline`
 committed in the same PR. `--measure-build` additionally times a clean and an incremental
 `browser-bench` build.
+
+### Calibration (driver/calibrate.mjs, in the default suites)
+
+Everything above is a *relative* number: framework against framework, run against run. That
+catches drift, but not a measurement path that has stopped measuring elapsed time — which is
+exactly what happened once, when the canvas path reported 45 ms for a click that provably
+occupied 1001 ms and nothing in the results looked wrong, because there was nothing absolute to
+check against.
+
+So each measurement path is asked to time a click whose cost is fixed in advance: the handler
+burns a known K ms before making one minimal visible change, and reported should come back as
+K plus that path's fixed overhead. Two apps carry the hook — a DOM page the script writes into
+`dist/calibration/` at run time, and the canvas app via `?spin=<ms>` — because there are two
+paths, not nine frameworks; calibration is a property of the path.
+
+`node bench/driver/calibrate.mjs` runs it standalone; `run.mjs` runs it as the `calibration` suite and
+**fails the run** if a path misses the known cost by more than 3%. The default is one 500 ms
+point (plus 0 for the overhead), about 40 s. `--spins=0,50,200,500,1000` fits a slope instead,
+which is what distinguishes a subtly biased path from a plainly broken one. Run it after touching
+anything that decides when a measured window opens or closes.
 
 ## The app contract (fairness rules — follow exactly)
 

@@ -275,7 +275,51 @@ Tag mapping: `column`/`row` → `GtkBox`, `button` → `GtkButton` (signal `clic
 - **Open:** Kotlin/Native. KGP 2.4.10's `KotlinCompilerPluginSupportPlugin` has no `getPluginArtifactForNative()` at all — Native goes through the same `getPluginArtifact()` path — but no Native compilation was exercised from Gradle; the fixtures are jvm+js. Verify before promising Native support to Gradle consumers.
 
 ### KNT-0049 — Compose Multiplatform canvas (wasmJs) in the browser benchmark
-**Status:** LANDED 2026-08-19, verified by a full `node bench/run.mjs`
+**CORRECTION 2026-08-21 — FIXED IN THE WORKING TREE; the canvas numbers below are INVALID and
+must be replaced by a re-run.**
+A calibration run (click handler burns a known K ms, then makes one minimal visible change;
+K = 0/50/200/500/1000, 5 samples each) shows the DOM path tracks real elapsed time — slope
+**0.9935**, fixed overhead 7.1 ms, and 0.9981/3.8 ms under the cluster anchor, so the anchor rule
+itself is sound — while the canvas path does not: slope **0.016**. A click whose work provably
+occupies 1001-1003 ms (longtask observer) and whose frame lands at +1011 ms (draw-phase publish
+timestamp) was reported as 45 ms, reproducibly, three rounds out of three.
+
+Two independent errors, both at the ends of the measured window:
+1. **Start.** `parseTrace` anchors on `EventDispatch` of type `click`. Compose does its work in
+   the **pointerup** handler, so the browser dispatches `click` only *after* the operation
+   finishes: pointerdown +0.0, pointerup +1.4 (work runs here), mouseup +1001.8, click +1001.8,
+   draw +1005.0. The window opened after the thing it was supposed to measure.
+2. **End.** A canvas frame emits no Blink `Paint` and no `Commit` at all — between +900 ms and
+   +1200 ms, where the frame provably lands, the trace contains **zero** events, with `gpu`,
+   `viz` and `cc` categories added. So both anchors latched onto unrelated DOM-layer repaints,
+   which is also what the earlier "cluster" fix was really doing. That fix removed a visible
+   symptom and produced plausible numbers; it did not make the measurement correct.
+
+The published canvas figures therefore measure "click dispatch to the next unrelated repaint",
+not the operation. Big operations correlate with real work only because a stray repaint cannot
+precede the blocking task; small ones are pure artifact.
+
+**Fix, implemented and validated.** The canvas harness now times its own operations — capture-phase
+`pointerdown` to the frame's `drawnAt`, both taken in the page on one clock — instead of going
+through `parseTrace`, which is restored to exactly its pre-KNT-0049 form (the "cluster" anchor is
+gone: it was treating a symptom). The app publishes `drawnAt` from the draw phase it already
+publishes the frame snapshot from, and carries a `?spin=<ms>` calibration hook.
+
+`bench/driver/calibrate.mjs` is the new guard, and it runs as the **`calibration` suite in the default
+set** rather than as a manual step — a path that stops measuring elapsed time now fails the run
+instead of waiting to be noticed. It times a click of known cost through each path and fails if one
+misses it by more than 3%; the default is a single 500 ms point (~40 s), `--spins=` fits a slope
+when a subtle bias is in question. Current reading: a 500 ms click measured as 502.2 ms (DOM) and
+503.1 ms (canvas), overheads a few ms apart. Over the denser five-point set the slopes are 0.9941
+and 0.9960. The report carries a Calibration section stating the same. This is the only absolute
+check here; everything else is relative, which is exactly what the bug slipped through.
+
+Cost of the fix: canvas entries report no GC, because per-operation GC comes from trace events
+inside the measured window and that window is no longer expressed in trace time.
+
+**Still to do: re-run the suite.** Every canvas figure in the table below predates the fix.
+
+**Status:** DOM work LANDED 2026-08-19, verified by a full `node bench/run.mjs`
 (`bench/results/runs/20260819T120227268Z`, M4 Max / Chromium 149, 3 warmup + 10 samples). Not
 promoted to the accepted numbers — that is a separate call.
 
