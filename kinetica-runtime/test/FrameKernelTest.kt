@@ -81,9 +81,16 @@ class FrameKernelTest {
     fun missingStagedOrdinalThrowsMissingPlugin() {
         val scope = scope()
         scope.beginRender()
-        assertFailsWith<MissingKineticaPluginException> {
+        val failure = assertFailsWith<MissingKineticaPluginException> {
             scope.beginComponentFrame(table)
         }
+        val message = failure.message.orEmpty()
+        assertTrue(
+            message.startsWith("A Kinetica component call ran without a compiler-assigned ordinal."),
+            message,
+        )
+        assertTrue("io.heapy.kinetica.compiler plugin" in message, message)
+        assertTrue("supported compiler-transformed context" in message, message)
     }
 
     @Test

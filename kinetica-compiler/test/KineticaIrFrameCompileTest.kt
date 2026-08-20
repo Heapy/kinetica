@@ -367,7 +367,7 @@ class KineticaIrFrameCompileTest {
     }
 
     @Test
-    fun multiRunLambdaSlotCallsFailFast() {
+    fun multiRunLambdaSlotCallsFailFastWhenChecksAreOff() {
         harness.compile(
             mapOf(
                 "app/Main.kt" to """
@@ -393,15 +393,75 @@ class KineticaIrFrameCompileTest {
                         runtime.render(scope) { Fan() }.tree
                 """,
             ),
+            checks = "off",
         ).use { compiled ->
             val runtime = KineticaRuntime()
             val scope = ComponentScope(runtime)
             val failure = assertFailsWith<java.lang.reflect.InvocationTargetException> {
                 compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope)
             }
+            val cause = failure.cause
             assertTrue(
-                failure.cause is MissingKineticaPluginException,
-                "slot calls in multi-run lambdas must fail fast, got: ${failure.cause}",
+                cause is MissingKineticaPluginException,
+                "slot calls in multi-run lambdas must fail fast, got: $cause",
+            )
+            assertTrue(
+                cause.message.orEmpty().startsWith(
+                    "A Kinetica derived ran without a compiler-assigned ordinal.",
+                ),
+                "the fail-fast message must identify the untransformed construct: ${cause.message}",
+            )
+        }
+    }
+
+    @Test
+    fun multiRunComponentTypedHelperFailsFastWhenChecksAreOff() {
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    fun ComponentScope.helper(
+                        content: @UiComponent ComponentScope.() -> Unit,
+                    ) {
+                        content()
+                    }
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Badge() {
+                        text("badge")
+                    }
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Fan() {
+                        listOf(1).forEach { helper { Badge() } }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Fan() }.tree
+                """,
+            ),
+            checks = "off",
+        ).use { compiled ->
+            val failure = assertFailsWith<java.lang.reflect.InvocationTargetException> {
+                compiled.invokeRender("app.MainKt", "render")
+            }
+            val cause = failure.cause
+            assertTrue(
+                cause is MissingKineticaPluginException,
+                "component calls hidden behind multi-run component content must fail fast, got: $cause",
+            )
+            assertTrue(
+                cause.message.orEmpty().startsWith(
+                    "A Kinetica component call ran without a compiler-assigned ordinal.",
+                ),
+                "the fail-fast message must identify the unstaged component call: ${cause.message}",
             )
         }
     }
