@@ -8,7 +8,7 @@
 // `skiko.wasm` next to the linked output, taking them from the toolchain's own dependency cache
 // when it is there and falling back to Maven Central.
 
-import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { gzipSync } from "node:zlib";
 import { homedir } from "node:os";
@@ -23,10 +23,6 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..");
 const MODULE = "browser-bench-compose-canvas";
 
-// Pinned to what Compose 1.12.0-rc01 declares (org.jetbrains.compose.ui:ui -> skiko 0.150.1).
-// Only used when the toolchain cache cannot answer; a compose bump that moves skiko will show
-// up as a cache hit on a different version, which is printed on every build.
-const FALLBACK_SKIKO_VERSION = "0.150.1";
 const SKIKO_FILES = ["skiko.mjs", "skiko.wasm"];
 
 const outputDir = jsOutputDir(repoRoot, MODULE, { platform: "wasmJs" });
@@ -39,7 +35,8 @@ if (!existsSync(entry)) {
   throw new Error(`Kotlin/Wasm link output not found: ${entry}`);
 }
 
-const jar = await resolveSkikoRuntimeJar();
+const skikoVersion = resolveSkikoVersion();
+const jar = await resolveSkikoRuntimeJar(skikoVersion);
 execFileSync("unzip", ["-o", "-q", jar.path, ...SKIKO_FILES, "-d", outputDir]);
 for (const file of SKIKO_FILES) {
   if (!existsSync(join(outputDir, file))) {
@@ -69,11 +66,31 @@ console.log(
 // The toolchain resolves skiko-js-wasm-runtime as a normal dependency, so in a repository that
 // has just built the module the jar is already on disk — no download, and guaranteed to be the
 // version this build actually linked against.
-async function resolveSkikoRuntimeJar() {
-  const cached = findInToolchainCache();
+function resolveSkikoVersion() {
+  const output = execFileSync(kotlin, [
+    "show",
+    "dependencies",
+    "-m",
+    MODULE,
+    "-p",
+    "wasmJs",
+    "--filter=org.jetbrains.skiko:skiko-js-wasm-runtime",
+    "--scope=runtime",
+  ], { cwd: repoRoot, encoding: "utf8" });
+  const versions = new Set(
+    [...output.matchAll(/org\.jetbrains\.skiko:skiko-js-wasm-runtime:([^\s]+)/g)]
+      .map((match) => match[1]),
+  );
+  if (versions.size !== 1) {
+    throw new Error(`expected one resolved skiko runtime version, found: ${[...versions].join(", ") || "none"}`);
+  }
+  return [...versions][0];
+}
+
+async function resolveSkikoRuntimeJar(version) {
+  const cached = findInToolchainCache(version);
   if (cached) return cached;
 
-  const version = FALLBACK_SKIKO_VERSION;
   const dir = join(repoRoot, "build", "tasks", `_${MODULE}_skiko`, version);
   const path = join(dir, `skiko-js-wasm-runtime-${version}.jar`);
   if (existsSync(path)) return { path, version, source: "repo cache" };
@@ -89,7 +106,7 @@ async function resolveSkikoRuntimeJar() {
   return { path, version, source: "maven central" };
 }
 
-function findInToolchainCache() {
+function findInToolchainCache(version) {
   const roots = [
     process.env.KOTLIN_SHARED_CACHE_DIR,
     join(homedir(), "Library", "Caches", "JetBrains", "Kotlin"),
@@ -97,17 +114,18 @@ function findInToolchainCache() {
     process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, "JetBrains", "Kotlin"),
   ].filter(Boolean);
 
-  const found = [];
   for (const root of roots) {
-    const base = join(root, ".m2.cache", "org", "jetbrains", "skiko", "skiko-js-wasm-runtime");
-    if (!existsSync(base)) continue;
-    for (const version of readdirSync(base)) {
-      const path = join(base, version, `skiko-js-wasm-runtime-${version}.jar`);
-      if (existsSync(path)) found.push({ path, version, source: "toolchain cache" });
-    }
+    const path = join(
+      root,
+      ".m2.cache",
+      "org",
+      "jetbrains",
+      "skiko",
+      "skiko-js-wasm-runtime",
+      version,
+      `skiko-js-wasm-runtime-${version}.jar`,
+    );
+    if (existsSync(path)) return { path, version, source: "toolchain cache" };
   }
-  if (found.length === 0) return null;
-  // Several versions can pile up in a cache shared by other projects; the newest one by mtime
-  // is the one this build resolved.
-  return found.sort((a, b) => statSync(b.path).mtimeMs - statSync(a.path).mtimeMs)[0];
+  return null;
 }

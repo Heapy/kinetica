@@ -550,40 +550,57 @@ export function generateComparison({
 
 const DOC_START = "<!-- BENCHMARK_RESULTS:START -->";
 const DOC_END = "<!-- BENCHMARK_RESULTS:END -->";
+const COMPOSE_VARIANTS = ["compose-web", "compose-canvas", "compose-canvas-lazy"];
 
 function displayMs(value) {
   return value >= 1000 ? `${(value / 1000).toFixed(2)} s` : value.toFixed(1);
 }
 
-function currentGeoMeans(main) {
-  const frameworkOrder = frameworks.map((framework) => framework.name).filter((name) => main.results?.[name]);
+function currentGeoMeans(main, frameworkOrder, baselineOrder = frameworkOrder) {
   const benches = (main.benchmarks ?? []).filter((bench) => frameworkOrder.some((name) => main.results[name]?.[bench.id]));
   const best = Object.fromEntries(benches.map((bench) => [
     bench.id,
-    Math.min(...frameworkOrder.map((name) => main.results[name]?.[bench.id]?.median ?? Infinity)),
+    Math.min(...baselineOrder.map((name) => main.results[name]?.[bench.id]?.median ?? Infinity)),
   ]));
   const geomean = Object.fromEntries(frameworkOrder.map((name) => {
     const factors = benches.flatMap((bench) => {
       const value = main.results[name]?.[bench.id]?.median;
-      return Number.isFinite(value) ? [value / best[bench.id]] : [];
+      return Number.isFinite(value) && Number.isFinite(best[bench.id]) ? [value / best[bench.id]] : [];
     });
     return [name, geometricMean(factors)];
   }));
-  return { frameworkOrder, benches, geomean };
+  return { benches, geomean };
+}
+
+function performanceTable(main, frameworkOrder, labels, { baselineOrder, summaryLabel }) {
+  const { benches, geomean } = currentGeoMeans(main, frameworkOrder, baselineOrder);
+  const header = `| Operation | ${frameworkOrder.map((name) => labels[name] ?? name).join(" | ")} |`;
+  const separator = `|---|${frameworkOrder.map(() => "---:").join("|")}|`;
+  const rows = benches.map((bench) => `| ${bench.label} | ${frameworkOrder.map((name) => {
+    const value = main.results[name]?.[bench.id]?.median;
+    return Number.isFinite(value) ? displayMs(value) : "—";
+  }).join(" | ")} |`);
+  const geoRow = `| **${summaryLabel}** | ${frameworkOrder.map((name) => `**${geomean[name]?.toFixed(2) ?? "—"}×**`).join(" | ")} |`;
+  return `${header}\n${separator}\n${rows.join("\n")}\n${geoRow}`;
 }
 
 export function updatePerformanceDocs({ currentDir, comparison = null, docsPath }) {
   const current = loadRunArtifacts(currentDir);
   if (!current.main) throw new Error("cannot update performance docs without results.json");
-  const { frameworkOrder, benches, geomean } = currentGeoMeans(current.main);
   const labels = Object.fromEntries(frameworks.map((framework) => [framework.name, framework.label]));
-  const header = `| Operation | ${frameworkOrder.map((name) => labels[name] ?? name).join(" | ")} |`;
-  const separator = `|---|${frameworkOrder.map(() => "---:").join("|")}|`;
-  const rows = benches.map((bench) => `| ${bench.label} | ${frameworkOrder.map((name) => {
-    const value = current.main.results[name]?.[bench.id]?.median;
-    return Number.isFinite(value) ? displayMs(value) : "—";
-  }).join(" | ")} |`);
-  const geoRow = `| **geometric mean vs per-operation fastest** | ${frameworkOrder.map((name) => `**${geomean[name]?.toFixed(2) ?? "—"}×**`).join(" | ")} |`;
+  const domFrameworkOrder = frameworks
+    .filter((framework) => framework.renderer !== "canvas")
+    .map((framework) => framework.name)
+    .filter((name) => current.main.results?.[name]);
+  const composeFrameworkOrder = COMPOSE_VARIANTS.filter((name) => labels[name]);
+  const domTable = performanceTable(current.main, domFrameworkOrder, labels, {
+    baselineOrder: domFrameworkOrder,
+    summaryLabel: "geometric mean vs per-operation fastest DOM framework",
+  });
+  const composeTable = performanceTable(current.main, composeFrameworkOrder, labels, {
+    baselineOrder: ["compose-web"],
+    summaryLabel: "geometric mean duration ratio vs Compose HTML",
+  });
   const meta = current.main.meta;
   const compareLine = comparison
     ? `\nCompared with **${comparison.meta.baseline.label}**: ${comparison.summary.regressions} regressions, ${comparison.summary.improvements} improvements, and ${comparison.summary.stable} metrics within the ${comparison.meta.thresholdPct}% threshold. [Open the comparison report](/bench/report/comparison.html).\n`
@@ -597,10 +614,16 @@ Median click-to-paint duration in milliseconds unless shown as seconds. Environm
 ${meta.machine?.cpu ?? "unknown CPU"}, ${meta.machine?.platform ?? "unknown platform"}/${meta.machine?.arch ?? "unknown arch"},
 Chromium ${meta.chromium}, ${meta.warmup} warmups + ${meta.samples} measured samples.
 
-${header}
-${separator}
-${rows.join("\n")}
-${geoRow}
+${domTable}
+
+### Compose renderer variants
+
+The canvas variants are kept out of the DOM ranking above because they paint through Skia and do
+not satisfy the same DOM contract. This table compares the three Compose implementations directly;
+the Lazy variant virtualizes the list and composes only its visible window. The summary row is the
+geometric mean of each variant's duration divided by Compose HTML for the same operations.
+
+${composeTable}
 ${compareLine}
 Raw data: [results.json](/bench/results/results.json) · [tree.json](/bench/results/tree.json) · [scaling.json](/bench/results/scaling.json) · [JVM results](/bench/results/jvm/results.json) · [size/build metrics](/bench/results/sizes.json).
 ${DOC_END}`;
