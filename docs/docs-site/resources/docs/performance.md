@@ -91,15 +91,14 @@ checkpoints; the generated table above is the source of truth for current number
    first time: swap1k 0.36×, swap10k 0.77×, replace1k 0.88× and create10k 0.94×; remove10k
    (1.31×) and update-every-10th-10k (1.24×) are the remaining DOM open items.
 
-The soundness fixes that followed traded roughly 8 ms of startup and 1.9 MB of after-1k heap
-for correctness. The cost is on the **mount path**, not the child diff: the mixed static/keyed
-reconciler runs only while patching updates, and reworking it from a browser-side heuristic into
-runtime-declared region spans (the runtime marks each `each`/conditional region; the browser
-reconciles by those boundaries) measured startup- and heap-neutral in a same-branch A/B. The
-regression is the mount-time work the other fixes added — per-subscription cell-listener holders
-and cumulative bundle growth — and regaining it is tracked as an open item. The DOM-operation
-geomean was unaffected. The full root-cause analysis, per-step measurements and methodology live
-in the repository's git history.
+An apparent startup regression after the soundness fixes was a cross-session comparison artifact,
+not a reproducible framework cost. Profiling did find real per-row allocation churn: redundant
+frame storage, event-binding maps and atomic wrappers retained too much memory and increased GC
+work on large creates. The subsequent memory pass specialized those paths and added the
+compiler's JS/Wasm atomic-unwrapping transform. The current accepted run records 4.95 MB after
+1,000 rows, inside the 5 MB gate. Treat the generated benchmark block above and its linked raw
+results as the source of truth for current startup and heap values; the experiment chronology
+lives in git history.
 
 ## What the suite measures
 
@@ -119,9 +118,9 @@ single-click table can't see:
 - **Deep tree** — a 1,555-node keyed tree (create, leaf updates, subtree moves, and a no-op
   re-render that isolates pure reconciliation overhead per framework).
 - **Memory churn and leaks** — heap after replace/create-clear cycles and after repeated
-  mount/unmount cycles through each app's teardown path. This gate is an open regression: heap
-  after 1k rows is 7.6 MB against a ≤5 MB target (React 4.4 MB, vanilla 1.9 MB), up from 5.7 MB
-  before the soundness fixes added retained per-row state.
+  mount/unmount cycles through each app's teardown path. The accepted run records 4.95 MB after
+  1,000 rows, inside the ≤5 MB gate; compare future runs against the generated raw results rather
+  than copying this point-in-time value into planning notes.
 - **CPU-throttled pass** — the whole suite under 4× CDP throttling as a low-end-device proxy.
 - **JVM microbenchmarks** (`bench-jvm` module) — reactive-core propagation, render-pipeline
   Node construction and markdown SSR throughput, minutes-fast for per-PR regression checks.
