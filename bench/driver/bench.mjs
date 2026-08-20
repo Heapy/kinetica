@@ -299,13 +299,17 @@ for (const fwName of selectedFrameworks) {
           await iterCtx.wait(h);
           continue;
         }
-        const parsed = await measureTracedClick(
-          browser,
-          page,
-          () => iterCtx.action(h, fw),
-          () => iterCtx.wait(h),
-          { anchor: fw.renderer === "canvas" ? "cluster" : "last-paint" },
-        );
+        // A harness may own its timing when a Chrome trace cannot see its renderer; the canvas
+        // one does (driver/canvas-harness.mjs explains why, and bench/driver/calibrate.mjs proves the
+        // two paths report the same quantity).
+        const parsed = h.measureOperation
+          ? await h.measureOperation(() => iterCtx.action(h, fw), () => iterCtx.wait(h))
+          : await measureTracedClick(
+              browser,
+              page,
+              () => iterCtx.action(h, fw),
+              () => iterCtx.wait(h),
+            );
         if (parsed.error) {
           failures++;
           if (failures > 4) throw new Error(`${fwName}/${bench.id}: too many trace failures (${parsed.error})`);

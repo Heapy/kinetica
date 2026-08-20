@@ -11,6 +11,9 @@ package app.browser.bench.compose.canvas
 //    published snapshot always describes a frame Compose has actually drawn. Publishing from
 //    composition or from the model would let the driver's wait resolve before anything is
 //    painted, closing the measured window early and flattering this app.
+//    `drawnAt` carries that moment on the page clock: a canvas frame emits no Blink Paint and
+//    no Commit, so there is nothing in a Chrome trace to end the measured window on, and the
+//    driver times this app from a capture-phase pointerdown to this timestamp instead.
 // 2. Geometry is published once per layout, not per row: rows are fixed-height, so the driver
 //    derives a row's click point arithmetically. Attaching a per-row position callback to
 //    10,000 rows would be measured work no other framework in the suite performs.
@@ -32,6 +35,8 @@ private fun publishFrame(
             selectedIndex: selectedIndex,
             firstLabel: firstLabel,
             ids: { 1: id1, 2: id2, 5: id5, 999: id999 },
+            // when this frame was drawn, on the page clock — the end of the measured window
+            drawnAt: performance.now(),
         };
         window.__bench.frames = (window.__bench.frames || 0) + 1;
         """

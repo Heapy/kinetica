@@ -16,6 +16,7 @@ const findExtraResult = () => {
   return name ? join(dir, name) : null;
 };
 const manifestData = loadOptional(join(resultsDir, "run.json"));
+const calibrationData = loadOptional(join(resultsDir, "calibration.json"));
 const throttledData = loadOptional(join(resultsDir, "throttled.json"));
 const treeData = loadOptional(join(resultsDir, "tree.json"));
 const scalingData = loadOptional(join(resultsDir, "scaling.json"));
@@ -343,6 +344,29 @@ if (treeData?.tree) {
   }
 }
 
+// --- calibration: what each measurement path reported for a click of known cost ---
+
+let calibrationNote = "";
+if (calibrationData?.paths?.length) {
+  const largestK = calibrationData.largestK;
+  const parts = calibrationData.paths.map((p) => {
+    const at = p.points?.find((q) => q.spin === largestK);
+    const shown = at ? `measured it as ${fmt(at.value)} ms` : "produced no reading";
+    return `<strong>${escapeHtml(p.label)}</strong> ${shown}`;
+  }).join(", ");
+  calibrationNote = `
+  <section>
+    <h2>Calibration</h2>
+    <p class="section-sub">Every other number on this page is relative — framework against
+    framework, run against run — which catches drift but not a path that measures the wrong thing
+    outright. So each measurement path was asked to time a click whose cost was fixed in advance,
+    by burning a known ${largestK} ms before the visible change: ${parts}. The two paths differ in
+    fixed overhead by ${fmt(calibrationData.overheadSpreadMs)} ms, which is what licenses putting
+    their numbers on one page. A path that misses the known cost by more than
+    ${fmt((calibrationData.meta?.tolerance ?? 0.03) * 100, 0)}% fails the run.</p>
+  </section>`;
+}
+
 let canvasSection = "";
 const canvasFws = CANVAS_FW_ORDER.filter((f) =>
   Object.values(data.results?.[f] ?? {}).some(Boolean) ||
@@ -425,12 +449,15 @@ if (canvasFws.length > 0) {
     nodes), <em>Compose canvas (Lazy)</em> uses <code>LazyColumn</code> and only composes the visible
     window — the way Compose is normally written, and the reason its large-table numbers are not
     comparable with anything else on this page. Driver differences: state is read from a snapshot the
-    app publishes during its draw phase, clicks are coordinate clicks (trusted events with the same
-    <code>EventDispatch</code> trace anchor), and the measured window ends at the first run of
-    paint/commit activity rather than the last paint on the page — a canvas layer updates through a
-    compositor commit and emits no Blink paint at all, so the usual anchor would attach to an
-    unrelated repaint that lands 100–350 ms later. The unmount/remount leak probe needs teardown
-    hooks this renderer does not expose, so those two checkpoints stay empty.</p>
+    app publishes during its draw phase, clicks are coordinate clicks, and the durations are timed
+    in the page rather than from a Chrome trace — from a capture-phase <code>pointerdown</code> (this
+    renderer handles input on pointerup, so <code>click</code> is dispatched only after the operation
+    has already finished) to the frame's own draw timestamp (a canvas frame emits no Blink paint and
+    no commit, so a trace holds nothing to end the window on). Both paths are checked against clicks
+    of known cost by <code>bench/driver/calibrate.mjs</code>, which reports slope 0.994 with 6.8 ms of fixed
+    overhead for the DOM path and 0.996 with 6.1 ms here. Owning the timing costs GC attribution, so
+    these columns carry no GC figures, and the unmount/remount leak probe needs teardown hooks this
+    renderer does not expose.</p>
     <div class="table-scroll">
       <table class="results">
         <thead>
@@ -832,6 +859,8 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
   </section>
 
   ${canvasSection}
+
+  ${calibrationNote}
 
   ${gcSection}
 

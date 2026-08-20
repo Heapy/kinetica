@@ -173,16 +173,7 @@ export async function openPage(browser, url, { throttle = 0 } = {}) {
 // GC time includes V8 and Blink collectors inside the measured trace window.
 
 const GC_EVENT = /^(MinorGC|MajorGC|GCEvent|BlinkGC\.|V8\.GC)/;
-const PAINT_EVENT = /^(Paint|PaintImage|Commit|CompositeLayers)$/;
-// A gap this long with no paint or commit at all means the response to the click is over; the
-// "cluster" anchor stops there. Measured margins on the canvas app: real clusters hold together
-// within ~5ms, and the unrelated repaint that follows arrives 100-350ms later.
-const CLUSTER_GAP_US = 50_000;
-
-// DOM uses the last Paint/Commit after the click so async flushes are included. Canvas uses the
-// first paint/commit cluster and accepts Commit-only frames; requiring Blink Paint would anchor
-// to an unrelated DOM-layer repaint 100-350ms later.
-export function parseTrace(buffer, { anchor = "last-paint" } = {}) {
+export function parseTrace(buffer) {
   const { traceEvents } = JSON.parse(buffer.toString());
   const clicks = traceEvents.filter(
     (e) => e.name === "EventDispatch" && e.args?.data?.type === "click",
@@ -192,30 +183,13 @@ export function parseTrace(buffer, { anchor = "last-paint" } = {}) {
   const clickDur = Math.max(...clicks.map((e) => (e.dur ?? 0))) / 1000;
   let paintEnd = -1;
   let sawPaint = false;
-  if (anchor === "cluster") {
-    const painted = traceEvents
-      .filter((e) => e.ts >= clickStart && PAINT_EVENT.test(e.name))
-      .sort((a, b) => a.ts - b.ts);
-    for (const e of painted) {
-      const end = e.ts + (e.dur ?? 0);
-      if (paintEnd < 0) {
-        paintEnd = end;
-      } else if (e.ts - paintEnd > CLUSTER_GAP_US) {
-        break;
-      } else {
-        paintEnd = Math.max(paintEnd, end);
-      }
+  for (const e of traceEvents) {
+    if (e.ts < clickStart) continue;
+    if (e.name === "Paint" || e.name === "PaintImage") {
       sawPaint = true;
-    }
-  } else {
-    for (const e of traceEvents) {
-      if (e.ts < clickStart) continue;
-      if (e.name === "Paint" || e.name === "PaintImage") {
-        sawPaint = true;
-        paintEnd = Math.max(paintEnd, e.ts + (e.dur ?? 0));
-      } else if (e.name === "Commit" || e.name === "CompositeLayers") {
-        paintEnd = Math.max(paintEnd, e.ts + (e.dur ?? 0));
-      }
+      paintEnd = Math.max(paintEnd, e.ts + (e.dur ?? 0));
+    } else if (e.name === "Commit" || e.name === "CompositeLayers") {
+      paintEnd = Math.max(paintEnd, e.ts + (e.dur ?? 0));
     }
   }
   if (!sawPaint || paintEnd < clickStart) return { error: "no paint after click" };
@@ -320,7 +294,7 @@ export function logLogSlope(xs, ys) {
 
 // The uniform 700ms settle preserves Paint events delayed by GC/compositor contention; it is
 // outside the trace-derived result.
-export async function measureTracedClick(browser, page, action, wait, { anchor } = {}) {
+export async function measureTracedClick(browser, page, action, wait) {
   await browser.startTracing(page, {
     screenshots: false,
     categories: ["devtools.timeline", "disabled-by-default-devtools.timeline"],
@@ -330,5 +304,5 @@ export async function measureTracedClick(browser, page, action, wait, { anchor }
   await wait();
   await page.waitForTimeout(700);
   const trace = await browser.stopTracing();
-  return parseTrace(trace, { anchor });
+  return parseTrace(trace);
 }

@@ -84,6 +84,21 @@ private fun buildData(count: Int): List<RowData> {
 
 private var animTick = 0
 
+// Calibration hook (?spin=<ms>), driven by bench/calibrate.mjs: burn a known number of
+// milliseconds inside the click handler before making one minimal visible change, so a
+// measurement path can be checked against a quantity known in advance instead of only against
+// other measurements. Off unless asked for.
+@OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
+private fun nowMs(): Double = js("performance.now()")
+
+private fun spin(ms: Int) {
+    if (ms <= 0) return
+    val end = nowMs() + ms
+    while (nowMs() < end) {
+        // busy-wait: the point is to occupy the main thread for a known duration
+    }
+}
+
 // Fixed column widths (the contract constrains cells, not their size): with them the driver's
 // click point for row N is pure arithmetic off one published origin, so the app needs no
 // per-row position callback.
@@ -171,7 +186,7 @@ private fun Cell(modifier: Modifier, content: @Composable () -> Unit) {
 }
 
 @Composable
-fun BenchApp(lazyList: Boolean) {
+fun BenchApp(lazyList: Boolean, spinMs: Int = 0) {
     // referentialEqualityPolicy: rows is always replaced wholesale, so the default structural
     // equals would run an O(n) element-wise compare on every write — including every frame of
     // the animate loop — to confirm what we already know.
@@ -185,10 +200,18 @@ fun BenchApp(lazyList: Boolean) {
     val onCreate1k = remember { { rows = buildData(1_000); selectedId = 0 } }
     val onCreate10k = remember { { rows = buildData(10_000); selectedId = 0 } }
     val onAppend1k = remember { { rows = rows + buildData(1_000) } }
-    val onUpdateEvery10th = remember {
+    val onUpdateEvery10th = remember(spinMs) {
         {
-            rows = rows.mapIndexed { index, row ->
-                if (index % 10 == 0) row.copy(label = row.label + " !!!") else row
+            if (spinMs > 0) {
+                // calibration mode: spin, then touch a single row
+                spin(spinMs)
+                rows = rows.mapIndexed { index, row ->
+                    if (index == 0) row.copy(label = row.label + " !!!") else row
+                }
+            } else {
+                rows = rows.mapIndexed { index, row ->
+                    if (index % 10 == 0) row.copy(label = row.label + " !!!") else row
+                }
             }
         }
     }
@@ -294,7 +317,8 @@ fun BenchApp(lazyList: Boolean) {
 @OptIn(ExperimentalComposeUiApi::class)
 fun main() {
     val lazyList = window.location.search.contains("lazy")
+    val spinMs = Regex("spin=(\\d+)").find(window.location.search)?.groupValues?.get(1)?.toIntOrNull() ?: 0
     ComposeViewport(document.body!!) {
-        BenchApp(lazyList)
+        BenchApp(lazyList, spinMs)
     }
 }
