@@ -309,12 +309,8 @@ fun main() {
         }
     }
     runBrowserTest(results, "branch-toggled slots survive without collisions") {
-        // Regression for the silent-JS slot corruption: under the old sequence-keyed slot
-        // model, a branch swapping state{} for derived{} at the same cursor position reused
-        // the state cell's slot for the DerivedCell — mangled property reads turned into
-        // undefined and handlers after the branch went dead without any error. The frame
-        // model assigns every construct call site its own static ordinal, so the two arms
-        // (and the events after them) can never share storage no matter which arm renders.
+        // Static ordinals keep state, derived values, and following events from aliasing as
+        // branch arms change.
         val root = isolatedRoot()
         val toggleApp = mountKineticaApp(root) {
             SlotKindToggleApp()

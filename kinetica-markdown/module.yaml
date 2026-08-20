@@ -7,9 +7,7 @@ apply:
   - ../publish.module-template.yaml
 
 dependencies:
-  # exported, like every other battery: public signatures here take ComponentScope
-  # (MarkdownRenderer.kt:14, CodeHighlight.kt:111), so consumers cannot compile against them
-  # without the runtime on their compile classpath.
+  # Public signatures expose ComponentScope, so consumers need the runtime at compile time.
   - ../kinetica-runtime: exported
 
 description: "Markdown parser and renderer emitting Kinetica host nodes — powers the documentation site."

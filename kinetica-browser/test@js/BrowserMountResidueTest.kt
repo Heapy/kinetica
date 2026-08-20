@@ -18,9 +18,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertSame
 
 class BrowserMountResidueTest {
-    /**
-     * KSND-100 (sources: SVL-113).
-     */
     @Test
     fun repeatedMountDisposeLeavesNoChildrenAndBalancesListeners() {
         installTestDocument()
@@ -46,9 +43,6 @@ class BrowserMountResidueTest {
         assertEquals(tally.adds.unsafeCast<Int>(), tally.removes.unsafeCast<Int>())
     }
 
-    /**
-     * KSND-101 (sources: SOL-086).
-     */
     @Test
     fun disposeRemovesDelegatedListenersAndPostDisposeClickIsInert() {
         installTestDocument()
@@ -83,9 +77,6 @@ class BrowserMountResidueTest {
         }
     }
 
-    /**
-     * KSND-102 (sources: SOL-092).
-     */
     @Test
     fun disposeToleratesExternallyClearedRootAndIsIdempotent() {
         installTestDocument()
@@ -110,9 +101,6 @@ class BrowserMountResidueTest {
         }
     }
 
-    /**
-     * KSND-103 (sources: RCT-417, SOL-093).
-     */
     @Test
     fun remountAfterDisposeCreatesFreshInstance() {
         installTestDocument()
@@ -150,9 +138,6 @@ class BrowserMountResidueTest {
         }
     }
 
-    /**
-     * KSND-104 (sources: SVL-115, INF-113).
-     */
     @Test
     fun removedKeyedSubtreeClearsBookkeeping() {
         installTestDocument()
@@ -186,9 +171,6 @@ class BrowserMountResidueTest {
         }
     }
 
-    /**
-     * KSND-105 (sources: SOL-090).
-     */
     @Test
     fun bulkClearThenDisposeLeavesRootEmptyAndListenersBalanced() {
         installTestDocument()
@@ -216,9 +198,6 @@ class BrowserMountResidueTest {
         }
     }
 
-    /**
-     * KSND-106 (sources: RCT-205, INF-060).
-     */
     @Test
     fun clickOnDetachedElementAfterRemovalIsInert() {
         installTestDocument()

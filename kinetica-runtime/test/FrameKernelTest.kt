@@ -7,12 +7,6 @@ import kotlin.test.assertNotSame
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-/**
- * Drives the frame kernel directly through internal APIs — no compiler plugin involved.
- * Covers the storage/lifecycle invariants the ordinal rewrite relies on: slot identity
- * per (frame, ordinal), keyed child forking, transient expiry on committed renders,
- * branch deactivation vs memoized keep, and growable root mode.
- */
 class FrameKernelTest {
     private class FakeEffect : ManagedEffectState {
         var cancelled = false
@@ -103,7 +97,6 @@ class FrameKernelTest {
             frameSlot(1, transient = true) { effect }
             endComponentFrame()
         }
-        // Re-render the frame without touching the transient ordinal (conditional off).
         scope.render {
             ordinal(0)
             beginComponentFrame(table)
@@ -125,7 +118,6 @@ class FrameKernelTest {
             frameSlot(1, transient = true) { effect }
             endComponentFrame()
         }
-        // A memoized skip keeps the child without entering it: transients must survive.
         scope.render {
             currentFrame.touchFixedChild(0, generation = child.enteredGeneration + 1)
         }
@@ -145,10 +137,8 @@ class FrameKernelTest {
             frameSlot(1, transient = true) { effect }
             endComponentFrame()
         }
-        // Branch switches away: the child ordinal is neither entered nor kept.
         scope.render { }
         assertTrue(effect.cancelled)
-        // Branch comes back: state cell survives deactivation, transient recreates.
         scope.render {
             ordinal(0)
             beginComponentFrame(table)
@@ -199,7 +189,6 @@ class FrameKernelTest {
             endComponentFrame()
         }
         assertNotSame(first, second)
-        // Second render maps invocations back to the same forks.
         scope.render {
             ordinal(0)
             beginComponentFrame(table)
@@ -242,7 +231,6 @@ class FrameKernelTest {
             endComponentFrame()
         }
         assertEquals(baseline, scope.runtime.registeredEventCount())
-        // Event callsite stops rendering while its frame re-renders: id is evicted.
         scope.render {
             ordinal(0)
             beginComponentFrame(table)

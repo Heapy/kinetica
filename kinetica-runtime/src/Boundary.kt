@@ -131,11 +131,7 @@ public fun ComponentScope.exitGroup(
     throw MissingKineticaPluginException("exitGroup")
 }
 
-/**
- * Frame-native `errorBoundary`; called by compiler-generated code. Content and fallback
- * render in fixed child frames, so cursor neutrality is structural: the branches cannot
- * shift each other's — or any sibling's — slot identity.
- */
+/** Fixed child frames prevent content and fallback branches from shifting sibling slot identity. */
 public fun ComponentScope.errorBoundaryRegion(
     stateOrdinal: Int,
     contentOrdinal: Int,
@@ -188,7 +184,6 @@ public fun ComponentScope.errorBoundaryRegion(
     }
 }
 
-/** Frame-native `loadingBoundary`; called by compiler-generated code. */
 public fun ComponentScope.loadingBoundaryRegion(
     stateOrdinal: Int,
     contentOrdinal: Int,
@@ -238,7 +233,6 @@ public fun ComponentScope.loadingBoundaryRegion(
     }
 }
 
-/** Frame-native `suspendSubtree`; called by compiler-generated code. */
 public fun ComponentScope.suspendSubtreeRegion(
     stateOrdinal: Int,
     fallbackOrdinal: Int,
@@ -280,7 +274,6 @@ public fun ComponentScope.suspendSubtreeRegion(
     emit(fallbackNode)
 }
 
-/** Frame-native `exitGroup`; called by compiler-generated code. */
 public fun ComponentScope.exitGroupRegion(
     ordinal: Int,
     key: Any,

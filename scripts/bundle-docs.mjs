@@ -1,9 +1,3 @@
-// Build and minify the documentation site's browser-side Kotlin/JS modules.
-//
-// This mirrors bench/build-kinetica.mjs: Kotlin Toolchain still emits a linked
-// ES-module graph, then esbuild turns each docs entrypoint into one production
-// browser module.
-
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";

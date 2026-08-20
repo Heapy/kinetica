@@ -1,6 +1,3 @@
-// Builds all four production Game of Life implementations and stages a self-contained
-// asset tree under build/tasks/_game-of-life_dist for the docs server and benchmark.
-
 import {
   copyFileSync,
   cpSync,

@@ -15,15 +15,6 @@ import kotlin.test.assertIs
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-/*
- * Frame-era port of the RuntimeSmokeTest slot/persistence/exit/lazy sections. String slot
- * keys and SlotMetadata are gone: durable state is SlotId-addressed (explicitly via
- * `state(slotId = ...)`, or compiler-derived for keyless `state(persistent = true)`), and
- * only SlotId-addressed cells appear in slot snapshots / persistentSlotIds().
- */
-
-// --- persistentSlotRetentionKeepsPersistentLazyStateAndDropsTransientState ---
-
 private var retentionListState = lazyListState(firstVisibleIndex = 0, visibleCount = 2)
 private var retentionPersistentCell: MutableCell<Int>? = null
 private var retentionScratchCell: MutableCell<Int>? = null
@@ -45,8 +36,6 @@ private fun ComponentScope.RetentionLazyRows() {
         text("$item:${persistent.value}:${scratch.value}")
     }
 }
-
-// --- slotIdStateSurvivesConditionalAbsenceAndTransientSlotExpires ---
 
 private val slotSurvivePersistent = SlotId("todo", "Counter", 0, "count")
 private val slotSurviveTransient = SlotId("todo", "Counter", 1, "hover")
@@ -71,8 +60,6 @@ private fun ComponentScope.SlotSurviveApp() {
     }
 }
 
-// --- compiledSiblingComponentInstancesDoNotShareSlotIdState ---
-
 private val siblingCounterSlot = SlotId("app", "app.Counter", 0, "count")
 
 @UiComponent(skippable = false)
@@ -91,8 +78,6 @@ private fun ComponentScope.SiblingSlotApp() {
     }
 }
 
-// --- compiledSiblingComponentInstancesDoNotShareSkippableCache ---
-
 private var siblingBadgeRenders = 0
 
 @UiComponent
@@ -108,8 +93,6 @@ private fun ComponentScope.SiblingBadgeApp() {
         SiblingBadge()
     }
 }
-
-// --- manualSlotApisKeyScopedHelpersAndTransientDisposalAreExplicit ---
 
 private val manualCellSlot = SlotId("manual", "CellSlot", 0, "count")
 private val manualKeyedSlot = SlotId("manual", "KeyedSlot", 0, "count")
@@ -152,8 +135,6 @@ private fun ComponentScope.ManualKeyedHandle() {
     }
 }
 
-// --- imperativeHandleRefreshesCurrentValueAcrossRenders ---
-
 private var handleLabel = "one"
 private var labelHandle: Ref<() -> String>? = null
 
@@ -163,8 +144,6 @@ private fun ComponentScope.HandleRefresher() {
     labelHandle = imperativeHandle { { captured } }
     text(captured)
 }
-
-// --- publicMetadataPreviewDescriptorsAndHostRefsCoverDefaultPaths ---
 
 private var hostRefVisible = true
 private var hostRefCaptured: Ref<String>? = null
@@ -179,8 +158,6 @@ private fun ComponentScope.HostRefProbe() {
     }
 }
 
-// --- frameValuesBindToHostPropsAndCommitToStateExplicitly ---
-
 private var frameCommittedCell: MutableCell<Float>? = null
 private var frameOffsetValue: FrameValue? = null
 
@@ -194,8 +171,6 @@ private fun ComponentScope.FrameValueApp() {
         text("Committed: ${committed.value}")
     }
 }
-
-// --- exitGroup tests ---
 
 private var exitPanelVisible = true
 private var exitPanelClicks = 0
@@ -223,9 +198,7 @@ private fun ComponentScope.ExitWithoutOnExitApp() {
     }
 }
 
-// The non-awaiting JS runner interleaves async tests, so the two async exit tests must not
-// share the visibility flag (or gates) through top-level vars — they live in a per-test
-// probe passed as a component parameter.
+// Keep exit gates per test: the JS runner may interleave tests in this file.
 private class ExitProbe {
     var visible = true
     val firstGate = CompletableDeferred<Unit>()
@@ -259,8 +232,6 @@ private fun ComponentScope.ExitTimeoutApp(probe: ExitProbe) {
         text("Panel", semantics = Semantics(testTag = "panel"))
     }
 }
-
-// --- lazyEach tests ---
 
 private var lazyViewportState = lazyListState(firstVisibleIndex = 0, visibleCount = 1)
 
@@ -324,8 +295,6 @@ private fun ComponentScope.LazyVisibleOnlyRows() {
     }
 }
 
-// --- journalIsBoundedExportableAndReplayableWithSlotSnapshots ---
-
 private val journalCountSlot = SlotId("todo", "Counter", 0, "count")
 
 @UiComponent(skippable = false)
@@ -335,8 +304,6 @@ private fun ComponentScope.JournalCounter() {
         text("Count: $count")
     }
 }
-
-// --- productionStateWritesDoNotFormatDebugAttributes ---
 
 private var stateWriteProbeCell: MutableCell<StateWriteProbe>? = null
 private var stateWriteProbeToStringCalls = 0
@@ -374,7 +341,6 @@ class RuntimeSmokeSlotsTest {
         assertEquals(listOf("two:0:0"), render())
         retentionListState = retentionListState.scrollTo(firstVisibleIndex = 0, visibleCount = 1)
 
-        // The persistent cell survives the PersistentSlots strip; the plain state resets.
         assertEquals(listOf("one:1:0"), render())
     }
 
@@ -400,10 +366,6 @@ class RuntimeSmokeSlotsTest {
 
         render(showPersistent = false, showTransient = false)
         assertEquals(1, scope.readSlot<Int>(slotSurvivePersistent))
-        // NOTE: the old model also asserted containsSlot(transientSlot) == false here. The
-        // frame kernel disposes the transient CELL, but the SlotId registry entry is not
-        // evicted, so containsSlot still answers true (stale). The behavioral contract —
-        // the transient value must not resurrect — is asserted below.
 
         val restored = render(showPersistent = true, showTransient = true)
         assertEquals(listOf("Count: 1", "Hover: warm"), restored.findTexts().map { it.value })
@@ -454,7 +416,6 @@ class RuntimeSmokeSlotsTest {
 
         val restoredRuntime = KineticaRuntime()
         val restoredScope = ComponentScope(restoredRuntime)
-        // Pre-render writes park in the restore buffer and seed the cell on creation.
         restoredScope.writeSlot(manualCellSlot, 0, persistent = true)
 
         fun renderRestoredCounter(): Node = restoredRuntime.render(restoredScope) { ManualRestoredCounter() }.tree
@@ -750,7 +711,6 @@ class RuntimeSmokeSlotsTest {
                     entry.attributes["key"] == "panel"
             },
         )
-        // The never-completed onExit coroutine must not survive into later test windows.
         scope.dispose()
     }
 

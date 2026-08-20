@@ -4,10 +4,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * Golden coverage for the FIR authoring rules (checks=error): one violating and one
- * conforming case per rule. Conforming cases must compile with the checker active.
- */
 class KineticaFirCheckerTest {
     private val harness = KineticaCompilationHarness()
 

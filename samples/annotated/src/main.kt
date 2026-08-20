@@ -28,8 +28,6 @@ fun AnnotatedApp() {
     Badge(label)
 }
 
-// --- receiver-style component: exercised by the IR transform (same path as Kotlin/JS) ---
-
 data class Item(val id: Int, val label: String)
 
 private var badgeRenders = 0
@@ -41,9 +39,6 @@ fun ComponentScope.ItemBadge(item: Item) {
         text(item.label, semantics = null)
     }
 }
-
-
-// --- K2 hoisting: static leaf hosts become shared singletons; const props are interned ---
 
 @UiComponent(skippable = false)
 fun ComponentScope.HoistProbe(label: String) {
@@ -98,7 +93,6 @@ fun main() {
     }
     println(root.tree())
 
-    // IR-transform skip semantics, mirroring samples/annotated-js
     val runtime = io.heapy.kinetica.KineticaRuntime(debug = false)
     val scope = ComponentScope(runtime)
     var item = Item(1, "Inbox")

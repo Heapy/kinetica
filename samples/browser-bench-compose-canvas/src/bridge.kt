@@ -61,7 +61,6 @@ private fun publishMountMs() {
     js("if (window.__mountMs === undefined) window.__mountMs = performance.now();")
 }
 
-/** Mirrors what the driver needs to know about a drawn frame. */
 internal object Bridge {
     fun frame(
         rowCount: Int,

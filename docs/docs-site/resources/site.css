@@ -177,7 +177,6 @@ input[type="text"] { min-width: 220px; }
 }
 .demo-button:hover { text-decoration: none; background: var(--accent-ink); }
 
-/* server-components demo page */
 .page-shell { width: min(880px, 100%); margin: 0 auto; padding: 32px 16px; display: grid; gap: 16px; }
 .hero, .product, .recommendations, .runtime-log, [data-client-island-root] {
   display: block; background: var(--surface); border: 1px solid var(--border);

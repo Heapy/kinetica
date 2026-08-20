@@ -1,12 +1,3 @@
-// Stages a minimal, self-contained static asset tree for the benchmark demo pages hosted
-// by the docs site: the built JS-framework apps, Kinetica's and Compose's benchmark
-// bundles, the comparison report, and the raw results JSON.
-//
-// Mirrors bundle-docs.mjs's pattern: run from the repo root, after the individual builds
-// (bench/build.mjs, bench/build-kinetica.mjs, bench/build-compose.mjs), and writes into
-// build/tasks/_bench_dist so DocsServer can serve it the same way it serves
-// _docs-client_bundle / _server-components-client_bundle.
-
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,8 +9,6 @@ const out = join(repoRoot, "build", "tasks", "_bench_dist");
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 
-// 1. JS frameworks — bench/build.mjs already writes self-contained dirs
-//    (index.html + main.js + styles.css, relative paths only).
 const jsDist = join(repoRoot, "bench", "dist");
 if (!existsSync(jsDist)) {
   throw new Error("bench/dist is missing — run `node bench/build.mjs` first.");
@@ -28,9 +17,7 @@ for (const name of readdirSync(jsDist)) {
   cpSync(join(jsDist, name), join(out, name), { recursive: true });
 }
 
-// 2. Kinetica + Compose — staged fresh in the same self-contained shape as the JS
-//    framework dirs above, from their production bundles. Both apps switch to the tree
-//    benchmark via a `?app=tree` query param on the same bundle, so one dir covers both.
+// Main and tree apps share each production bundle through the `?app=tree` switch.
 const sharedCss = join(repoRoot, "bench", "frameworks", "shared", "styles.css");
 
 function stageKotlinApp(name, title, bundlePath) {
@@ -71,7 +58,6 @@ stageKotlinApp(
   join(repoRoot, "build", "tasks", "_browser-bench-compose_bundle", "browser-bench-compose.bundle.mjs"),
 );
 
-// 3. The comparison report (self-contained: inlines its data, no fetch() at runtime).
 mkdirSync(join(out, "report"), { recursive: true });
 cpSync(join(repoRoot, "bench", "report", "index.html"), join(out, "report", "index.html"));
 cpSync(join(repoRoot, "bench", "report", "report.js"), join(out, "report", "report.js"));
@@ -80,7 +66,7 @@ if (existsSync(comparisonReport)) {
   cpSync(comparisonReport, join(out, "report", "comparison.html"));
 }
 
-// 4. Canonical accepted JSON only. Versioned runs and profiling scratch data stay local.
+// Publish canonical accepted JSON only; versioned runs and profiles remain local.
 const sourceResults = join(repoRoot, "bench", "results");
 const publicResults = join(out, "results");
 mkdirSync(publicResults, { recursive: true });

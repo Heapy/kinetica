@@ -3,15 +3,7 @@
 // (the DOM work is constant) and ~linear for update (work is n/10 labels); a slope
 // meaningfully above the threshold flags a complexity-class regression (the
 // O(n²)-at-10k class of bug) even while absolute 1k numbers still look fine.
-//
-//   node driver/scaling.mjs                          # all frameworks, default sizes
-//   node driver/scaling.mjs --frameworks=kinetica
-//   node driver/scaling.mjs --sizes=1000,5000,20000 --samples=5 --warmup=1
-//   node driver/scaling.mjs --strict                 # exit 1 if any op is superlinear
-//
 // Sizes must be multiples of 1,000 (reached via run/runlots + repeated add clicks).
-// Results: results/scaling/part-<framework>.json, merged by run.mjs into
-// results/scaling.json (or stress.json for the opt-in large-table tier).
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { arch, cpus, platform, totalmem } from "node:os";
@@ -45,7 +37,6 @@ if (SIZES.some((s) => s < 1000 || s % 1000 !== 0)) {
   process.exit(1);
 }
 
-// Canvas renderers declare `suites: ["main"]` — they have no DOM for the scaling assertions.
 const FRAMEWORKS = Object.fromEntries(
   frameworks.filter((fw) => supportsSuite(fw, "scaling")).map((fw) => [fw.name, frameworkSelectors(fw)]),
 );

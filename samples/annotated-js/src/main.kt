@@ -38,9 +38,6 @@ fun ComponentScope.App(item: Item, tick: Int) {
     }
 }
 
-
-// --- K2 hoisting: static leaf hosts become shared singletons; const props are interned ---
-
 @UiComponent(skippable = false)
 fun ComponentScope.HoistProbe(label: String) {
     host("span", props = propsOf("class", "chip"))
@@ -125,7 +122,6 @@ fun main() {
     check("Inbox" in first) { "unexpected render: $first" }
     check(badgeRenders == 1) { "expected 1 badge render, got $badgeRenders" }
 
-    // unchanged input + changed sibling state: the badge must be SKIPPED
     tick = 1
     val second = render()
     check("tick 1" in second) { "sibling update lost: $second" }
@@ -134,7 +130,6 @@ fun main() {
         "expected skip on unchanged input (1 render), got $badgeRenders — IR transform inactive or broken"
     }
 
-    // changed input: the badge must re-render
     item = Item(1, "Archive")
     val third = render()
     check("Archive" in third) { "input change not applied: $third" }

@@ -12,9 +12,6 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class BrowserKeyedReorderSoundnessTest {
-    /**
-     * KSND-001 (sources: INF-001, INF-031, VUE-089, VUE-094, VUE-095, SOL-045).
-     */
     @Test
     fun emptyNonemptyCyclesAreResidueFree() {
         installTestDocument()
@@ -48,9 +45,6 @@ class BrowserKeyedReorderSoundnessTest {
         }
     }
 
-    /**
-     * KSND-002 (sources: INF-002, INF-003, VUE-090, VUE-091, VUE-092, VUE-093, PRE-004, PRE-006, PRE-008, RCT-012, SVL-033).
-     */
     @Test
     fun appendPrependAndMiddleInsertionsPreserveSurvivorIdentity() {
         installTestDocument()
@@ -98,9 +92,6 @@ class BrowserKeyedReorderSoundnessTest {
         ).forEach { states -> runScenario(states) }
     }
 
-    /**
-     * KSND-003 (sources: INF-004, VUE-096, VUE-097, VUE-098, PRE-005, PRE-007, PRE-009, RCT-011).
-     */
     @Test
     fun removalsAtHeadTailMiddleAndContiguousRunDetachOnlyRemovedRows() {
         installTestDocument()
@@ -137,9 +128,6 @@ class BrowserKeyedReorderSoundnessTest {
         runScenario(listOf("a", "b", "x", "y", "z", "c", "d"), listOf("a", "b", "c", "d"))
     }
 
-    /**
-     * KSND-004 (sources: INF-005, VUE-106, PRE-016, RCT-009, SOL-041).
-     */
     @Test
     fun fullReversePreservesEveryNode() {
         installTestDocument()
@@ -172,9 +160,6 @@ class BrowserKeyedReorderSoundnessTest {
         runScenario((0..9).map { index -> index.toString() })
     }
 
-    /**
-     * KSND-005 (sources: INF-006, VUE-102, PRE-012, PRE-013, RCT-004, RCT-006, SOL-041).
-     */
     @Test
     fun swapsExchangeTheSameElementsAndCanSwapBack() {
         installTestDocument()
@@ -275,9 +260,6 @@ class BrowserKeyedReorderSoundnessTest {
         }
     }
 
-    /**
-     * KSND-006 (sources: INF-007, INF-008, VUE-099, VUE-100, VUE-101, PRE-010, PRE-014, SOL-041).
-     */
     @Test
     fun singleMovesInEveryDirectionPreserveAllNodes() {
         installTestDocument()
@@ -311,9 +293,6 @@ class BrowserKeyedReorderSoundnessTest {
         runScenario(listOf("1", "2", "3", "4"), listOf("1", "4", "2", "3"))
     }
 
-    /**
-     * KSND-007 (sources: INF-009, RCT-010, SVL-025).
-     */
     @Test
     fun cyclicRotationLoopsReturnToOriginIntact() {
         installTestDocument()
@@ -355,9 +334,6 @@ class BrowserKeyedReorderSoundnessTest {
         }
     }
 
-    /**
-     * KSND-008 (sources: INF-014, VUE-107, SOL-042, PRE-015).
-     */
     @Test
     fun lisDefeatingPermutationsPreserveEveryElement() {
         installTestDocument()
@@ -403,9 +379,6 @@ class BrowserKeyedReorderSoundnessTest {
         )
     }
 
-    /**
-     * KSND-009 (sources: INF-010, INF-011, VUE-103, VUE-104, VUE-105, PRE-026, PRE-028, PRE-030, RCT-011).
-     */
     @Test
     fun combinedInsertDeleteAndMoveUpdatesKeepSurvivorsAndDistinctRows() {
         installTestDocument()
@@ -461,9 +434,6 @@ class BrowserKeyedReorderSoundnessTest {
         ).forEach { states -> runScenario(states) }
     }
 
-    /**
-     * KSND-010 (sources: INF-012, PRE-020, VUE-103, SOL-041).
-     */
     @Test
     fun singleSurvivorPivotIsReusedAndFullKeyReplacementCreatesNewRows() {
         installTestDocument()
@@ -517,9 +487,6 @@ class BrowserKeyedReorderSoundnessTest {
         }
     }
 
-    /**
-     * KSND-011 (sources: INF-013, INF-018).
-     */
     @Test
     fun largePartialOverlapCalendarShuffleKeepsOverlapIdentity() {
         installTestDocument()
@@ -559,9 +526,6 @@ class BrowserKeyedReorderSoundnessTest {
         }
     }
 
-    /**
-     * KSND-012 (sources: INF-017, INF-020, SVL-020, SVL-021, PRE-033, VUE-108, SOL-040).
-     */
     @Test
     fun seededRandomPermutationFuzzRestoresCanonicalList() {
         installTestDocument()
@@ -611,9 +575,6 @@ class BrowserKeyedReorderSoundnessTest {
         }
     }
 
-    /**
-     * KSND-013 (sources: INF-015, INF-016).
-     */
     @Test
     fun hostileKeyStringsAndNearCollisionKeysUseExactStringMatching() {
         installTestDocument()

@@ -18,9 +18,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertSame
 
 class BrowserEventDelegationEdgeTest {
-    /**
-     * KSND-046 (sources: INF-064, SVL-060, RCT-219).
-     */
     @Test
     fun innermostHandlerConsumesClickWithoutAncestorDispatch() {
         installTestDocument()
@@ -42,9 +39,6 @@ class BrowserEventDelegationEdgeTest {
         }
     }
 
-    /**
-     * KSND-047 (sources: INF-067, INF-068).
-     */
     @Test
     fun handlerlessIntermediateElementDoesNotTerminateWalk() {
         installTestDocument()
@@ -71,9 +65,6 @@ class BrowserEventDelegationEdgeTest {
         }
     }
 
-    /**
-     * KSND-048 (sources: INF-062, SVL-059).
-     */
     @Test
     fun clickOnNonInteractiveChildDispatchesEnclosingButtonEvent() {
         installTestDocument()
@@ -94,9 +85,6 @@ class BrowserEventDelegationEdgeTest {
         }
     }
 
-    /**
-     * KSND-049 (sources: INF-062, RCT-213).
-     */
     @Test
     fun disabledButtonSwallowsChildClicksAndReenableRestoresDispatch() {
         installTestDocument()
@@ -125,9 +113,6 @@ class BrowserEventDelegationEdgeTest {
         }
     }
 
-    /**
-     * KSND-050 (sources: INF-061, RCT-215, SVL-063, VUE-152).
-     */
     @Test
     fun handlerClosureStaysFreshAcrossSelfReplacingRenders() {
         installTestDocument()
@@ -159,9 +144,6 @@ class BrowserEventDelegationEdgeTest {
         }
     }
 
-    /**
-     * KSND-051 (sources: INF-060, INF-068, RCT-215, PRE-069).
-     */
     @Test
     fun handlerRemovedOnRerenderStopsFiringAndReaddedRestoresDispatch() {
         installTestDocument()
@@ -193,9 +175,6 @@ class BrowserEventDelegationEdgeTest {
         }
     }
 
-    /**
-     * KSND-052 (sources: RCT-222, INF-077, INF-154).
-     */
     @Test
     fun dispatchRemovingTargetSubtreeCompletesAndDetachedNodeIsInert() {
         installTestDocument()
@@ -220,9 +199,6 @@ class BrowserEventDelegationEdgeTest {
         }
     }
 
-    /**
-     * KSND-053 (sources: RCT-205, INF-060, SOL-086).
-     */
     @Test
     fun disposeRemovesRootListenersAndPostDisposeDispatchDoesNothing() {
         installTestDocument()
@@ -251,9 +227,6 @@ class BrowserEventDelegationEdgeTest {
         }
     }
 
-    /**
-     * KSND-054 (sources: PRE-069).
-     */
     @Test
     fun disposeAndRemountOnSameRootDispatchesExactlyOncePerClick() {
         installTestDocument()
@@ -287,9 +260,6 @@ class BrowserEventDelegationEdgeTest {
         }
     }
 
-    /**
-     * KSND-055 (sources: RCT-220, INF-069).
-     */
     @Test
     fun siblingRootAppsAreIsolated() {
         installTestDocument()
@@ -328,9 +298,6 @@ class BrowserEventDelegationEdgeTest {
         }
     }
 
-    /**
-     * KSND-056 (sources: VUE-160, INF-071, RCT-207).
-     */
     @Test
     fun inputDispatchCarriesLiveElementValueAndDoesNotDedupeIdenticalEvents() {
         installTestDocument()
@@ -355,9 +322,6 @@ class BrowserEventDelegationEdgeTest {
         }
     }
 
-    /**
-     * KSND-057 (sources: infra gap, RCT-216).
-     */
     @Test
     fun enterKeydownSubmitsWithPreventDefaultAndOtherKeysAreIgnored() {
         installTestDocument()
@@ -384,9 +348,6 @@ class BrowserEventDelegationEdgeTest {
         }
     }
 
-    /**
-     * KSND-058 (sources: INF-076, SVL-028).
-     */
     @Test
     fun templateEventHolesStayRowCorrectAfterKeyedReorder() {
         installTestDocument()

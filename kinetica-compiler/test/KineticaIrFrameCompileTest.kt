@@ -11,12 +11,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
-/**
- * Compiles sources with the frame/ordinal emission pass and runs them against the real
- * runtime: slot identity per (frame, ordinal), sibling call sites and branches not
- * aliasing, each rows in keyed frames, emitted FrameTable statics, and the
- * missing-plugin backstop for unstaged component calls.
- */
 class KineticaIrFrameCompileTest {
     private val harness = KineticaCompilationHarness()
 

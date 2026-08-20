@@ -14,7 +14,6 @@ data class DocsAssetUrls(
     val serverComponentsClientScriptSrc: String,
 )
 
-/** The whole page — chrome and content alike — is a Kinetica tree rendered to safe HTML. */
 fun renderDocPage(page: DocPage, source: String, assetUrls: DocsAssetUrls): String {
     val tree = KineticaRuntime(debug = false).render {
         DocLayout(page, source)

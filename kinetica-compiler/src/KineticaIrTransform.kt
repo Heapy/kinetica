@@ -1,5 +1,3 @@
-// referenceClass/referenceFunctions are deprecated in favor of the finder API;
-// migrating the symbol resolvers is tracked separately.
 @file:Suppress("DEPRECATION")
 
 package io.heapy.kinetica.compiler
@@ -198,8 +196,6 @@ public class KineticaIrGenerationExtension(
 
         val builder = DeclarationIrBuilder(pluginContext, function.symbol)
 
-        // inner lambda: ComponentScope.() -> Unit containing the original body; statements
-        // keep referencing the outer function's receiver/parameters via closure capture.
         val contentLambda = pluginContext.irFactory.buildFun {
             origin = IrDeclarationOrigin.LOCAL_FUNCTION_FOR_LAMBDA
             name = SpecialNames.ANONYMOUS
@@ -219,7 +215,6 @@ public class KineticaIrGenerationExtension(
         val contentType = pluginContext.irBuiltIns.functionN(1)
             .typeWith(receiver.type, pluginContext.irBuiltIns.unitType)
 
-        // factory lambda: () -> Node = { renderNode(content) }
         val factoryLambda = pluginContext.irFactory.buildFun {
             origin = IrDeclarationOrigin.LOCAL_FUNCTION_FOR_LAMBDA
             name = SpecialNames.ANONYMOUS

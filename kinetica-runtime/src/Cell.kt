@@ -34,22 +34,13 @@ internal interface ObservableCell<out T> : Cell<T> {
 }
 
 /**
- * Internal reactive-graph contract implemented ONLY by [MutableCellImpl] and [DerivedCell]. It
- * exposes the reverse-dependency edges and the two version flavors the propagation wave needs:
- * [versionSnapshot] (a RAW read that must NOT self-heal, used to capture pre-wave versions during
- * MARK) and [versionHealed] (the existing self-healing [ObservableCell.version] getter, used to
- * settle a cell during RECOMPUTE). Kept separate from [ObservableCell] so a foreign observable
- * (e.g. the test-only CountingCell) that only implements [ObservableCell] keeps compiling and is
- * reached through the foreign fallback if ever used as a dependency.
- *
- * Cells do NOT override equals/hashCode, so [ReactiveNode] instances use object identity in the
- * wave's HashSet/HashMap — required for correct dedup.
+ * Reverse-dependency contract for propagation waves. [versionSnapshot] must not self-heal during
+ * marking; [versionHealed] settles the cell during recompute. Nodes use object identity for wave
+ * deduplication.
  */
 internal interface ReactiveNode {
-    /** RAW version counter; MUST NOT trigger a self-heal/recompute. */
     val versionSnapshot: Long
 
-    /** The self-healing version (== [ObservableCell.version]). */
     val versionHealed: Long
 
     fun addDependent(dependent: DerivedCell<*>)
@@ -75,22 +66,9 @@ private class CommittedWrite<T>(
 )
 
 /**
- * Global monotonic write clock, advanced after every committed source write (and on derived
- * definition refreshes). A [DerivedCell] that validated its transitive dependencies while the
- * clock read C is provably still clean as long as the clock still reads C — no write happened
- * anywhere — so unobserved reads can skip the recursive dependency-version walk entirely.
- *
- * Without this stamp, every `.value`/`.version` read of a depth-k derived cell re-validates its
- * whole chain (each dependency's version check recursing into ITS dependencies): O(k) per read
- * and O(n²) for one write+read over an n-deep chain — bench-jvm's `derived_chain_lazy_1k`
- * measured 3.5 ms per write+read before this stamp.
- *
- * Ordering contract: the clock must advance strictly AFTER the write publishes its version and
- * value. A reader that captured the pre-advance clock and missed the new value will stamp the
- * OLD clock, which the advance immediately invalidates — the next read re-validates. Advancing
- * before the publish would let a reader stamp the NEW clock against the OLD value and never
- * re-validate. (A stamped-clean read can also skip at most one FOREIGN observable's change —
- * acceptable: the only foreign ObservableCell is test-only, see [DerivedCell.foreignDependencyListener].)
+ * Global write stamp that lets clean derived cells skip recursive version walks. Advance it only
+ * after publishing a write's version and value; advancing first could stamp an old value as clean
+ * at the new clock forever.
  */
 internal object ReactiveClock {
     private val counter = AtomicLong(0L)
@@ -120,12 +98,6 @@ internal object ReadTracking {
     }
 
     suspend fun <T> collectSuspend(observer: (Cell<*>) -> Unit, block: suspend () -> T): T =
-        // Delegate to the platform read-tracking store so the observer frame can FOLLOW the
-        // coroutine across dispatcher/thread hops. A thread-confined push/pop here would leave
-        // the observer on the origin thread's stack after a hop (reads on the resume thread
-        // untracked, and the pop landing on the wrong thread). Platforms with real threads
-        // (JVM/Android) carry the frame via a coroutine ThreadContextElement; single-threaded
-        // platforms keep the original push/try-finally/pop.
         local.collectSuspend(observer, block)
 
     fun <T> peek(block: () -> T): T {
@@ -178,30 +150,13 @@ private fun notifyAll(listeners: Collection<() -> Unit>) {
     }
 }
 
-/**
- * Drive a single glitch-free propagation for one source write. Runs on the writing thread's
- * stack — no global lock, no thread-local. See [PropagationWave].
- */
 internal fun schedulePropagation(seed: ReactiveNode, seedPreVersion: Long) =
     PropagationWave().run(seed, seedPreVersion)
 
 /**
- * One transient, stack-local wave per source write. Two phases decouple recompute from notify so
- * that on any source write every observed derived recomputes AT MOST ONCE, no observer reads a
- * glitch value, and every observer whose transitive value actually changed is notified EXACTLY
- * ONCE.
- *
- *  - MARK: pure reverse-graph walk from the seed, UNPRUNED (never gated on whether an intermediate
- *    "decided to notify"). Captures each reached cell's RAW pre-wave version and remembers which
- *    cells carry external observers. Because collection is purely structural, a second independent
- *    observer of a shared intermediate is always collected — this is the R05 D-notification fix.
- *  - RECOMPUTE + PRUNE + COLLECT: for each observer-bearing cell read [ReactiveNode.versionHealed],
- *    which reuses the existing dependency-ordered self-heal (pulling and healing its deps first).
- *    A cell is scheduled for notification IFF its post version differs from its captured pre
- *    version — pruning cells whose value did not actually change. Version-dedup inside the healer
- *    guarantees each cell recomputes at most once.
- *  - NOTIFY: runs only AFTER every observer cell (and, transitively, its deps) has settled, so any
- *    `.value` read inside a listener returns the final, consistent value.
+ * One stack-local wave per source write: mark every reverse dependency, settle observed cells in
+ * dependency order, then notify only changed cells. Notification after settlement prevents
+ * listeners from observing glitches.
  */
 private class PropagationWave {
     private val visited = HashSet<ReactiveNode>()
@@ -209,9 +164,9 @@ private class PropagationWave {
     private val preVersion = HashMap<ReactiveNode, Long>()
 
     fun run(seed: ReactiveNode, seedPreVersion: Long) {
-        // ---- MARK (pure graph walk; captures RAW pre-wave versions; NEVER recomputes) ----
-        // The seed is given its PRE-WRITE version explicitly: by wave time its counter is already
-        // incremented, so versionSnapshot would wrongly equal the post version and suppress the
+        // MARK: graph walk with raw pre-wave versions; never recompute.
+        // The seed needs its explicit pre-write version because its counter is already incremented.
+        // Reading versionSnapshot here would equal the post version and suppress the
         // source's own observers.
         preVersion[seed] = seedPreVersion
         val work = ArrayDeque<ReactiveNode>().apply { add(seed) }
@@ -222,13 +177,13 @@ private class PropagationWave {
             if (cell.hasExternalObservers()) observerCells.add(cell)
             for (dependent in cell.snapshotDependents()) if (dependent !in visited) work.add(dependent)
         }
-        // ---- RECOMPUTE + PRUNE + COLLECT (dependency-ordered self-heal via versionHealed) ----
+        // RECOMPUTE + PRUNE: settle dependencies before collecting changed observers.
         val toNotify = ArrayList<() -> Unit>()
         for (cell in observerCells) {
             val post = cell.versionHealed
             if (post != preVersion.getValue(cell)) cell.collectExternalObserversInto(toNotify)
         }
-        // ---- NOTIFY (after everything settled -> observers can only read final values) ----
+        // NOTIFY: all observed cells are settled, so listeners read final values.
         notifyAll(toNotify)
     }
 }
@@ -353,11 +308,9 @@ internal open class MutableCellImpl<T>(
     }
 
     private fun notifyCommittedWrite(committed: CommittedWrite<T>) {
-        // onCommittedWrite still fires on every changed write, before propagation (preserves
-        // ComponentScope.state -> runtime.invalidate).
+        // Runtime invalidation must precede graph propagation.
         onCommittedWrite(committed.next)
-        // FAST-PATH: only spawn a wave when someone is actually listening or derives from
-        // this cell — keeps writes to isolated cells lean (R09/R12).
+        // Avoid allocating a wave for isolated cells.
         if (dependents.load().isNotEmpty() || listeners.load().isNotEmpty()) {
             schedulePropagation(this, committed.preVersion)
         }
@@ -373,64 +326,31 @@ internal class DerivedCell<T>(
 ) : Cell<T>, ObservableCell<T>, ReactiveNode {
     private val lock = platformLock()
 
-    /**
-     * Each observe() call produces a fresh [ListenerRegistration] holder, so two identity-equal
-     * listener instances yield two independent entries. Disposing one removes only its own
-     * holder, leaving any other registration — even of the same lambda — live.
-     */
     private val registrations = mutableListOf<ListenerRegistration>()
 
     /**
-     * Live subscription to each dependency, keyed by the dependency cell. Present IFF this
-     * cell is currently observed AND still depends on that cell. Reconciled INCREMENTALLY on
-     * each recompute (see [reconcileSubscriptionsLocked]): a dependency that is still read keeps
-     * its existing subscription rather than being torn down and re-added. Re-adding would, for a
-     * shared upstream cell whose only observer is this subscription, momentarily drop that cell
-     * to zero observers and RE-ACTIVATE it — forcing a redundant recompute of the shared cell.
-     * Keeping subscriptions stable is what bounds a diamond's shared legs to one recompute per
-     * propagation wave.
+     * Reconciled incrementally so a retained shared dependency is never briefly unsubscribed and
+     * reactivated during one propagation wave.
      */
     private val subscriptions = linkedMapOf<ObservableCell<*>, Disposable>()
 
-    /**
-     * Reverse-dependency edges: the DerivedCells that read THIS cell. Guarded by [lock]. Together
-     * with [registrations] these define whether the cell is "active" (see [isActiveLocked]): an
-     * active cell holds live subscriptions to its own dependencies so a source write can BFS-reach
-     * its observers. Identity-based ([DerivedCell] does not override equals/hashCode).
-     */
+    /** Guarded reverse edges that keep this cell active for downstream observers. */
     private val dependents = linkedSetOf<DerivedCell<*>>()
 
-    /**
-     * The single listener installed on a FOREIGN (non-[ReactiveNode]) dependency — the only
-     * observable that cannot participate in the reverse-graph wave. Dead in production/tests (only
-     * the test-only CountingCell is foreign and nothing derives from it), but preserves today's
-     * eager-push semantics with zero risk: it seeds a fresh wave rooted at THIS cell.
-     */
+    /** Foreign observables cannot join the reverse graph, so bridge them with eager notification. */
     private val foreignDependencyListener: () -> Unit = {
         val pre = synchronizedOn(lock) { versionCounter }
         schedulePropagation(this, pre)
     }
 
-    /**
-     * Snapshot of each dependency and the version it had at the last successful
-     * recompute. While UNobserved the cell holds no source subscriptions, so it
-     * cannot be told when a dependency changes; instead the next read compares these
-     * recorded versions against the live ones and recomputes only if one advanced.
-     * This keeps unobserved reads cached (recompute-once) yet correct, without the
-     * leak of subscribing a bare read to its sources.
-     */
+    /** Version snapshots provide lazy staleness checks without subscribing unobserved reads. */
     private val dependencyVersions = mutableListOf<Pair<ObservableCell<*>, Long>>()
     private var initialized = false
     private var dirty = true
     private var cached: T? = null
     private var versionCounter = 0L
 
-    /**
-     * The [ReactiveClock] value at which this cell last proved itself clean (validated or
-     * recomputed). While the clock hasn't advanced, no write happened anywhere, so the
-     * recursive dependency-version walk in [needsRecomputeLocked] is skipped — the cutoff
-     * that keeps deep chains O(depth) per write instead of O(depth²). Guarded by [lock].
-     */
+    /** Clock value at the last validation; guarded by [lock]. */
     private var validatedAtClock = Long.MIN_VALUE
 
     internal fun updateDefinition(
@@ -480,22 +400,12 @@ internal class DerivedCell<T>(
         validatedAtClock = clock
     }
 
-    /**
-     * The cell is ACTIVE — and therefore holds live subscriptions to its dependencies — whenever
-     * it has at least one external observer OR at least one downstream dependent. Reconciliation
-     * and teardown gate on this so a purely-derived-from chain (D observes C observes B) stays
-     * wired even though the intermediates have no external observers of their own.
-     */
+    /** Downstream dependents keep intermediate cells active even without external observers. */
     private fun isActiveLocked(): Boolean = registrations.isNotEmpty() || dependents.isNotEmpty()
 
     private fun needsRecomputeLocked(): Boolean =
         !initialized || dirty || !dependenciesUnchangedLocked()
 
-    /**
-     * True if every recorded dependency still reports the version it had at the last
-     * recompute. Used for lazy staleness detection on the unobserved path (an
-     * observed cell is invalidated eagerly via its source subscriptions instead).
-     */
     private fun dependenciesUnchangedLocked(): Boolean {
         for ((cell, recordedVersion) in dependencyVersions) {
             if (cell.version != recordedVersion) {
@@ -507,32 +417,18 @@ internal class DerivedCell<T>(
 
     @Suppress("UNCHECKED_CAST")
     private fun recomputeLocked(): Boolean {
-        // A DerivedCell subscribes to its sources IFF it currently has at least one
-        // observer. An UNobserved read (bare .value, peek{}, version) recomputes on
-        // demand but must NOT register listeners on its sources — otherwise the source
-        // retains this cell forever and eagerly recomputes it on every write with no one
-        // observing (a leak). Only while observed do we (re)attach source subscriptions.
+        // Unobserved reads recompute on demand without subscribing, avoiding source retention.
         val active = isActiveLocked()
         var changed = false
-        // TOCTOU guard: compute() reads a dependency, but this cell only subscribes to
-        // that dependency AFTERWARDS. A write landing between the read and the subscribe
-        // would neither reach this cell (not yet subscribed) NOR be caught by the lazy
-        // version check (dependencyVersions would be captured after the write, already
-        // matching). We therefore capture each dependency's version AT READ TIME and,
-        // after subscribing, re-check whether any dependency advanced during that window;
-        // if so we recompute with the fresh source values and loop until stable.
+        // Capture versions at read time, then recheck after subscribing so a write in that
+        // interval cannot be lost.
         while (true) {
-            // Run compute() FIRST to collect the new dependency set (recording each
-            // dependency's version at the moment it was read). Only after it succeeds do
-            // we reconcile subscriptions. If compute() throws, we return early WITHOUT
-            // touching the existing subscriptions, so the reactive link survives a
-            // transient error and future dependency changes are still delivered.
+            // Reconcile only after compute succeeds, preserving old links across exceptions.
             val readVersions = linkedMapOf<ObservableCell<*>, Long>()
             val next = ReadTracking.collect(
                 observer = { cell ->
                     if (cell is ObservableCell<*>) {
-                        // Keep the version at the FIRST read of each dependency, so a
-                        // write between that read and the subscribe reads as an advance.
+                        // Keep the first version so intervening writes remain detectable.
                         if (cell !in readVersions) {
                             readVersions[cell] = cell.version
                         }
@@ -540,7 +436,6 @@ internal class DerivedCell<T>(
                 },
                 block = compute,
             )
-            // compute() succeeded — commit the value.
             val valueChanged = !initialized || !policy.equivalent(cached as T, next)
             if (valueChanged) {
                 cached = next
@@ -552,45 +447,24 @@ internal class DerivedCell<T>(
             initialized = true
 
             if (active) {
-                // compute() succeeded — reconcile subscriptions to the NEW dependency set.
-                // Incremental (not tear-down-all): dependencies still read keep their existing
-                // subscription, so a shared upstream cell is never disposed/re-added (which would
-                // re-activate it and recompute it a second time within the same wave). Only
-                // dropped dependencies are disposed and only newly-read ones are subscribed.
                 reconcileSubscriptionsLocked(readVersions.keys)
             }
 
-            // Re-check the TOCTOU window: did any dependency change between the read
-            // captured during compute() and now (after subscribing)? If so a write
-            // landed in the window and must not be lost — recompute with fresh values.
+            // Retry if a dependency changed between compute and subscription.
             val staleDuringWindow = readVersions.any { (cell, readVersion) ->
                 cell.version != readVersion
             }
             if (!staleDuringWindow) {
-                // Record the (now stable) dependency versions so an unobserved cell can
-                // detect staleness lazily on its next read (see dependenciesUnchangedLocked).
-                // Captured after any (re)subscription so observed and unobserved paths agree.
                 dependencyVersions.clear()
                 readVersions.forEach { (dependency, readVersion) ->
                     dependencyVersions += dependency to readVersion
                 }
-                // The cache now matches the recorded dependency versions. Observed cells
-                // are re-invalidated eagerly by their subscriptions; unobserved cells
-                // re-check dependency versions on the next read — so the cell is clean.
                 dirty = false
                 return changed
             }
-            // A dependency advanced during the read-to-subscribe window: loop and
-            // recompute so the cell reflects the write instead of caching a stale value.
         }
     }
 
-    /**
-     * Bring the live [subscriptions] into agreement with [newDependencies] with minimal churn:
-     * dispose only subscriptions to dependencies no longer read, subscribe only dependencies not
-     * already subscribed, and leave every persisting subscription exactly as it was. Called only
-     * on the observed path, AFTER a successful compute().
-     */
     private fun reconcileSubscriptionsLocked(newDependencies: Set<ObservableCell<*>>) {
         for (dependency in subscriptions.keys.filter { it !in newDependencies }) {
             subscriptions.remove(dependency)?.dispose()
@@ -602,13 +476,7 @@ internal class DerivedCell<T>(
         }
     }
 
-    /**
-     * Establish the reverse-graph edge from [dependency] to this cell. For a [ReactiveNode]
-     * dependency (the production/test norm) this registers this cell as a dependent, so a source
-     * write can structurally BFS-reach this cell during a wave; the returned [Disposable] detaches
-     * that edge. A foreign dependency (only ever the test-only CountingCell) has no reverse graph,
-     * so we fall back to today's eager-push subscription.
-     */
+    /** Uses reverse edges for reactive nodes and eager observation for foreign cells. */
     private fun linkDependencyLocked(dependency: ObservableCell<*>): Disposable =
         if (dependency is ReactiveNode) {
             dependency.addDependent(this)
@@ -629,11 +497,7 @@ internal class DerivedCell<T>(
             val wasInactive = !isActiveLocked()
             registrations += registration
             if (wasInactive) {
-                // First observer ACTIVATES the cell: compute + subscribe to the current
-                // dependency set so that later source writes reach this observer even
-                // when .value was never read. Re-observing after a full teardown (which
-                // cleared all subscriptions) re-activates the same way. If the cell is
-                // already active via a downstream dependent, it is already wired.
+                // First observation activates dependencies even if value was never read.
                 dirty = true
                 recomputeLocked()
             }
@@ -648,13 +512,9 @@ internal class DerivedCell<T>(
         }
     }
 
-    // ---- ReactiveNode: reverse-graph participation for the propagation wave ----
-
-    // RAW version — must NOT trigger a recompute/self-heal (used to capture the pre-wave version).
     override val versionSnapshot: Long
         get() = synchronizedOn(lock) { versionCounter }
 
-    // The existing self-healing getter — settles the cell (and, transitively, its deps).
     override val versionHealed: Long
         get() = version
 
@@ -662,8 +522,7 @@ internal class DerivedCell<T>(
         val wasInactive = !isActiveLocked()
         dependents.add(dependent)
         if (wasInactive) {
-            // Activating via a first downstream dependent mirrors observe(): compute and
-            // subscribe upstream so this cell is BFS-reachable on later source writes.
+            // A first downstream edge activates upstream subscriptions like observe().
             dirty = true
             recomputeLocked()
         }

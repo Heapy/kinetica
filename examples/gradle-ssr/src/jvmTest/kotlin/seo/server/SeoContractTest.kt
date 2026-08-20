@@ -9,10 +9,6 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import seo.site.Articles
 
-/**
- * These assertions are the SEO contract: they fail the build if a refactor ever moves content out
- * of the first HTML response, drops metadata, or starts answering 200 for missing pages.
- */
 class SeoContractTest {
     private val origin = "https://example.test"
 

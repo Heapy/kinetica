@@ -1,7 +1,5 @@
-// Shared tree generator for the deep-tree benchmark. Contract (mirrored in Kotlin in
-// samples/browser-bench): depth 4, fanout 6 => 1555 nodes, 1296 leaves; ids assigned
-// in preorder from a global counter; "update" re-labels every 10th leaf (preorder)
-// with " !<tick>", replacing any previous suffix so per-frame work stays constant.
+// Keep this contract aligned with samples/browser-bench: depth 4, fanout 6, preorder ids, and
+// every tenth leaf relabelled by replacing its prior tick suffix.
 
 export const TREE_DEPTH = 4;
 export const TREE_FANOUT = 6;

@@ -13,7 +13,6 @@ class ListReconcileTest {
 
     @Test
     fun benchmarkSwapKeepsEverythingButTheSwappedPair() {
-        // rows 1 and 5 swapped: old positions of the new order
         val positions = intArrayOf(0, 5, 2, 3, 4, 1, 6)
         assertContentEquals(intArrayOf(0, 2, 3, 4, 6), longestIncreasingSubsequenceIndices(positions))
     }
@@ -25,7 +24,6 @@ class ListReconcileTest {
 
     @Test
     fun freshMountsAreSkipped() {
-        // -1 marks children with no previous position (new mounts)
         assertContentEquals(intArrayOf(1, 3, 4), longestIncreasingSubsequenceIndices(intArrayOf(-1, 0, -1, 1, 2)))
         assertContentEquals(intArrayOf(), longestIncreasingSubsequenceIndices(intArrayOf(-1, -1)))
     }

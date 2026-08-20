@@ -20,9 +20,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class BrowserControlledInputTest {
-    /**
-     * KSND-059 (sources: RCT-101, INF-147, PRE-082).
-     */
     @Test
     fun driftAndUnrelatedRenderSnapsBackToRenderedValue() {
         installTestDocument()
@@ -46,9 +43,6 @@ class BrowserControlledInputTest {
         }
     }
 
-    /**
-     * KSND-060 (sources: VUE-160, SVL-053).
-     */
     @Test
     fun inputEventWritesCellAndDomEqualsCellAfterCommit() {
         installTestDocument()
@@ -71,9 +65,6 @@ class BrowserControlledInputTest {
         }
     }
 
-    /**
-     * KSND-061 (sources: RCT-101, RCT-104 (adapted), INF-147).
-     */
     @Test
     fun rejectingInputHandlerRestoresPreviousValueOnCommit() {
         run {
@@ -119,9 +110,6 @@ class BrowserControlledInputTest {
         }
     }
 
-    /**
-     * KSND-062 (sources: RCT-116, RCT-207, RCT-210).
-     */
     @Test
     fun revertingToPreviouslyRenderedValueStillDispatchesInputEvents() {
         installTestDocument()
@@ -147,9 +135,6 @@ class BrowserControlledInputTest {
         }
     }
 
-    /**
-     * KSND-063 (sources: RCT-110, PRE-075).
-     */
     @Test
     fun emptyStringAndZeroStringTransitionsAreApplied() {
         installTestDocument()
@@ -175,9 +160,6 @@ class BrowserControlledInputTest {
         }
     }
 
-    /**
-     * KSND-064 (sources: INF-074, INF-148, RCT-208).
-     */
     @Test
     fun controlledCheckboxRevertsUnlessHandlerChangesState() {
         installTestDocument()
@@ -214,10 +196,6 @@ class BrowserControlledInputTest {
         }
     }
 
-    /**
-     * KSND-065 (sources: INF-153).
-     */
-    // KSND-065: CONFIRMED FRAMEWORK BUG (triage 2026-07-07): identity short-circuit (mounted.currentNode === next, BrowserKineticaApp.kt:351) skips patchHost controlled-input resync for memoized surviving rows.
     @Test
     fun shrinkingControlledCheckboxListAppliesFreshCheckedToSurvivors() {
         installTestDocument()
@@ -242,9 +220,6 @@ class BrowserControlledInputTest {
         }
     }
 
-    /**
-     * KSND-066 (sources: SVL-053, RCT-119 (adapted)).
-     */
     @Test
     fun programmaticWriteUpdatesInputAndSiblingPropPatchDoesNotClobberValue() {
         installTestDocument()
@@ -269,9 +244,6 @@ class BrowserControlledInputTest {
         }
     }
 
-    /**
-     * KSND-067 (sources: RCT-103 (adapted), SVL-099 (adapted)).
-     */
     @Test
     fun twoInputsBoundToOneCellStayInSync() {
         installTestDocument()

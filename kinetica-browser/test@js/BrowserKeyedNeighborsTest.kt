@@ -19,9 +19,6 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class BrowserKeyedNeighborsTest {
-    /**
-     * KSND-025 (sources: INF-025, SOL-043, PRE-046).
-     */
     @Test
     fun appendsLandInsideKeyedRegionBeforeStaticTail() {
         installTestDocument()
@@ -55,9 +52,6 @@ class BrowserKeyedNeighborsTest {
         }
     }
 
-    /**
-     * KSND-026 (sources: INF-025, INF-176, PRE-057).
-     */
     @Test
     fun firstInsertIntoEmptyRegionLandsBetweenStaticSiblings() {
         installTestDocument()
@@ -134,9 +128,6 @@ class BrowserKeyedNeighborsTest {
         }
     }
 
-    /**
-     * KSND-027 (sources: INF-026).
-     */
     @Test
     fun siblingKeyedRegionsWithIdenticalKeysStayIndependent() {
         installTestDocument()
@@ -181,9 +172,6 @@ class BrowserKeyedNeighborsTest {
         }
     }
 
-    /**
-     * KSND-028 (sources: INF-027, INF-172).
-     */
     @Test
     fun inlineTextAdjacentToKeyedRegionKeepsPositionAcrossEmptyCycles() {
         installTestDocument()
@@ -222,9 +210,6 @@ class BrowserKeyedNeighborsTest {
         }
     }
 
-    /**
-     * KSND-029 (sources: INF-028, INF-029, PRE-055).
-     */
     @Test
     fun conditionalBannerAndKeyedRowsShareParentAcrossVisibilityMatrix() {
         installTestDocument()
@@ -276,9 +261,6 @@ class BrowserKeyedNeighborsTest {
         }
     }
 
-    /**
-     * KSND-030 (sources: INF-030, INF-021).
-     */
     @Test
     fun keyedRegionReorderReplaceEmptyAndRemountKeepsStaticsUntouched() {
         installTestDocument()
@@ -327,9 +309,6 @@ class BrowserKeyedNeighborsTest {
         }
     }
 
-    /**
-     * KSND-031 (sources: INF-019, SVL-029).
-     */
     @Test
     fun nestedEachOuterAndInnerReorderThenHeadDeletionMatchesFreshShape() {
         installTestDocument()
@@ -374,10 +353,7 @@ class BrowserKeyedNeighborsTest {
         }
     }
 
-    /**
-     * KSND-032 (sources: SOL-044, SVL-030, PRE-136, INF-174).
-     */
-    // KSND-032: FEATURE GAP (by design): FragmentNode carries no reconcile key, multi-root rows flatten to unkeyed siblings and patch positionally; keyed multi-root containers would be a new feature.
+    // FragmentNode has no reconcile key, so keyed multi-root rows are intentionally unsupported.
     @Ignore
     @Test
     fun multiRootRowsMoveAtomicallyAndAreRemovedAsAUnit() {
@@ -432,9 +408,6 @@ class BrowserKeyedNeighborsTest {
         }
     }
 
-    /**
-     * KSND-033 (sources: INF-178, INF-177).
-     */
     @Test
     fun clearingOneRegionDoesNotBulkClearSharedParent() {
         installTestDocument()
@@ -463,9 +436,6 @@ class BrowserKeyedNeighborsTest {
         }
     }
 
-    /**
-     * KSND-034 (sources: SVL-038, SOL-045, SOL-047).
-     */
     @Test
     fun emptyFallbackSwapsWithRowsAndRemainsReactive() {
         installTestDocument()
@@ -528,9 +498,6 @@ class BrowserKeyedNeighborsTest {
         }
     }
 
-    /**
-     * KSND-035 (sources: INF-033, RCT-012, PRE-052).
-     */
     @Test
     fun insertingSiblingBeforeStatefulRowDoesNotRemountOrResetIt() {
         installTestDocument()

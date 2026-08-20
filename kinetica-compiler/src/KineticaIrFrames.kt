@@ -1,5 +1,3 @@
-// referenceClass/referenceFunctions are deprecated in favor of the finder API;
-// migrating the symbol resolvers is tracked separately.
 @file:Suppress("DEPRECATION")
 
 package io.heapy.kinetica.compiler
@@ -471,7 +469,6 @@ internal class KineticaFrameTransformer(
             )
         }
 
-        /** Lambdas passed to `@UiComponent`-annotated function-type parameters are regions. */
         private fun wrapAnnotatedContentArguments(expression: IrCall) {
             wrapAnnotatedContentArgumentsOf(expression, shared)
         }
@@ -579,7 +576,6 @@ internal class KineticaFrameTransformer(
         expression.arguments[parameter.indexInParameters] = builder.irInt(ordinal)
     }
 
-    /** Rebuilds [expression] against [target], mapping arguments by parameter name. */
     private fun retargetCall(
         expression: IrCall,
         target: IrSimpleFunctionSymbol,

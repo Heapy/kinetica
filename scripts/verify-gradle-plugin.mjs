@@ -1,17 +1,5 @@
-// End-to-end verification of the io.heapy.kinetica Gradle plugin: publishes the current sources
-// to the local Maven repository, writes the plugin marker, and builds scripts/fixtures/
-// gradle-plugin-consumer — a project whose only Kinetica wiring is `id("io.heapy.kinetica")`.
-//
-//   node scripts/verify-gradle-plugin.mjs             full run
-//   node scripts/verify-gradle-plugin.mjs --no-publish   reuse what is already in ~/.m2
-//
-// Needs a JDK 17+ on JAVA_HOME for the Gradle wrapper (CI gets one from setup-kinetica; the
-// `./kotlin` CLI provisions its own and does not export it).
-//
-// Three things are proven, in order: the plugin resolves through its marker and compiles a
-// multiplatform project; the compiler plugin actually ran (state/event work at runtime, which
-// is what MissingKineticaPluginException would otherwise report); and the FIR checkers still
-// reject invalid code — the silent failure mode of hand-rolled -Xplugin wiring.
+// Requires JAVA_HOME with JDK 17+; ./kotlin's provisioned JDK is not exported. The fixtures cover
+// marker resolution, runtime compiler transforms, and FIR rejection on JVM and JS.
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -22,7 +10,6 @@ const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 // targets container and a commonMain source set, single-target JVM has neither.
 const fixture = join(repoRoot, "scripts", "fixtures", "gradle-plugin-consumer");
 const jvmFixture = join(repoRoot, "scripts", "fixtures", "gradle-plugin-consumer-jvm");
-// The example's wrapper is the only Gradle distribution in the repository; the fixtures borrow it.
 const gradlew = join(repoRoot, "examples", "gradle-ssr", "gradlew");
 const negativeSource = join(fixture, "negative", "SlotOutsideComponent.kt");
 const negativeTarget = join(fixture, "src", "commonMain", "kotlin", "fixture", "SlotOutsideComponent.kt");
@@ -155,7 +142,6 @@ try {
     );
   }
 } finally {
-  // Only ever removes the file this run put there.
   if (negativeCopied) rmSync(negativeTarget, { force: true });
 }
 

@@ -9,7 +9,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-/** In-memory widget: an ordered child list plus prop/text state. */
 private class TestView(val tag: String) {
     val children = mutableListOf<TestView>()
     val props = mutableMapOf<String, String>()
@@ -17,7 +16,6 @@ private class TestView(val tag: String) {
     var folded: String? = null
     var semantics: Semantics? = null
 
-    /** Render the subtree as a compact string for order assertions. */
     fun dump(): String = when {
         tag == "#text" -> "\"$text\""
         children.isEmpty() -> tag
@@ -199,7 +197,6 @@ class ReconcilerTest {
         val column = root.children.single()
         adapter.clear()
 
-        // "dup" appears twice — keyed reconciliation must refuse and patch positionally.
         reconciler.patch(
             mounted,
             HostNode("column", children = listOf(row("dup", "3"), row("dup", "4"))),
@@ -300,7 +297,6 @@ class ReconcilerTest {
         val column = root.children.single()
         adapter.clear()
 
-        // The fragment grows a second child; it must land BEFORE the trailing row.
         reconciler.patch(
             mounted,
             HostNode(

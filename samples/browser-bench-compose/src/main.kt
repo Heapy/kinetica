@@ -68,15 +68,8 @@ private fun ToolbarButton(tag: String, label: String, handleClick: () -> Unit) {
     }
 }
 
-// Its own composable function (not inlined into the table's for-loop) with only stable
-// parameters (Int/String/Boolean + remember-stable callbacks) so Compose can skip
-// recomposing rows whose id/label/selected haven't changed — the same reason the React
-// and Preact implementations wrap their row in memo() with useCallback handlers.
-// selected is computed in the caller's loop (not deferred/hoisted as State<Int> read here)
-// on purpose: measured on this benchmark, hoisting it made select1k/select10k 3x/27x
-// SLOWER (individually invalidating N keyed-list child scopes hits the same pathological
-// per-key-lookup cost that swap/remove show at this list size) — see main.kt's own note
-// on RowItem's caller and bench-harness-findings memory.
+// Stable parameters let Compose skip unchanged rows. Computing selected in the caller avoids
+// invalidating every keyed child scope when the selection changes.
 @Composable
 private fun RowItem(id: Int, label: String, selected: Boolean, onSelect: (Int) -> Unit, onRemove: (Int) -> Unit) {
     Tr(attrs = {
@@ -117,8 +110,6 @@ fun BenchApp() {
     // referentially stable across recompositions — required for the skip above to trigger.
     val onSelect = remember { { id: Int -> selectedId = id } }
     val onRemove = remember { { id: Int -> rows = rows.filterNot { it.id == id } } }
-    // Toolbar handlers are remembered too, for the same reason as onSelect/onRemove above —
-    // otherwise they're fresh closures on every BenchApp recomposition.
     val onCreate1k = remember { { rows = buildData(1_000); selectedId = 0 } }
     val onCreate10k = remember { { rows = buildData(10_000); selectedId = 0 } }
     val onAppend1k = remember { { rows = rows + buildData(1_000) } }
@@ -189,8 +180,6 @@ fun BenchApp() {
     }
 }
 
-// --- tree benchmark app (UIBench-style; served from the same page with ?app=tree) ---
-//
 // Contract shared with bench/frameworks/*/tree.* and samples/browser-bench: depth 4,
 // fanout 6 => 1555 nodes, 1296 leaves. "run" rebuilds the tree with fresh ids, "update"
 // re-labels every 10th leaf (preorder) with " !<tick>", "reverse" reverses the root's
@@ -244,8 +233,6 @@ private fun TreeNode(node: TreeNodeData, depth: Int) {
 
 @Composable
 fun TreeApp() {
-    // Same referentialEqualityPolicy reasoning as BenchApp.rows above — tree is always
-    // replaced wholesale, never mutated in place.
     var tree by remember { mutableStateOf<TreeNodeData?>(null, referentialEqualityPolicy()) }
     var tick by remember { mutableStateOf(0) }
 

@@ -4,18 +4,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertSame
 
-/**
- * Skippable components must COMPOSE with the rest of the render machinery instead of
- * degrading it: skip hits replay captured events/reads exactly like memoized each rows do,
- * unrelated state writes never defeat a skip, and replay-unsafe bodies (effects) are simply
- * never cached.
- *
- * Frame-era port: `skippableNode` is now emitted by the compiler around receiver-style
- * `@UiComponent` functions with stable inputs, so each scenario uses a real component
- * instead of a hand-rolled `skippableNode` call. The old positional-cursor alignment test
- * (siblingPositionalSlotsStayAlignedAcrossSkips) is dropped: slot identity is structural
- * per frame, cursors no longer exist.
- */
 private data class SkipItem(val id: Int, val label: String)
 
 private var skipItems: List<SkipItem> = emptyList()
@@ -157,8 +145,6 @@ class SkippableEachCompositionTest {
 
         assertEquals(3, skipBadgeRuns, "each row's badge body runs once; skips must not re-run it")
         assertEquals(3, second.size)
-        // A skippable hit inside a row must not mark the enclosing row capture unsafe:
-        // the rows stay reference-equal (memoized).
         first.zip(second).forEach { (before, after) -> assertSame(before, after) }
     }
 
@@ -174,8 +160,6 @@ class SkippableEachCompositionTest {
         render()
         assertEquals(1, chipRuns)
 
-        // The chip reads no cells, so a write to an unrelated cell must not re-run its body
-        // (the old global stateWriteVersion guard invalidated EVERY skippable cache).
         chipCounterCell!!.value = 5
         val second = render()
 
@@ -194,8 +178,6 @@ class SkippableEachCompositionTest {
 
         render()
         clickerTickCell!!.value = 1
-        // This render SKIPS the clicker; without event re-touching, commit would evict the
-        // handler and the dispatch below would be lost.
         val second = render()
 
         runtime.dispatch(second.findClickEventId(), Unit)

@@ -20,9 +20,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertSame
 
 class BrowserTemplateInstanceTest {
-    /**
-     * KSND-123 (sources: INF-134, INF-043, PRE-042).
-     */
     @Test
     fun oneDefinitionInstantiatesIndependentDomSubtrees() {
         installTestDocument()
@@ -62,9 +59,6 @@ class BrowserTemplateInstanceTest {
         }
     }
 
-    /**
-     * KSND-124 (sources: INF-134, SOL-083).
-     */
     @Test
     fun perInstanceTextHolesPatchIndependently() {
         installTestDocument()
@@ -105,9 +99,6 @@ class BrowserTemplateInstanceTest {
         }
     }
 
-    /**
-     * KSND-125 (sources: INF-075).
-     */
     @Test
     fun perInstanceEventHolesDispatchToTheirOwnEventIds() {
         installTestDocument()
@@ -137,9 +128,6 @@ class BrowserTemplateInstanceTest {
         }
     }
 
-    /**
-     * KSND-126 (sources: RCT-004, SVL-024).
-     */
     @Test
     fun keyedTemplateRowsReorderPreservesIdentityAndHoleBindings() {
         installTestDocument()
@@ -194,9 +182,6 @@ class BrowserTemplateInstanceTest {
         }
     }
 
-    /**
-     * KSND-127 (sources: INF-134, PRE-081).
-     */
     @Test
     fun cloneAttributeMutationDoesNotLeakIntoLaterClones() {
         installTestDocument()
@@ -229,9 +214,6 @@ class BrowserTemplateInstanceTest {
         }
     }
 
-    /**
-     * KSND-128.
-     */
     @Test
     fun unmountingOneTemplateInstanceClearsOnlyItsEventBindings() {
         installTestDocument()

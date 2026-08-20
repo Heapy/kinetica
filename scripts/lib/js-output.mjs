@@ -1,13 +1,9 @@
 import { join } from "node:path";
 
-// Since 0.12 the toolchain links JS into build/artifacts/CompiledWebArtifact instead of
-// build/tasks/_<module>_linkJs, one directory per (module, platform, variant). Linking only
-// runs for the release variant, so every JS build in this repo passes `-v release`.
+// Web linking runs only for the release variant.
 export const JS_VARIANT_ARGS = ["-v", "release"];
 
-// `platform` is the toolchain's own name for the web target: "js" or "wasmJs". Both land in
-// CompiledWebArtifact, and a wasmJs module's entry point is still a .mjs (the glue that
-// instantiates the sibling .wasm).
+// Both toolchain web targets use CompiledWebArtifact; wasmJs still enters through .mjs glue.
 export function jsOutputDir(repoRoot, module, { test = false, platform = "js" } = {}) {
   const suffix = test ? `${platform}Testrelease` : `${platform}release`;
   return join(repoRoot, "build", "artifacts", "CompiledWebArtifact", `${module}${suffix}`, "kotlin-output");

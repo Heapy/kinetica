@@ -28,12 +28,7 @@ import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/**
- * The resource → action → invalidate loop with boundaries, driven the way the docs live demo
- * drives it. Regression: the fallback's unit `event { retry }` used to collide with the
- * content's typed `event<String>` slot at the same cursor position, leaving the retry button
- * dead (silent no-op on JS, ClassCastException on JVM).
- */
+/** Guards fallback/content event-slot isolation across error/retry cycles. */
 class BoundaryRetryEventTest {
     @Test
     fun errorBoundaryRetryRecoversAfterActionFailure() = runTest {
@@ -51,19 +46,16 @@ class BoundaryRetryEventTest {
         settle()
         assertTrue("STACK:Kotlin" in root.htmlSnapshot())
 
-        // the success path: submit, action runs, invalidation refetches
         root.input(hasTestTag("input"), "rust")
         root.click(hasTestTag("add"))
         settle()
         assertTrue("STACK:Kotlin,rust" in root.htmlSnapshot())
 
-        // the failure path: the action throws, the nearest errorBoundary captures it
         root.input(hasTestTag("input"), "java")
         root.click(hasTestTag("add"))
         settle()
         assertTrue("ERROR: NPE from backend" in root.htmlSnapshot())
 
-        // retry clears the error, restores the content, and hands the failed input back
         root.click(hasTestTag("retry"))
         settle()
         val recovered = root.htmlSnapshot()
@@ -71,7 +63,6 @@ class BoundaryRetryEventTest {
         assertFalse("ERROR" in recovered, "expected the error to be cleared, got:\n$recovered")
         assertTrue("java" in recovered, "expected the failed draft restored into the input, got:\n$recovered")
 
-        // the loop keeps working after recovery
         root.input(hasTestTag("input"), "go")
         root.click(hasTestTag("add"))
         settle()

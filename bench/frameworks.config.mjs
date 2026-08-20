@@ -1,26 +1,5 @@
-// Single source of truth for benchmarked frameworks, shared by driver/bench.mjs,
-// report/generate.mjs and run.mjs.
-//
-// Rules for adding a framework (see README.md for the full contract):
-// - APPEND new entries at the end. Position in this list assigns the chart color
-//   (validated categorical palette, color follows the entity) — never reorder.
-// - `name` is the results key and the part-file name (results/part-<name>.json).
-// - `url` is served from the REPO ROOT by the driver's static server.
-// - `buttons`: how toolbar buttons are addressed — "id" (#run) or "testid" ([data-testid=run]).
-// - `rowControl`: the clickable element inside td.col-label / td.col-remove — "a" or "button".
-// - `version`: literal string, or { package: "<npm-name>" } resolved from bench/node_modules.
-// - `build`: optional extra build step run from the repo root (JS bundles are always built
-//   via `node build.mjs`, which reads TARGETS in build.mjs).
-// - `treeUrl`: the framework's deep-tree benchmark app (driver/tree.mjs); omit to skip
-//   that framework in the tree bench.
-// - `profile`: recipe for a readable production-mode bundle used by run.mjs --profile.
-//   `build-target` reuses a target exported by build.mjs; `linked-js` bundles a Kotlin/JS
-//   link output. Use `{ unsupported: "reason" }` only for an explicit browser limitation.
-// - `driver`: "canvas" swaps the DOM harness for the window.__bench bridge and switches the
-//   trace anchor (driver/canvas-harness.mjs). Default "dom".
-// - `renderer`: "canvas" moves the entry out of the main table, the geometric mean and the
-//   per-operation baseline into its own report section. Default "dom".
-// - `suites`: restrict an entry to specific suites; omit to take part in all of them.
+// Append only: config position fixes each framework's report color. See bench/README.md for the
+// registry schema and app contract.
 
 export const frameworks = [
   {
@@ -102,11 +81,7 @@ export const frameworks = [
       entry: "build/artifacts/CompiledWebArtifact/browser-bench-composejsrelease/kotlin-output/browser-bench-compose.mjs",
     },
   },
-  // Canvas renderers. They build no DOM at all, so they cannot satisfy the app contract the
-  // DOM frameworks are held to, and the report keeps them out of the main table, the geometric
-  // mean and the per-operation "fastest" baseline (see report/generate.mjs). `driver: "canvas"`
-  // switches the harness to the window.__bench bridge (driver/canvas-harness.mjs); `buttons` and
-  // `rowControl` are DOM concepts and deliberately absent. Both entries are one app, one build.
+  // Canvas entries share a build but never participate in DOM rankings or baselines.
   {
     name: "compose-canvas",
     label: "Compose canvas",
@@ -131,25 +106,20 @@ export const frameworks = [
   },
 ];
 
-// Whether a framework takes part in a suite. Entries without `suites` are in every suite they
-// have a URL for; canvas entries opt into `main` only.
 export function supportsSuite(fw, suite) {
   return fw.suites === undefined || fw.suites.includes(suite);
 }
 
-// Validated categorical palette (dataviz reference, light/dark pairs), assigned by
-// config position. 9 slots available; 9 in use. The slate pair was appended for the second
-// canvas entry — appending is safe, reordering is not (colour follows the entity).
 export const paletteSlots = [
-  ["#2a78d6", "#3987e5"], // blue
-  ["#1baf7a", "#199e70"], // aqua
-  ["#eda100", "#c98500"], // yellow
-  ["#008300", "#008300"], // green
-  ["#4a3aa7", "#9085e9"], // violet
-  ["#e34948", "#e66767"], // red
-  ["#e87ba4", "#d55181"], // magenta
-  ["#eb6834", "#d95926"], // orange
-  ["#5a6570", "#98a4b0"], // slate
+  ["#2a78d6", "#3987e5"],
+  ["#1baf7a", "#199e70"],
+  ["#eda100", "#c98500"],
+  ["#008300", "#008300"],
+  ["#4a3aa7", "#9085e9"],
+  ["#e34948", "#e66767"],
+  ["#e87ba4", "#d55181"],
+  ["#eb6834", "#d95926"],
+  ["#5a6570", "#98a4b0"],
 ];
 
 export function frameworkByName(name) {

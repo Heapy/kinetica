@@ -2,8 +2,6 @@ package app.browser.gameoflife
 
 import kotlin.random.Random
 
-// Shared by the Kinetica and Compose HTML browser implementations.
-
 data class GridPoint(
     val column: Int,
     val row: Int,
@@ -141,7 +139,6 @@ data class LifeBoard(
     }
 }
 
-/** Produces a different, reproducible board seed for each Randomize click. */
 class LifeSeedSequence(
     seed: Int = 0x13579BDF,
 ) {

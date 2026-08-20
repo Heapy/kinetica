@@ -1,15 +1,3 @@
-// Bundle-size (and optional build-time) tracking.
-//
-//   node scripts/size-report.mjs                     # report + compare against baseline
-//   node scripts/size-report.mjs --update-baseline   # accept current sizes as the new baseline
-//   node scripts/size-report.mjs --measure-build     # also time clean + incremental browser-bench builds
-//
-// Tracks the gzip size of Kinetica's shipped JS artifacts (and the bench bundles when
-// present) against bench/size-baseline.json. Exits 1 when a tracked artifact's gzip
-// size grows more than maxGrowthPct over its baseline — update the baseline in the
-// same PR when the growth is intentional. Entries missing on disk are skipped, so the
-// check works in CI stages that build only some artifacts.
-
 import { execSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -24,7 +12,6 @@ const outPath = join(resultsDir, "sizes.json");
 
 const args = new Set(process.argv.slice(2));
 
-// name -> { dir, pattern } (sums all matching files) or { file }
 const TRACKED = {
   "kinetica/browser-bench-bundle": { file: "build/tasks/_browser-bench_bundle/browser-bench.bundle.mjs" },
   "kinetica/browser-bench-js": { dir: jsOutputDir("", "browser-bench"), pattern: /\.mjs$/ },

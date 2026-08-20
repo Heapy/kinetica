@@ -21,11 +21,6 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/*
- * Frame-era port of the RuntimeSmokeTest server/transport/diff/semantics sections. These
- * exercise Node values, transports, schemas, and semantics trees as plain data — no slot
- * DSL — so they port unchanged from the string-keyed era.
- */
 class RuntimeSmokeServerTest {
     @Test
     fun serverRenderStreamEmitsDeferredSubtreesAsTheyBecomeReady() = runTest {
@@ -751,13 +746,10 @@ class RuntimeSmokeServerTest {
 
     @Test
     fun serverActionSchemaAcceptsEnumAndMapInputs() {
-        // A top-level enum input serializes as a JSON string and must validate.
         val enumSchema = serverActionPayloadSchema(SmokeCartStatus.serializer())
         assertEquals(JsonValueKind.String, enumSchema.kind)
         assertEquals(emptyList(), enumSchema.validate(JsonPrimitive("Pending")))
 
-        // A map input serializes as a JSON object with arbitrary keys; the map descriptor's
-        // synthetic key/value elements must NOT be derived as required fields.
         val mapSchema = serverActionPayloadSchema(MapSerializer(String.serializer(), Int.serializer()))
         assertEquals(JsonValueKind.Object, mapSchema.kind)
         assertEquals(

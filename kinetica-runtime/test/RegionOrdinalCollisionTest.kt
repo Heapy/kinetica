@@ -51,10 +51,6 @@ class RegionOrdinalCollisionTest {
             else -> null
         }
 
-    /**
-     * C1: two non-skippable child components leak component-local `each` ordinal 0 into
-     * one parent host; this is red while `section.regions.map { it.ordinal } == [0, 0]`.
-     */
     @Test
     fun flatEachRegionsFromComposedNonSkippableChildrenHaveUniqueOrdinals() {
         val section = sectionFor(RegionOrdinalCollisionProbe())

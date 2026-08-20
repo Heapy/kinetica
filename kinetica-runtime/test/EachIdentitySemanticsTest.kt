@@ -205,9 +205,6 @@ class EachIdentitySemanticsTest {
         assertEquals(expected, probe.exitsSnapshot())
     }
 
-    /**
-     * KSND-036 (sources: RCT-003, PRE-018, INF-041).
-     */
     @Test
     fun keyChangeAtSamePositionDiscardsRowState() {
         val runtime = KineticaRuntime()
@@ -238,9 +235,6 @@ class EachIdentitySemanticsTest {
         assertEquals(listOf("row:0"), tree.rowTexts())
     }
 
-    /**
-     * KSND-037 (sources: RCT-008).
-     */
     @Test
     fun removedThenReaddedKeyGetsFreshRowWithoutResurrectingState() {
         val runtime = KineticaRuntime()
@@ -270,9 +264,6 @@ class EachIdentitySemanticsTest {
         assertSame(yBefore, tree.rows()[1])
     }
 
-    /**
-     * KSND-038 (sources: RCT-010, RCT-009, PRE-021, SVL-042).
-     */
     @Test
     fun rotationPreservesPerRowStateAtEveryStep() {
         val runtime = KineticaRuntime()
@@ -297,9 +288,6 @@ class EachIdentitySemanticsTest {
         }
     }
 
-    /**
-     * KSND-039 (sources: RCT-014, PRE-017).
-     */
     @Test
     fun reorderOfSkipEligibleRowsStillAppliesNewOrder() {
         val runtime = KineticaRuntime()
@@ -322,9 +310,6 @@ class EachIdentitySemanticsTest {
         assertEquals(listOf("X", "K", "W", "H"), probe.renders)
     }
 
-    /**
-     * KSND-040 (sources: SVL-024, PRE-001).
-     */
     @Test
     fun sameKeysWithNewItemDataUpdateRowsWithoutResettingState() {
         val runtime = KineticaRuntime()
@@ -354,9 +339,6 @@ class EachIdentitySemanticsTest {
         assertEquals(listOf("beer:1", "toast:2"), tree.rowTexts())
     }
 
-    /**
-     * KSND-041 (sources: RCT-007, SVL-039, VUE-111).
-     */
     @Test
     fun duplicateKeysProduceDeterministicDiagnosticOnMountAndUpdate() {
         val mountRuntime = KineticaRuntime()
@@ -384,9 +366,6 @@ class EachIdentitySemanticsTest {
         assertEquals("1", updateRuntime.warnings().single { warning -> warning.code == "duplicate-key" }.attributes["key"])
     }
 
-    /**
-     * KSND-042 (sources: INF-015, INF-016).
-     */
     @Test
     fun keyTypeAndContentDistinctnessKeepRowsSeparate() {
         val runtime = KineticaRuntime()
@@ -421,9 +400,6 @@ class EachIdentitySemanticsTest {
         assertEquals(3, probe.inits.size)
     }
 
-    /**
-     * KSND-043 (sources: SOL-062, SOL-061, RCT-005, PRE-124, PRE-125).
-     */
     @Test
     fun keyedBranchUsesSourceKeyedFrameIdentityContract() {
         val runtime = KineticaRuntime()
@@ -454,16 +430,10 @@ class EachIdentitySemanticsTest {
         probe.currentKey = "A"
         probe.label = "again"
         tree = render()
-        // Keyed frames DEACTIVATE and retain non-transient state when their key leaves.
-        // Returning to the key re-activates it by design (Frame.deactivate),
-        // unlike React/Inferno remount semantics.
         assertEquals(listOf("A:again:3"), tree.rowTexts())
         assertEquals(2, probe.inits)
     }
 
-    /**
-     * KSND-044 (sources: RCT-414, INF-108, SVL-110).
-     */
     @Test
     fun rowDisposalOnKeyExitRunsExactlyOnce() = runTest {
         val runtime = KineticaRuntime()
@@ -497,9 +467,6 @@ class EachIdentitySemanticsTest {
         }
     }
 
-    /**
-     * KSND-045 (sources: SVL-040, SVL-023).
-     */
     @Test
     fun valueEqualKeyObjectsRetainAndMoveRows() {
         val runtime = KineticaRuntime()

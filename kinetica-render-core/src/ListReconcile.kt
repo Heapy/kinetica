@@ -5,9 +5,7 @@ package io.heapy.kinetica.render
  * Negative entries mean "no previous position" (freshly mounted nodes) and are skipped —
  * they can never be part of the stable sequence.
  *
- * Used by keyed child reconciliation: children whose old positions form the LIS stay in
- * place; everything else is moved. O(n log n). Shared by the browser renderer's keyed diff
- * and the native [Reconciler].
+ * Keyed children in the LIS stay in place; everything else moves. O(n log n).
  */
 public fun longestIncreasingSubsequenceIndices(values: IntArray): IntArray {
     val scratch = LongestIncreasingSubsequenceScratch()

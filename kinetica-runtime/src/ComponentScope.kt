@@ -43,7 +43,6 @@ public class ComponentScope public constructor(
     private val postCommitEffects = mutableListOf<() -> Unit>()
     private var nextChildRegionOrdinal = 0
 
-    // --- Frame kernel: ordinal-addressed storage assigned by the compiler plugin ---
     internal val rootFrame: Frame = Frame(table = null, parent = null)
     internal var currentFrame: Frame = rootFrame
         private set
@@ -127,7 +126,6 @@ public class ComponentScope public constructor(
         currentFrame.touchSlot(ordinal, slotGeneration, transient)
     }
 
-    /** Stores [value] in the slot, replacing any previous holder (identity-keyed slots). */
     internal fun <T> frameSlotTouch(ordinal: Int, transient: Boolean, value: T): T {
         currentFrame.setSlotValue(ordinal, slotGeneration, transient, value)
         return value
@@ -400,7 +398,6 @@ public class ComponentScope public constructor(
         }
     }
 
-    /** Frame-native `suspendKeyed`; called by compiler-generated code. */
     public suspend fun suspendKeyedRegion(ordinal: Int, key: Any, content: suspend ComponentScope.() -> Unit) {
         enterKeyedChildFrame(ordinal, key)
         try {
@@ -515,8 +512,6 @@ public class ComponentScope public constructor(
         coroutineScope.cancel()
     }
 
-    // --- Persistence: SlotId-addressed cells registered at slot creation ---
-
     private class SlotIdCellEntry(
         val cell: MutableCellImpl<*>,
         val persistent: Boolean,
@@ -571,7 +566,6 @@ public class ComponentScope public constructor(
     internal fun hasPendingRestoredValue(slotId: SlotId): Boolean =
         slotId in pendingRestoredValues
 
-    /** Returns and clears the parked restore value for [slotId]. */
     internal fun takePendingRestoredValue(slotId: SlotId): Any? =
         pendingRestoredValues.remove(slotId)
 
@@ -634,8 +628,6 @@ public class ComponentScope public constructor(
             1 -> single()
             else -> FragmentNode(this)
         }
-
-    // --- Frame-native memoization: caches validated by cell versions + context reads ---
 
     private val frameCaptures = mutableListOf<FrameCaptureState>()
 
@@ -923,10 +915,7 @@ public fun <T> ComponentScope.derived(
     ordinal: Int = -1,
     compute: () -> T,
 ): Cell<T> {
-    // Back derived{} with a slot, exactly like state(): the DerivedCell is allocated once
-    // and reused across renders, so its lazy cache and version counter survive instead of
-    // restarting from zero on every render. The compute closure is refreshed because it
-    // may capture render-local inputs from the current invocation.
+    // Reuse the slotted DerivedCell, but refresh compute because it may capture render-local input.
     if (ordinal < 0) throw MissingKineticaPluginException("derived")
     val cell = frameSlot(ordinal) { DerivedCell(policy, compute) }
     cell.updateDefinition(policy, compute)

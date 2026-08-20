@@ -29,8 +29,8 @@ public class KineticaGradlePlugin : KotlinCompilerPluginSupportPlugin {
             enabled.convention(true)
             addRuntimeDependencies.convention(true)
             kineticaVersion.convention(KineticaCoordinates.version)
-            // Moving kineticaVersion moves the compiler with it; setting compilerVersion pins
-            // only the compiler, which is what a compiler-plugin bug hunt needs.
+            // kineticaVersion moves compiler and runtimes together; compilerVersion pins only the
+            // compiler for compiler-plugin experiments.
             compilerVersion.convention(kineticaVersion)
         }
 
@@ -159,7 +159,6 @@ public class KineticaGradlePlugin : KotlinCompilerPluginSupportPlugin {
 
         val common = sourceSets.findByName(KotlinSourceSet.COMMON_MAIN_SOURCE_SET_NAME)
         if (common != null) {
-            // Multiplatform: commonMain carries the runtime for every target at once.
             common.addImplementation(runtime)
         } else {
             sourceSets.findByName(SINGLE_TARGET_MAIN_SOURCE_SET_NAME)?.addImplementation(runtime)

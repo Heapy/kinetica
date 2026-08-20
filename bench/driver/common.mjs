@@ -1,7 +1,3 @@
-// Shared driver machinery for bench.mjs / scaling.mjs / tree.mjs: argument parsing,
-// vendored-Playwright resolution, framework selector maps, the trace parser and stats.
-// Keep methodology changes here so all three drivers measure identically.
-
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -39,9 +35,7 @@ export async function launchChromium() {
   );
   const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ??
     (existsSync(vendoredChromium) ? vendoredChromium : undefined);
-  // Demo knobs, off by default — for watching a run, never for recording one. A headed window
-  // composites to a real display (and on a HiDPI screen draws ~4x the pixels), so anything
-  // measured under them is not comparable with the recorded numbers.
+  // Headed/slow runs are demos only; display compositing makes their timings incomparable.
   const headless = process.env.BENCH_HEADED !== "1";
   const slowMo = Number(process.env.BENCH_SLOWMO ?? 0);
   return chromium.launch({ headless, executablePath, slowMo });
@@ -74,11 +68,7 @@ export function frameworkSelectors(fw) {
   };
 }
 
-// The harness is the *only* place the drivers touch a page's state, so that a renderer without
-// a DOM can be measured by the same benchmark definitions. Every assertion the main suite makes
-// lives here as a named method rather than as an inline document.querySelector in bench.mjs;
-// the DOM implementation below keeps those predicates byte-identical to what they were, so
-// nothing measured changes for the DOM frameworks and old result parts stay comparable.
+// Keep page-state access behind this boundary so DOM and canvas runs share benchmark definitions.
 export function makeHarness(page, fw) {
   return {
     page,
@@ -119,7 +109,6 @@ export function makeHarness(page, fw) {
     async waitFn(fn, arg) {
       await page.waitForFunction(fn, arg, { polling: 100, timeout: 60_000 });
     },
-    // --- assertions the main suite ends its measured windows on ---
     async waitReplaced(prevId, count) {
       await this.waitFn(
         ({ p, c }) =>
@@ -156,8 +145,6 @@ export function makeHarness(page, fw) {
   };
 }
 
-// Single switch point between the DOM harness and the bridge-backed one used by canvas
-// renderers (see canvas-harness.mjs and the `driver` field in frameworks.config.mjs).
 export async function harnessFor(page, fw) {
   if (fw.driver === "canvas") {
     const { makeCanvasHarness } = await import("./canvas-harness.mjs");
@@ -169,12 +156,8 @@ export async function harnessFor(page, fw) {
 export async function openPage(browser, url, { throttle = 0 } = {}) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await context.newPage();
-  // Default 30s is an automation safety guard, not part of the measured duration (that
-  // comes from Chrome trace timestamps) — widened so a framework whose click handler
-  // runs synchronously for a long time (e.g. O(n^2)-class reconciliation surfacing on
-  // the 10k ops, exactly what those ops are designed to catch) gets recorded rather than
-  // aborting the run. Applied to every framework; frameworks that return in milliseconds
-  // are unaffected.
+  // This automation guard is outside trace-derived durations and must allow deliberately slow
+  // 10k operations to finish on every framework.
   page.setDefaultTimeout(180_000);
   const pageErrors = [];
   page.on("pageerror", (e) => pageErrors.push(e.message));
@@ -187,8 +170,7 @@ export async function openPage(browser, url, { throttle = 0 } = {}) {
   return { context, page, pageErrors };
 }
 
-// --- trace parsing: click EventDispatch -> last Paint end, krausest-style ---
-// Also extracts GC time (MinorGC/MajorGC/V8.GC*/BlinkGC.*) inside the measured window.
+// GC time includes V8 and Blink collectors inside the measured trace window.
 
 const GC_EVENT = /^(MinorGC|MajorGC|GCEvent|BlinkGC\.|V8\.GC)/;
 const PAINT_EVENT = /^(Paint|PaintImage|Commit|CompositeLayers)$/;
@@ -197,18 +179,9 @@ const PAINT_EVENT = /^(Paint|PaintImage|Commit|CompositeLayers)$/;
 // within ~5ms, and the unrelated repaint that follows arrives 100-350ms later.
 const CLUSTER_GAP_US = 50_000;
 
-// `anchor` selects how the end of the measured window is found.
-//
-//   "last-paint" (default, DOM frameworks, unchanged): the last Paint/Commit anywhere after the
-//   click, requiring at least one real Paint — a DOM update always produces one, and taking the
-//   last covers async flushes.
-//
-//   "cluster" (canvas renderers): the end of the FIRST run of paint/commit activity after the
-//   click, and Commit alone counts as evidence. A canvas layer updates through a compositor
-//   commit and produces no Blink Paint at all, so requiring one anchors the measurement to
-//   whatever repaints the DOM layers next — verified on this app to be an unrelated repaint
-//   100-350ms after the frame the click actually produced (while the same app sustains 120fps
-//   in the animate loop, which that latency would make impossible).
+// DOM uses the last Paint/Commit after the click so async flushes are included. Canvas uses the
+// first paint/commit cluster and accepts Commit-only frames; requiring Blink Paint would anchor
+// to an unrelated DOM-layer repaint 100-350ms later.
 export function parseTrace(buffer, { anchor = "last-paint" } = {}) {
   const { traceEvents } = JSON.parse(buffer.toString());
   const clicks = traceEvents.filter(
@@ -304,8 +277,6 @@ function mergedLength(intervals) {
   return total + (end - start);
 }
 
-// --- stats ---
-
 export const round2 = (x) => Math.round(x * 100) / 100;
 
 export function stats(samples) {
@@ -347,14 +318,8 @@ export function logLogSlope(xs, ys) {
   return { exponent: round2(slope), r2: round2(r2) };
 }
 
-// One traced, measured click: starts tracing, runs action(), awaits wait(), returns
-// parseTrace output. The 60ms lead-in mirrors the original bench.mjs timing. The
-// post-wait settle was widened from 280ms to 700ms (2026-07-07, added for compose-web):
-// a GC-heavy framework can legitimately push the browser's actual Paint several hundred
-// ms past when the DOM assertion resolves (concurrent major GC competing with the
-// compositor), and 280ms was tight enough to misreport that as "no paint after click"
-// rather than recording the (large, real) duration. Applied uniformly to every
-// framework — negligible cost for frameworks that already paint within tens of ms.
+// The uniform 700ms settle preserves Paint events delayed by GC/compositor contention; it is
+// outside the trace-derived result.
 export async function measureTracedClick(browser, page, action, wait, { anchor } = {}) {
   await browser.startTracing(page, {
     screenshots: false,

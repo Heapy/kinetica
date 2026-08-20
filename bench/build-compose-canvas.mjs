@@ -1,12 +1,6 @@
-// Builds the Compose Multiplatform canvas app (Kotlin/Wasm + skiko) for the browser benchmark.
-//
-// Unlike the JS apps there is no bundling step: the toolchain's wasm glue fetches its .wasm by
-// URL relative to its own module, so the linked output is served as-is. What the toolchain does
-// NOT do is lay out the skiko runtime — the generated `<module>.import-object.mjs` opens with
-// `import * as … from './skiko.mjs'`, but only the module's own four files are emitted (in a
-// Gradle build the Compose plugin unpacks the runtime). So this script drops `skiko.mjs` and
-// `skiko.wasm` next to the linked output, taking them from the toolchain's own dependency cache
-// when it is there and falling back to Maven Central.
+// The wasm glue loads sibling files directly, so it is served without bundling. Kotlin Toolchain
+// does not lay out skiko.mjs/skiko.wasm as Gradle's Compose plugin does; copy them from the
+// resolved cache or fall back to Maven Central.
 
 import { createWriteStream, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -63,9 +57,7 @@ console.log(
     `${(raw / 1048576).toFixed(2)}MB raw / ${(gzip / 1048576).toFixed(2)}MB gzip across ${artifacts.length} files`,
 );
 
-// The toolchain resolves skiko-js-wasm-runtime as a normal dependency, so in a repository that
-// has just built the module the jar is already on disk — no download, and guaranteed to be the
-// version this build actually linked against.
+// Prefer the normal toolchain dependency cache so the copied runtime matches the linked build.
 function resolveSkikoVersion() {
   const output = execFileSync(kotlin, [
     "show",

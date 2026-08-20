@@ -20,7 +20,6 @@ import seo.site.IslandJson
 import seo.site.NotFoundPage
 import seo.site.SiteLayout
 
-/** Everything a crawler reads before it reads the body. */
 data class PageSeo(
     val title: String,
     val description: String,
@@ -146,7 +145,6 @@ private fun documentShell(
         appendProperty("og:site_name", "Kinetica SSR")
         appendMeta("twitter:card", "summary_large_image")
         append("<link rel=\"stylesheet\" href=\"/static/site.css\">\n")
-        // defer, not blocking: the document is already complete without the bundle.
         append("<script src=\"/static/client.js\" defer></script>\n")
         seo.jsonLd?.let { json ->
             append("<script type=\"application/ld+json\">")

@@ -1,9 +1,5 @@
 #!/usr/bin/env node
 
-// Unified benchmark orchestrator. It provisions project-local Node/Playwright
-// dependencies, publishes the current compiler plugin once, builds selected apps,
-// runs browser/JVM/size suites, merges browser parts, and regenerates the report.
-
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -1218,8 +1214,7 @@ async function buildBrowserApps(browserFrameworks = executedBrowserFrameworks) {
       for (const target of genericTargets) await buildTarget(target);
     }
   }
-  // Several entries can share one app (the two canvas variants differ only by a query
-  // parameter), so a build command runs once per distinct command line.
+  // Canvas variants share an app, so run each distinct build command once.
   const ranBuilds = new Set();
   for (const framework of browserFrameworks) {
     if (!framework.build) continue;

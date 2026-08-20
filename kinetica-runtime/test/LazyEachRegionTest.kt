@@ -21,10 +21,6 @@ private fun ComponentScope.LazyEachRegionApp(probe: LazyEachRegionProbe) {
 }
 
 class LazyEachRegionTest {
-    /**
-     * C6a: `lazyEachRegion` must record a `ChildRegion` for its emitted row span; red while
-     * `ComponentScope.lazyEachRegion` renders rows without appending to the active region frame.
-     */
     @Test
     fun lazyEachInsideHostRecordsChildRegionSpan() {
         val section = renderLazyEachSection()

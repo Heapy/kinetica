@@ -6,13 +6,6 @@ import kotlin.test.assertNotSame
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-/**
- * Frame-era port of the each-row memoization suite: every `each` lives in a private
- * top-level `@UiComponent` component (the compiler plugin assigns slot/child ordinals),
- * parameterized through top-level vars and scope-free cells. Semantics preserved from the
- * cursor era, except sibling slot identity is now structural: the old cursor-delta test is
- * replaced by [EachMemoizationTest.rowStateIdentityIsStableWhenSiblingRowsSkip].
- */
 private data class MemoItem(val id: Int, val label: String)
 
 private var memoItems: List<MemoItem> = emptyList()
@@ -84,8 +77,6 @@ private fun ComponentScope.MemoModalRows() {
 private fun ComponentScope.MemoCounterRows() {
     column {
         each(memoItems, key = { it.id }) { item ->
-            // Frame-era invariant: each row's state lives in its own keyed frame, so a
-            // sibling row skipping (memoized) can never shift this row's slot identity.
             var count by state { 0 }
             host("li", key = item.id) {
                 text("${item.label}:$count", semantics = null)
@@ -351,10 +342,6 @@ class EachMemoizationTest {
 
     @Test
     fun rowStateIdentityIsStableWhenSiblingRowsSkip() {
-        // Frame-era replacement for the cursor-delta test: sibling state identity no longer
-        // depends on skipped rows reserving cursor positions — each row owns a keyed frame —
-        // but the observable contract stays: a memoized sibling must not disturb this row's
-        // state across skips and rebuilds.
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
         memoItems = listOf(MemoItem(1, "one"), MemoItem(2, "two"))
@@ -362,7 +349,6 @@ class EachMemoizationTest {
         fun render(): List<HostNode> = runtime.render(scope) { MemoCounterRows() }.tree.rows()
 
         val first = render()
-        // Row 1 stays memoized while row 2's counter is bumped and its item relabeled.
         runtime.dispatch(first[1].findClickEventId())
         val second = render()
         assertEquals("two:1", second[1].findText().value)
@@ -403,8 +389,6 @@ class EachMemoizationTest {
         fun render(): List<HostNode> = runtime.render(scope) { MemoExternalRows() }.tree.rows()
 
         render()
-        // Second render serves the row from cache; the runtime must keep observing the
-        // external cell even though no live content read it this render.
         render()
         memoExternal.value = "bye"
         assertTrue(runtime.hasPendingInvalidation)
@@ -445,9 +429,7 @@ class EachMemoizationTest {
         val first = render()
         val second = render()
 
-        // The outer row contains a nested each, so it rebuilds every render...
         assertNotSame(first, second)
-        // ...but the inner rows come from the inner cache, reference-equal.
         first.children.zip(second.children).forEach { (before, after) -> assertSame(before, after) }
     }
 
@@ -464,9 +446,6 @@ class EachMemoizationTest {
 
         val first = render()
 
-        // Row a leaves the list in the same render that row b turns non-memoizable; a's
-        // keyed frame must still be disposed (its runtime event handlers are gone after
-        // commit) so a later re-add rebuilds instead of replaying dead events.
         memoEffectRows = listOf(MemoEffectRow(2, "b", effect = true))
         render()
 

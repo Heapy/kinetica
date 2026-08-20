@@ -32,8 +32,6 @@ import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.staticCFunction
 
-// The component is identical to samples/native-counter (and the counter block to
-// samples/browser-counter) — the value tree is toolkit-agnostic across DOM, AppKit and GTK.
 @UiComponent
 fun ComponentScope.CounterApp() {
     var count by state { 0 }

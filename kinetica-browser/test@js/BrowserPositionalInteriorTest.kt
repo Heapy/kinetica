@@ -12,10 +12,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertSame
 
 class BrowserPositionalInteriorTest {
-    /**
-     * C4: a positionally stable same-tag interior child should be patched in place; this is
-     * red because patchStaticRange block-replaces the whole changed middle.
-     */
     @Test
     fun stableInteriorHostSurvivesTypeChangingNeighbors() {
         installTestDocument()

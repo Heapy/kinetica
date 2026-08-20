@@ -34,8 +34,7 @@ jobs:
       - name: Publish compiler plugin
         run: ./kotlin publish mavenLocal -m kinetica-compiler
 
-      # One CLI invocation shares project discovery and task scheduling across the whole
-      # JVM graph. The repeated -m form is supported by Kotlin Toolchain 0.12.
+      # One invocation shares project discovery and task scheduling across the JVM graph.
       - name: JVM test suite
         run: |
           set -euo pipefail
@@ -150,7 +149,6 @@ jobs:
           node build/artifacts/CompiledWebArtifact/kinetica-runtimejsTestrelease/kotlin-output/kinetica-runtime_test.mjs
           node build/artifacts/CompiledWebArtifact/kinetica-testjsTestrelease/kotlin-output/kinetica-test_test.mjs
 
-      # Fails when a tracked artifact's gzip size grows >10% over the committed baseline.
       - name: Bundle size check
         run: node scripts/size-report.mjs
 
@@ -231,9 +229,6 @@ jobs:
       - name: Publish compiler plugin
         run: ./kotlin publish mavenLocal -m kinetica-compiler
 
-      # kinetica-runtime and kinetica-render-core joined this list on Kotlin Toolchain 0.12:
-      # their test sources need internal (friend) access and cinterop on the test classpath,
-      # neither of which 0.11 gave Native test compilations (KNT-0042, KTC-5573).
       - name: Native test suite (macosArm64)
         run: |
           set -euo pipefail
@@ -253,9 +248,7 @@ jobs:
       - name: Gradle plugin consumer check
         run: node scripts/verify-gradle-plugin.mjs
 
-      # Smoke-build the native macOS sample: compiles kinetica-appkit (the AppKit renderer) and
-      # links a macosArm64 executable. GUI launch is not automated (no display in CI); the build
-      # itself exercises the full toolchain path: K2 plugin + Native IR + AppKit interop.
+      # CI has no display; compilation and linking are the native renderer smoke test.
       - name: Build native macOS sample (macosArm64)
         run: ./kotlin build -m native-counter
 
@@ -299,18 +292,15 @@ jobs:
       - name: Publish compiler plugin
         run: ./kotlin publish mavenLocal -m kinetica-compiler
 
-      # .def files cannot run pkg-config themselves (no shell substitution in the K/N def
-      # parser — KNT-0047), so the flags are expanded here before the toolchain sees them.
+      # .def files cannot run pkg-config themselves, so expand the flags before the toolchain
+      # sees them.
       - name: Generate GTK cinterop definition
         run: ./kinetica-gtk/generate-def.sh
 
-      # Native-host bonus: the shared reconciler's test suite RUNS on linuxX64 here — the
-      # macOS job can only cross-compile it.
       - name: Render-core native tests (linuxX64)
         run: ./kotlin test --platform linuxX64 -m kinetica-render-core
 
-      # Smoke-build the GTK sample: compiles kinetica-gtk (cinterop + Native IR + K2 plugin)
-      # and links a linuxX64 executable. GUI launch is not automated (no display in CI).
+      # CI has no display; compilation and linking are the GTK renderer smoke test.
       - name: Build native GTK sample (linuxX64)
         run: ./kotlin build -m native-counter-gtk
 

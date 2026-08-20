@@ -23,9 +23,6 @@ import platform.AppKit.NSWindowStyleMaskResizable
 import platform.AppKit.NSBackingStoreBuffered
 import platform.Foundation.NSMakeRect
 
-// The counter block is identical to samples/browser-counter — the value tree is toolkit-agnostic.
-// The name row exercises the KNT-0046 textInput wiring (onInput payload dispatch + focus/typing
-// survival across retained-diff renders).
 @UiComponent
 fun ComponentScope.CounterApp() {
     var count by state { 0 }

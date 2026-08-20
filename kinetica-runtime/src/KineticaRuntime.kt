@@ -201,15 +201,9 @@ public class KineticaRuntime(
     }
 
     /**
-     * Registers [listener] to run on every [invalidate] — including the implicit "cell write"
-     * invalidations from render-subscribed cells. This is the scheduling hook renderers use to
-     * drive their own flush loop (the browser rAF scheduler, the AppKit main-thread marshal):
-     * the runtime itself never re-renders.
-     *
-     * Contract: the listener runs on the invalidating thread (for effect-driven cell writes on
-     * Native that is a background dispatcher thread), AFTER the invalidation flag is set and
-     * OUTSIDE the runtime lock — it may safely call back into the runtime (e.g. read
-     * [hasPendingInvalidation] or re-[invalidate]). Marshal to your UI thread before rendering.
+     * Renderer scheduling hook; the runtime never re-renders itself. The listener runs on the
+     * invalidating thread after the flag is set and outside the runtime lock, so UI renderers must
+     * marshal it to their main thread.
      */
     public fun onInvalidation(listener: (cause: String) -> Unit): Disposable {
         synchronizedOn(runtimeLock) { invalidationListeners += listener }
