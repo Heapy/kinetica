@@ -3,9 +3,11 @@ package io.heapy.kinetica.compiler
 import org.jetbrains.kotlin.com.intellij.psi.PsiElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.diagnostics.KtDiagnosticFactory1
+import org.jetbrains.kotlin.diagnostics.KtDiagnosticFactory2
 import org.jetbrains.kotlin.diagnostics.KtDiagnosticFactoryToRendererMap
 import org.jetbrains.kotlin.diagnostics.KtDiagnosticsContainer
 import org.jetbrains.kotlin.diagnostics.error1
+import org.jetbrains.kotlin.diagnostics.error2
 import org.jetbrains.kotlin.diagnostics.rendering.BaseDiagnosticRendererFactory
 import org.jetbrains.kotlin.diagnostics.rendering.CommonRenderers
 import org.jetbrains.kotlin.diagnostics.reportOn
@@ -20,8 +22,10 @@ import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirExpressionChecke
 import org.jetbrains.kotlin.fir.analysis.extensions.FirAdditionalCheckersExtension
 import org.jetbrains.kotlin.fir.declarations.FirAnonymousFunction
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
+import org.jetbrains.kotlin.fir.declarations.FirValueParameter
 import org.jetbrains.kotlin.fir.declarations.hasAnnotation
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
+import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirLoop
 import org.jetbrains.kotlin.fir.expressions.impl.FirResolvedArgumentList
@@ -31,9 +35,11 @@ import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
+import org.jetbrains.kotlin.fir.types.canBeNull
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.coneTypeOrNull
 import org.jetbrains.kotlin.fir.types.customAnnotations
+import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
@@ -50,6 +56,8 @@ import org.jetbrains.kotlin.name.Name
  * D. No slot/event/component call directly inside a loop body: static ordinals cannot
  *    tell iterations apart. `keyed {}` / `each(key = …)` are the sanctioned loop forms.
  * E. `@UiComponent` functions must have a `ComponentScope` receiver.
+ * F. Ordinal-consuming calls cannot sit in arbitrary multi-run lambdas. Kinetica DSL
+ *    content and Kotlin's single-run scope functions share the enclosing frame safely.
  */
 internal val KINETICA_PACKAGE: FqName = FqName("io.heapy.kinetica")
 internal val UI_COMPONENT_CLASS_ID: ClassId = ClassId(KINETICA_PACKAGE, Name.identifier("UiComponent"))
@@ -67,15 +75,33 @@ private val SLOT_DSL_NAMES = setOf(
 private val LOOP_SAFE_REGION_NAMES = setOf("keyed", "suspendKeyed", "each", "lazyEach")
 
 /** Region constructs whose function-typed content arguments must be lambda literals (rule C). */
-private val REGION_CONSTRUCT_NAMES = LOOP_SAFE_REGION_NAMES +
-    setOf("errorBoundary", "loadingBoundary", "suspendSubtree", "exitGroup")
+private val REGION_CONTENT_PARAMETERS = mapOf(
+    "keyed" to setOf("content"),
+    "suspendKeyed" to setOf("content"),
+    "each" to setOf("content"),
+    "lazyEach" to setOf("content", "placeholder"),
+    "errorBoundary" to setOf("content", "fallback"),
+    "loadingBoundary" to setOf("content", "fallback"),
+    "suspendSubtree" to setOf("content", "fallback"),
+    "exitGroup" to setOf("content"),
+)
 
-private val REGION_CONTENT_PARAMETER_NAMES = setOf("content", "fallback")
+private val REGION_CONSTRUCT_NAMES = REGION_CONTENT_PARAMETERS.keys
+private val KOTLIN_PACKAGE: FqName = FqName("kotlin")
+private val SINGLE_RUN_SCOPE_FUNCTIONS = setOf("let", "run", "with", "apply", "also")
+private val SINGLE_RUN_KINETICA_FUNCTIONS = setOf("peek")
+private val OPTIONAL_EVENT_PARAMETERS = mapOf(
+    "button" to setOf("onClick"),
+    "textInput" to setOf("onInput", "onSubmit"),
+    "checkbox" to setOf("onToggle"),
+)
 
 public object KineticaFirErrors : KtDiagnosticsContainer() {
     public val SLOT_CALL_OUTSIDE_COMPONENT: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
     public val COMPONENT_CALL_OUTSIDE_COMPONENT: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
     public val SLOT_CALL_IN_LOOP: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
+    public val CALL_IN_MULTI_RUN_LAMBDA: KtDiagnosticFactory2<String, String> by
+        error2<PsiElement, String, String>()
     public val REGION_CONTENT_NOT_LITERAL: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
     public val COMPONENT_WITHOUT_SCOPE_RECEIVER: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
 
@@ -100,6 +126,13 @@ public object KineticaFirErrorRenderers : BaseDiagnosticRendererFactory() {
             KineticaFirErrors.SLOT_CALL_IN_LOOP,
             "''{0}'' must not be called directly inside a loop: compiler-assigned slot ordinals " +
                 "cannot tell iterations apart. Wrap the loop body in keyed(key) '{' … '}' or use each(items, key = '{' … '}').",
+            CommonRenderers.STRING,
+        )
+        map.put(
+            KineticaFirErrors.CALL_IN_MULTI_RUN_LAMBDA,
+            "Kinetica call ''{0}'' cannot use a compiler-assigned ordinal inside the multi-run ''{1}'' lambda. " +
+                "Use each(items, key = ...) or keyed(...) for repeated rendering.",
+            CommonRenderers.STRING,
             CommonRenderers.STRING,
         )
         map.put(
@@ -139,20 +172,19 @@ private object KineticaCallChecker : FirExpressionChecker<FirFunctionCall>(MppCh
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
         val callee = expression.calleeReference.toResolvedCallableSymbol() ?: return
-        val callableId = callee.callableId ?: return
         val session = context.session
-        val name = callableId.callableName.asString()
+        val name = callee.callableId?.callableName?.asString() ?: callee.name.asString()
         // Same-package members of other classes (e.g. KineticaRuntime.frameValue) are not
         // slot DSL: only ComponentScope members and ComponentScope extensions qualify.
-        val isKineticaDsl = callableId.packageName == KINETICA_PACKAGE &&
-            (callableId.classId == COMPONENT_SCOPE_CLASS_ID ||
-                (callableId.classId == null &&
-                    callee.resolvedReceiverTypeRef?.coneType?.classId == COMPONENT_SCOPE_CLASS_ID))
+        val isKineticaDsl = callee.isKineticaDsl()
         val isSlotDsl = isKineticaDsl && name in SLOT_DSL_NAMES
         val isRegionConstruct = isKineticaDsl && name in REGION_CONSTRUCT_NAMES
         val isLoopSafeRegion = isKineticaDsl && name in LOOP_SAFE_REGION_NAMES
         val isComponentCall = callee.hasAnnotation(UI_COMPONENT_CLASS_ID, session)
-        if (!isSlotDsl && !isRegionConstruct && !isLoopSafeRegion && !isComponentCall) {
+        val hasComponentTypedLambdaArgument = expression.hasComponentTypedLambdaArgument()
+        if (!isSlotDsl && !isRegionConstruct && !isLoopSafeRegion &&
+            !isComponentCall && !hasComponentTypedLambdaArgument
+        ) {
             return
         }
 
@@ -170,17 +202,36 @@ private object KineticaCallChecker : FirExpressionChecker<FirFunctionCall>(MppCh
             return
         }
 
-        // Rule D: static ordinals cannot tell loop iterations apart.
-        if (!isLoopSafeRegion && context.isDirectlyInsideLoop(session)) {
+        val consumesCompilerOrdinal = expression.consumesCompilerOrdinal(session)
+
+        // Rule D: static ordinals cannot tell loop iterations apart. Optional host-event
+        // calls with no definitely-present handler do not consume an ordinal at runtime.
+        if (!isLoopSafeRegion && consumesCompilerOrdinal && context.isDirectlyInsideLoop(session)) {
             reporter.reportOn(expression.source, KineticaFirErrors.SLOT_CALL_IN_LOOP, name, context)
             return
+        }
+
+        // Static ordinals are sound only in lambdas known to run at most once per frame.
+        // FIR owns this authoring error so `checks=off` consistently disables it before IR.
+        if (consumesCompilerOrdinal) {
+            val unsafeHost = context.multiRunLambdaHost(expression, session)
+            if (unsafeHost != null) {
+                reporter.reportOn(
+                    expression.source,
+                    KineticaFirErrors.CALL_IN_MULTI_RUN_LAMBDA,
+                    name,
+                    unsafeHost,
+                    context,
+                )
+                return
+            }
         }
 
         // Rule C: region content arguments must be literal lambdas.
         if (isRegionConstruct) {
             val mapping = (expression.argumentList as? FirResolvedArgumentList)?.mapping ?: return
             for ((argument, parameter) in mapping) {
-                if (parameter.name.asString() !in REGION_CONTENT_PARAMETER_NAMES) continue
+                if (parameter.name.asString() !in REGION_CONTENT_PARAMETERS.getValue(name)) continue
                 if (argument.unwrapArgument() !is FirAnonymousFunctionExpression) {
                     reporter.reportOn(
                         argument.source ?: expression.source,
@@ -193,6 +244,52 @@ private object KineticaCallChecker : FirExpressionChecker<FirFunctionCall>(MppCh
         }
     }
 }
+
+/**
+ * Whether this call needs an ordinal injected by the IR frame pass. Optional host-event
+ * handlers are counted only when their expression is definitely non-null: a nullable
+ * value is intentionally left to the runtime's existing `!= null` branch.
+ */
+private fun FirFunctionCall.consumesCompilerOrdinal(session: FirSession): Boolean {
+    val callee = calleeReference.toResolvedCallableSymbol() ?: return false
+    if (hasComponentTypedLambdaArgument()) return true
+    val callableId = callee.callableId ?: return false
+    val name = callableId.callableName.asString()
+    if (callee.hasAnnotation(UI_COMPONENT_CLASS_ID, session)) return true
+    if (!callee.isKineticaDsl()) return false
+    if (name in REGION_CONSTRUCT_NAMES) return true
+    if (name !in SLOT_DSL_NAMES) return false
+
+    val optionalEventParameters = OPTIONAL_EVENT_PARAMETERS[name] ?: return true
+    val mapping = (argumentList as? FirResolvedArgumentList)?.mapping ?: return false
+    return mapping.any { (argument, parameter) ->
+        parameter.name.asString() in optionalEventParameters && argument.isDefinitelyNonNull(session)
+    }
+}
+
+private fun FirFunctionCall.hasComponentTypedLambdaArgument(): Boolean {
+    val mapping = (argumentList as? FirResolvedArgumentList)?.mapping ?: return false
+    return mapping.any { (argument, parameter) ->
+        argument.unwrapArgument() is FirAnonymousFunctionExpression && parameter.hasUiComponentFunctionType()
+    }
+}
+
+private fun FirValueParameter.hasUiComponentFunctionType(): Boolean =
+    returnTypeRef.coneTypeOrNull.hasUiComponentAnnotation() ||
+        returnTypeRef.annotations.any { annotation ->
+            annotation.annotationTypeRef.coneTypeOrNull?.classId == UI_COMPONENT_CLASS_ID
+        }
+
+private fun FirCallableSymbol<*>.isKineticaDsl(): Boolean {
+    val callableId = callableId ?: return false
+    return callableId.packageName == KINETICA_PACKAGE &&
+        (callableId.classId == COMPONENT_SCOPE_CLASS_ID ||
+            (callableId.classId == null &&
+                resolvedReceiverTypeRef?.coneType?.classId == COMPONENT_SCOPE_CLASS_ID))
+}
+
+private fun FirExpression.isDefinitelyNonNull(session: FirSession): Boolean =
+    !unwrapArgument().resolvedType.canBeNull(session)
 
 private object KineticaComponentDeclarationChecker : FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common) {
     context(context: CheckerContext, reporter: DiagnosticReporter)
@@ -254,7 +351,7 @@ private fun CheckerContext.isDirectlyInsideLoop(session: FirSession): Boolean {
             is FirNamedFunction -> return false
             is FirAnonymousFunction -> {
                 if (isComponentTypedLambda(elements, index, element, session)) return false
-                if (isRegionContentArgument(elements, index)) return false
+                if (isRegionContentArgument(elements, index, element)) return false
                 // Plain lambda: still executes per iteration if a loop encloses it.
             }
             else -> {}
@@ -263,18 +360,115 @@ private fun CheckerContext.isDirectlyInsideLoop(session: FirSession): Boolean {
     return false
 }
 
-/** Whether the anonymous function at [index] is passed as an argument to a region construct. */
-private fun isRegionContentArgument(elements: List<FirElement>, index: Int): Boolean {
-    for (outer in (index - 1) downTo maxOf(0, index - 3)) {
-        val element = elements[outer]
-        if (element is FirFunctionCall) {
-            val callee = element.calleeReference.toResolvedCallableSymbol() ?: return false
-            val callableId = callee.callableId ?: return false
-            return callableId.packageName == KINETICA_PACKAGE &&
-                callableId.callableName.asString() in REGION_CONSTRUCT_NAMES + LOOP_SAFE_REGION_NAMES
+private data class LambdaHost(
+    val callee: FirCallableSymbol<*>,
+    val parameter: FirValueParameter,
+) {
+    val name: String
+        get() = callee.callableId?.callableName?.asString() ?: callee.name.asString()
+
+    fun isRegionContent(): Boolean {
+        if (!callee.isKineticaDsl()) return false
+        val parameters = REGION_CONTENT_PARAMETERS[name] ?: return false
+        return parameter.name.asString() in parameters
+    }
+
+    fun isKnownSingleRun(): Boolean {
+        if (callee.isKineticaDsl()) return true
+        val callableId = callee.callableId ?: return false
+        return callableId.packageName == KOTLIN_PACKAGE && name in SINGLE_RUN_SCOPE_FUNCTIONS ||
+            callableId.packageName == KINETICA_PACKAGE && name in SINGLE_RUN_KINETICA_FUNCTIONS
+    }
+}
+
+/** Finds the resolved call parameter that directly owns [lambda], if it has one. */
+private fun findLambdaHost(
+    elements: List<FirElement>,
+    index: Int,
+    lambda: FirAnonymousFunction,
+): LambdaHost? {
+    for (outer in (index - 1) downTo 0) {
+        when (val element = elements[outer]) {
+            is FirFunctionCall -> {
+                val mapping = (element.argumentList as? FirResolvedArgumentList)?.mapping ?: continue
+                for ((argument, parameter) in mapping) {
+                    val unwrapped = argument.unwrapArgument()
+                    val expression = unwrapped as? FirAnonymousFunctionExpression ?: continue
+                    val argumentFunction = expression.anonymousFunction
+                    val argumentSource = argumentFunction.source
+                    val lambdaSource = lambda.source
+                    val sameLambda = argumentFunction.symbol == lambda.symbol ||
+                        argumentSource != null && lambdaSource != null &&
+                        argumentSource.startOffset == lambdaSource.startOffset &&
+                        argumentSource.endOffset == lambdaSource.endOffset
+                    if (sameLambda) {
+                        val callee = element.calleeReference.toResolvedCallableSymbol() ?: return null
+                        return LambdaHost(callee, parameter)
+                    }
+                }
+            }
+            is FirNamedFunction, is FirAnonymousFunction -> return null
+            else -> {}
         }
     }
-    return false
+    return null
+}
+
+/** Whether the anonymous function at [index] is a fresh region-content boundary. */
+private fun isRegionContentArgument(
+    elements: List<FirElement>,
+    index: Int,
+    lambda: FirAnonymousFunction,
+): Boolean = findLambdaHost(elements, index, lambda)?.isRegionContent() == true
+
+/**
+ * Returns the outermost arbitrary lambda host before the current numbering boundary.
+ * That is the call the IR walker encounters and declines to enter. If another ordinal
+ * consumer encloses the checked call inside that same lambda, only the outer call reports.
+ */
+private fun CheckerContext.multiRunLambdaHost(
+    expression: FirFunctionCall,
+    session: FirSession,
+): String? {
+    val elements = containingElements
+    var unsafeLambdaIndex = -1
+    var unsafeHostName: String? = null
+
+    search@ for (index in elements.indices.reversed()) {
+        when (val element = elements[index]) {
+            is FirAnonymousFunction -> {
+                if (isComponentTypedLambda(elements, index, element, session) ||
+                    isRegionContentArgument(elements, index, element)
+                ) {
+                    break@search
+                }
+                val host = findLambdaHost(elements, index, element) ?: continue
+                if (!host.isKnownSingleRun()) {
+                    // Walking inside-out means the last unsafe host found is the outermost
+                    // one — exactly where the IR transform stops descending.
+                    unsafeLambdaIndex = index
+                    unsafeHostName = host.name
+                }
+            }
+            is FirNamedFunction -> break@search
+            else -> {}
+        }
+    }
+
+    val hostName = unsafeHostName ?: return null
+    val nestedUnderOrdinalConsumer = ((unsafeLambdaIndex + 1)..elements.lastIndex).any { index ->
+        val enclosingCall = elements[index] as? FirFunctionCall ?: return@any false
+        enclosingCall !== expression &&
+            !enclosingCall.hasSameSourceAs(expression) &&
+            enclosingCall.consumesCompilerOrdinal(session)
+    }
+    return hostName.takeUnless { nestedUnderOrdinalConsumer }
+}
+
+private fun FirFunctionCall.hasSameSourceAs(other: FirFunctionCall): Boolean {
+    val first = source ?: return false
+    val second = other.source ?: return false
+    return first.startOffset == second.startOffset && first.endOffset == second.endOffset
 }
 
 /**
@@ -292,21 +486,8 @@ private fun isComponentTypedLambda(
     if (lambda.typeRef.coneTypeOrNull.hasUiComponentAnnotation()) {
         return true
     }
-    for (outer in (index - 1) downTo maxOf(0, index - 3)) {
-        val call = elements[outer] as? FirFunctionCall ?: continue
-        val mapping = (call.argumentList as? FirResolvedArgumentList)?.mapping ?: return false
-        for ((argument, parameter) in mapping) {
-            val unwrapped = argument.unwrapArgument()
-            if (unwrapped is FirAnonymousFunctionExpression && unwrapped.anonymousFunction === lambda) {
-                return parameter.returnTypeRef.coneTypeOrNull.hasUiComponentAnnotation() ||
-                    parameter.returnTypeRef.annotations.any { annotation ->
-                        annotation.annotationTypeRef.coneTypeOrNull?.classId == UI_COMPONENT_CLASS_ID
-                    }
-            }
-        }
-        return false
-    }
-    return false
+    val parameter = findLambdaHost(elements, index, lambda)?.parameter ?: return false
+    return parameter.hasUiComponentFunctionType()
 }
 
 private fun ConeKotlinType?.hasUiComponentAnnotation(): Boolean {

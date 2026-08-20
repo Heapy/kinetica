@@ -24,16 +24,15 @@ public class FrameTable(
 private val EMPTY_ORDINALS = IntArray(0)
 
 /**
- * Thrown when a slot-consuming construct runs without a compiler-staged ordinal.
- * Kinetica requires every module that authors `@UiComponent` functions to compile with
- * the `io.heapy.kinetica.compiler` plugin; a call site the plugin never rewrote is the
- * only way to reach this.
+ * Thrown when a frame-consuming construct runs without a compiler-staged ordinal.
+ * This means either the calling module did not apply the Kinetica compiler plugin or the
+ * call site was not in a context where the plugin can assign a sound static ordinal.
  */
 public class MissingKineticaPluginException internal constructor(construct: String) :
     IllegalStateException(
         "A Kinetica $construct ran without a compiler-assigned ordinal. " +
-            "Apply the io.heapy.kinetica.compiler plugin to the module declaring the " +
-            "@UiComponent function (Kinetica does not support plugin-less builds).",
+            "Ensure the io.heapy.kinetica.compiler plugin is applied to the module " +
+            "containing this call and place the call in a supported compiler-transformed context.",
     )
 
 /** Runtime event ids registered by one event-consuming call site (a frame event ordinal). */
