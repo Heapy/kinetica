@@ -7,8 +7,8 @@ import { frameworks } from "../frameworks.config.mjs";
 import {
   driverDir,
   frameworkSelectors,
+  harnessFor,
   launchChromium,
-  makeHarness,
   measureTracedClick,
   openPage,
   parseArgs,
@@ -26,6 +26,9 @@ const WARMUP = Number(args.warmup ?? 3);
 const SAMPLES = Number(args.samples ?? 10);
 const THROTTLE = Number(args.throttle ?? 0);
 const ANIM_SECONDS = Number(args["anim-seconds"] ?? 6);
+// Demo knob (see launchChromium): idle time after each sample so a headed run is watchable.
+// Sits outside measureTracedClick, so it cannot touch a recorded duration.
+const STEP_PAUSE = Number(process.env.BENCH_STEP_PAUSE ?? 0);
 const OUT = args.out ?? join(driverDir, "..", "results", "results.json");
 
 const FRAMEWORKS = Object.fromEntries(frameworks.map((fw) => [fw.name, frameworkSelectors(fw)]));
@@ -63,13 +66,7 @@ const BENCHMARKS = [
       await h.clickButton("run");
     },
     async wait(h) {
-      const prev = this.prevId;
-      await h.waitFn(
-        (p) =>
-          document.querySelectorAll("tbody tr").length === 1000 &&
-          document.querySelector("tbody tr")?.getAttribute("data-id") !== p,
-        prev,
-      );
+      await h.waitReplaced(this.prevId, 1000);
     },
   },
   {
@@ -83,9 +80,7 @@ const BENCHMARKS = [
       await h.clickButton("update");
     },
     async wait(h) {
-      await h.waitFn(() =>
-        (document.querySelector("tbody tr td.col-label")?.textContent ?? "").endsWith(" !!!"),
-      );
+      await h.waitLabelSuffix(" !!!");
     },
   },
   {
@@ -99,14 +94,11 @@ const BENCHMARKS = [
       }
       this.row = (i % 10) + 2;
     },
-    async action(h, fw) {
-      await h.page.click(fw.rowLink(this.row));
+    async action(h) {
+      await h.clickRowSelect(this.row);
     },
     async wait(h) {
-      await h.waitFn(
-        (r) => document.querySelector(`tbody tr:nth-child(${r})`)?.classList.contains("danger"),
-        this.row,
-      );
+      await h.waitSelected(this.row);
     },
   },
   {
@@ -124,13 +116,7 @@ const BENCHMARKS = [
       await h.clickButton("swaprows");
     },
     async wait(h) {
-      const prev = this.prevRow2;
-      await h.waitFn(
-        (p) =>
-          document.querySelector("tbody tr:nth-child(999)")?.getAttribute("data-id") === p &&
-          document.querySelector("tbody tr:nth-child(2)")?.getAttribute("data-id") !== p,
-        prev,
-      );
+      await h.waitSwapped(this.prevRow2);
     },
   },
   {
@@ -140,8 +126,8 @@ const BENCHMARKS = [
       await h.clickButton("run");
       await h.waitRows(1000);
     },
-    async action(h, fw) {
-      await h.page.click(fw.rowRemove(5));
+    async action(h) {
+      await h.clickRowRemove(5);
     },
     async wait(h) {
       await h.waitRows(999);
@@ -203,14 +189,11 @@ const BENCHMARKS = [
       }
       this.row = (i % 10) + 2;
     },
-    async action(h, fw) {
-      await h.page.click(fw.rowLink(this.row));
+    async action(h) {
+      await h.clickRowSelect(this.row);
     },
     async wait(h) {
-      await h.waitFn(
-        (r) => document.querySelector(`tbody tr:nth-child(${r})`)?.classList.contains("danger"),
-        this.row,
-      );
+      await h.waitSelected(this.row);
     },
   },
   {
@@ -228,13 +211,7 @@ const BENCHMARKS = [
       await h.clickButton("swaprows");
     },
     async wait(h) {
-      const prev = this.prevRow2;
-      await h.waitFn(
-        (p) =>
-          document.querySelector("tbody tr:nth-child(999)")?.getAttribute("data-id") === p &&
-          document.querySelector("tbody tr:nth-child(2)")?.getAttribute("data-id") !== p,
-        prev,
-      );
+      await h.waitSwapped(this.prevRow2);
     },
   },
   {
@@ -244,8 +221,8 @@ const BENCHMARKS = [
       await h.clickButton("runlots");
       await h.waitRows(10000);
     },
-    async action(h, fw) {
-      await h.page.click(fw.rowRemove(5));
+    async action(h) {
+      await h.clickRowRemove(5);
     },
     async wait(h) {
       await h.waitRows(9999);
@@ -262,9 +239,7 @@ const BENCHMARKS = [
       await h.clickButton("update");
     },
     async wait(h) {
-      await h.waitFn(() =>
-        (document.querySelector("tbody tr td.col-label")?.textContent ?? "").endsWith(" !!!"),
-      );
+      await h.waitLabelSuffix(" !!!");
     },
   },
 ];
@@ -309,7 +284,7 @@ for (const fwName of selectedFrameworks) {
   if (runOps) {
     for (const bench of selectedBenchmarks) {
       const { context, page, pageErrors } = await openPage(browser, fw.url, { throttle: THROTTLE });
-      const h = makeHarness(page, fw);
+      const h = await harnessFor(page, fw);
 
       const samples = [];
       const clickDispatch = [];
@@ -331,6 +306,7 @@ for (const fwName of selectedFrameworks) {
           page,
           () => iterCtx.action(h, fw),
           () => iterCtx.wait(h),
+          { anchor: fw.renderer === "canvas" ? "cluster" : "last-paint" },
         );
         if (parsed.error) {
           failures++;
@@ -342,6 +318,7 @@ for (const fwName of selectedFrameworks) {
         clickDispatch.push(parsed.clickDispatchMs);
         gcSamples.push(parsed.gcMs);
         gcCounts.push(parsed.gcCount);
+        if (STEP_PAUSE > 0) await page.waitForTimeout(STEP_PAUSE);
       }
       if (pageErrors.length) {
         console.log(`  !! page errors: ${pageErrors.slice(0, 3).join(" | ")}`);
@@ -372,7 +349,7 @@ for (const fwName of selectedFrameworks) {
       if (i === 4) {
         resources = await page.evaluate(() =>
           performance.getEntriesByType("resource")
-            .filter((r) => /\.(m?js)(\?|$)/.test(r.name))
+            .filter((r) => /\.(m?js|wasm)(\?|$)/.test(r.name))
             .map((r) => ({ name: new URL(r.name).pathname, bytes: r.decodedBodySize })),
         );
       }
@@ -438,7 +415,7 @@ for (const fwName of selectedFrameworks) {
     const mb = (bytes) => round2(bytes / 1048576);
 
     const afterLoad = await heap();
-    const h = makeHarness(page, fw);
+    const h = await harnessFor(page, fw);
     await h.clickButton("run");
     await h.waitRows(1000);
     const after1k = await heap();
@@ -446,12 +423,7 @@ for (const fwName of selectedFrameworks) {
     for (let i = 0; i < 5; i++) {
       const prev = await h.rowId(1);
       await h.clickButton("run");
-      await h.waitFn(
-        (p) =>
-          document.querySelectorAll("tbody tr").length === 1000 &&
-          document.querySelector("tbody tr")?.getAttribute("data-id") !== p,
-        prev,
-      );
+      await h.waitReplaced(prev, 1000);
     }
     const after5xReplace = await heap();
 
@@ -503,8 +475,8 @@ for (const fwName of selectedFrameworks) {
   // an injected collector records real frame deltas while the loop runs.
   if (runAnimation) {
     const { context, page, pageErrors } = await openPage(browser, fw.url, { throttle: THROTTLE });
-    const h = makeHarness(page, fw);
-    const hasAnimate = await page.$(fw.button("animate"));
+    const h = await harnessFor(page, fw);
+    const hasAnimate = await h.hasButton("animate");
     if (!hasAnimate) {
       console.log("  animation: no animate button, skipped");
       await context.close();
@@ -530,9 +502,7 @@ for (const fwName of selectedFrameworks) {
         window.__collect = false;
         return window.__frameDeltas;
       });
-      const mutated = await page.evaluate(() =>
-        /( !\d+)$/.test(document.querySelector("tbody tr td.col-label")?.textContent ?? ""),
-      );
+      const mutated = await h.labelHasTick();
       // drop the first 500ms as ramp-up
       let ramp = 0;
       let skip = 0;

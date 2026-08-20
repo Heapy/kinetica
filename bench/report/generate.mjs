@@ -25,7 +25,17 @@ const extraData = extraPath ? loadOptional(extraPath) : null;
 
 import { colorFor, frameworks } from "../frameworks.config.mjs";
 
-const FW_ORDER = frameworks.map((f) => f.name).filter((f) => f in data.results);
+const ALL_FW_ORDER = frameworks.map((f) => f.name).filter((f) => f in data.results);
+// Canvas renderers build no DOM, so they are not peers of the frameworks in the main table:
+// they are excluded from it, from the geometric mean, and — the one that would quietly corrupt
+// everything else — from `fastest(id)`, which is a Math.min over the order passed to
+// buildResults. A virtualized list winning create-10k would otherwise re-base every DOM
+// framework's factor. Their numbers get their own section, measured against the same baseline.
+const CANVAS_RENDERERS = new Set(
+  frameworks.filter((f) => f.renderer === "canvas").map((f) => f.name),
+);
+const FW_ORDER = ALL_FW_ORDER.filter((f) => !CANVAS_RENDERERS.has(f));
+const CANVAS_FW_ORDER = ALL_FW_ORDER.filter((f) => CANVAS_RENDERERS.has(f));
 const FW_LABEL = Object.fromEntries(frameworks.map((f) => [f.name, f.label]));
 // categorical slots by config position (validated light+dark, color follows entity)
 const FW_COLOR = Object.fromEntries(frameworks.map((f) => [f.name, colorFor(f.name)]));
@@ -344,6 +354,107 @@ if (treeData?.tree) {
   }
 }
 
+// --- canvas renderers (deliberately outside the main ranking, see CANVAS_RENDERERS) ---
+
+let canvasSection = "";
+const canvasFws = CANVAS_FW_ORDER.filter((f) => (data.benchmarks ?? []).some((b) => data.results[f]?.[b.id]));
+const canvasBenches = (data.benchmarks ?? []).filter((b) => canvasFws.some((f) => data.results[f]?.[b.id]));
+// main.fastest() is Infinity for an operation no DOM framework measured (a canvas-only run),
+// in which case the section shows durations without a comparison column.
+const domBaseline = (id) => {
+  const best = main.fastest(id);
+  return Number.isFinite(best) ? best : null;
+};
+if (canvasFws.length > 0) {
+  // Factors are taken against the DOM baseline computed for the main table, so a number here
+  // reads in exactly the same units ("× the fastest DOM framework on this operation") without
+  // the canvas entries ever having taken part in that baseline.
+  const factors = canvasBenches.flatMap((b) => {
+    const best = domBaseline(b.id);
+    if (best === null) return [];
+    return canvasFws
+      .map((f) => (data.results[f]?.[b.id]?.median ?? NaN) / best)
+      .filter((x) => !Number.isNaN(x));
+  });
+  const maxFactor = factors.length > 0 ? Math.max(...factors) : 1;
+  const opRows = canvasBenches.map((b) => {
+    const best = domBaseline(b.id);
+    const cells = canvasFws.map((f) => {
+      const r = data.results[f]?.[b.id];
+      if (!r) return `<td class="cell empty">—</td>`;
+      const factor = best === null ? null : r.median / best;
+      const bg = rampColor(factor ?? 1, maxFactor);
+      const gcTip = r.gcMedianMs > 0 ? `, gc ${fmt(r.gcMedianMs)}ms` : "";
+      const factorTip = factor === null ? "" : ` — ${fmt(factor, 1)}× the fastest DOM framework`;
+      return `<td class="cell" style="--cell:${bg}" data-dark="${RAMP.indexOf(bg) >= 6}"
+        title="${FW_LABEL[f]} · ${b.label}: median ${fmt(r.median)}ms (mean ${fmt(r.mean)} ± ${fmt(r.stddev)}, n=${r.samples.length}${gcTip})${factorTip}">
+        <span class="ms">${fmt(r.median)}</span>${factor === null ? "" : `<span class="factor">${fmt(factor, 1)}×</span>`}</td>`;
+    }).join("");
+    return `<tr><th scope="row">${b.label}</th>${cells}</tr>`;
+  }).join("");
+
+  const summaryRow = (label, cell) =>
+    `<tr><th scope="row">${label}</th>${canvasFws.map(cell).join("")}</tr>`;
+  const startupRows = data.startup && canvasFws.some((f) => data.startup[f])
+    ? summaryRow("time to interactive", (f) => {
+        const s = data.startup[f];
+        return s ? `<td class="cell"><span class="ms">${fmt(s.median)}</span></td>` : `<td class="cell empty">—</td>`;
+      }) +
+      summaryRow("payload (raw / gzip)", (f) => {
+        const s = data.startup[f];
+        if (!s) return `<td class="cell empty">—</td>`;
+        return `<td class="cell"><span class="ms">${fmt(s.jsBytes / 1048576, 1)} / ${fmt(s.gzipBytes / 1048576, 1)} MB</span></td>`;
+      })
+    : "";
+  const memoryRows = data.memory && canvasFws.some((f) => data.memory[f])
+    ? summaryRow("JS heap after 1k rows", (f) => {
+        const m = data.memory[f];
+        if (!m) return `<td class="cell empty">—</td>`;
+        return `<td class="cell" title="${fmt(m.afterLoadMb)} MB right after load · ${fmt(m.after5xReplaceMb)} MB after 5× replace · ${fmt(m.afterCreateClear10Mb)} MB after 10× create/clear"><span class="ms">${fmt(m.after1kMb)} MB</span></td>`;
+      })
+    : "";
+  const animationRows = data.animation && canvasFws.some((f) => data.animation[f] && !data.animation[f].error)
+    ? summaryRow("sustained updates", (f) => {
+        const a = data.animation[f];
+        if (!a || a.error) return `<td class="cell empty">—</td>`;
+        return `<td class="cell" title="median frame ${fmt(a.medianMs)}ms, p95 ${fmt(a.p95Ms)}ms, ${fmt(a.longFramePct)}% frames >25ms"><span class="ms">${fmt(a.fps)} fps</span></td>`;
+      })
+    : "";
+
+  canvasSection = `
+  <section>
+    <h2>Canvas renderers</h2>
+    <p class="section-sub">Compose Multiplatform paints into a single <code>&lt;canvas&gt;</code> with
+    Skia; it creates no DOM nodes at all, so it cannot meet the app contract the frameworks above are
+    held to and is <strong>not</strong> part of the ranking, the geometric mean, or the per-operation
+    baseline. The factor under each value is still measured against that same baseline — how many
+    times the fastest DOM framework's duration this operation took. The two entries are the same app:
+    <em>Compose canvas</em> materialises every row (comparable to a DOM framework building 10,000
+    nodes), <em>Compose canvas (Lazy)</em> uses <code>LazyColumn</code> and only composes the visible
+    window — the way Compose is normally written, and the reason its large-table numbers are not
+    comparable with anything else on this page. Driver differences: state is read from a snapshot the
+    app publishes during its draw phase, clicks are coordinate clicks (trusted events with the same
+    <code>EventDispatch</code> trace anchor), and the measured window ends at the first run of
+    paint/commit activity rather than the last paint on the page — a canvas layer updates through a
+    compositor commit and emits no Blink paint at all, so the usual anchor would attach to an
+    unrelated repaint that lands 100–350 ms later. The unmount/remount leak probe needs teardown
+    hooks this renderer does not expose, so those two checkpoints stay empty.</p>
+    <div class="table-scroll">
+      <table class="results">
+        <thead>
+          <tr><th></th>${canvasFws.map((f) => `<th scope="col"><span class="swatch" data-fw="${f}"></span>${FW_LABEL[f]}</th>`).join("")}</tr>
+        </thead>
+        <tbody>
+          ${opRows}
+          ${startupRows}
+          ${memoryRows}
+          ${animationRows}
+        </tbody>
+      </table>
+    </div>
+  </section>`;
+}
+
 // --- CPU-throttled pass (optional results/throttled.json) ---
 
 let throttledSection = "";
@@ -464,7 +575,7 @@ if (churnFws.length > 0) {
     </div>`;
 }
 
-const legend = FW_ORDER.map(
+const legend = ALL_FW_ORDER.map(
   (f) => `<span class="legend-item"><span class="swatch" data-fw="${f}"></span>${FW_LABEL[f]}<span class="ver">${data.meta.versions?.[f] && data.meta.versions[f] !== "n/a" ? " " + data.meta.versions[f] : ""}</span></span>`,
 ).join("");
 
@@ -481,11 +592,11 @@ const reuseNotice = reuseEntries.length > 0 ? `
       <span>Cached values remain in the tables for cross-framework context and are excluded from current-run comparison deltas.</span>
     </aside>` : "";
 
-const fwColorCss = FW_ORDER.map(
+const fwColorCss = ALL_FW_ORDER.map(
   (f) => `  [data-fw="${f}"] { --series: var(--c-${f}); }`,
 ).join("\n");
 const fwColorTokens = (mode) =>
-  FW_ORDER.map((f) => `  --c-${f}: ${FW_COLOR[f][mode]};`).join("\n");
+  ALL_FW_ORDER.map((f) => `  --c-${f}: ${FW_COLOR[f][mode]};`).join("\n");
 
 const tooltipScript = `(function () {
   var tip = document.getElementById("tip");
@@ -732,6 +843,8 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
     <div class="multiples">${smallMultiples}</div>
   </section>
 
+  ${canvasSection}
+
   ${gcSection}
 
   ${scalingSection}
@@ -811,7 +924,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
 
   <footer>
     Generated ${new Date(data.meta.date).toISOString().slice(0, 16).replace("T", " ")} UTC ·
-    versions: ${FW_ORDER.map((f) => `${FW_LABEL[f]} ${data.meta.versions?.[f] ?? "?"}`).join(" · ")} ·
+    versions: ${ALL_FW_ORDER.map((f) => `${FW_LABEL[f]} ${data.meta.versions?.[f] ?? "?"}`).join(" · ")} ·
     raw data in <code>bench/results/results.json</code>
   </footer>
 </div>

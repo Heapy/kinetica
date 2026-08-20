@@ -274,9 +274,102 @@ Tag mapping: `column`/`row` → `GtkBox`, `button` → `GtkButton` (signal `clic
 - **Adversarial review (codex, 2026-08-17) also produced:** `compilerVersion` silently drove the runtime coordinates too → split into `kineticaVersion` + `compilerVersion`; `enabled = false` still demanded a Kotlin plugin; option typos (`checks = "warn"`) were silently inert → validated against the accepted sets; the psi log lived inside the provider that the configuration cache serializes → only `Property` instances are captured now; the verifier could pass with an up-to-date `compileKotlinJs` → both backends now run a negative pass, which is what proves the checkers are live on JS. `kotlin("js")` single-target needs no support: the plugin is a hard error in Kotlin 2.4.10.
 - **Open:** Kotlin/Native. KGP 2.4.10's `KotlinCompilerPluginSupportPlugin` has no `getPluginArtifactForNative()` at all — Native goes through the same `getPluginArtifact()` path — but no Native compilation was exercised from Gradle; the fixtures are jvm+js. Verify before promising Native support to Gradle consumers.
 
+### KNT-0049 — Compose Multiplatform canvas (wasmJs) in the browser benchmark
+**Status:** LANDED 2026-08-19, verified by a full `node bench/run.mjs`
+(`bench/results/runs/20260819T120227268Z`, M4 Max / Chromium 149, 3 warmup + 10 samples). Not
+promoted to the accepted numbers — that is a separate call.
+
+*Measurement neutrality of the harness refactor* (the review's main object): median per-op delta
+against the accepted parts is −3.0%…+1.0% across all seven DOM frameworks, no systematic sign, and
+the DOM geomean ranking is unchanged — vanilla 1.056×, Svelte 1.069×, Preact 1.170×, **Kinetica
+1.228×**, Vue 1.276×, React 1.278× (README's reference run had Kinetica 1.24×). Compose HTML came
+out at +1.0% after the 1.11.1 → 1.12.0-rc01 bump, i.e. the version move is performance-neutral.
+
+*Canvas results* (medians, ms; factor = × the fastest DOM framework on that operation):
+
+| op | Compose canvas (Column) | Compose canvas (Lazy) |
+|---|---:|---:|
+| create 1k | 237.6 (11.3×) | 25.1 (1.2×) |
+| replace 1k | 280.0 (12.3×) | 21.7 (1.0×) |
+| update every 10th | 22.0 (3.0×) | 5.1 (0.7×) |
+| select row | 12.7 (1.8×) | 3.0 (0.4×) |
+| swap two rows | 335.5 (42.4×) | 7.5 (1.0×) |
+| remove one row | 321.6 (45.3×) | 5.9 (0.8×) |
+| create 10k | 6665.6 (33.0×) | 22.5 (0.1×) |
+| append 1k | 243.8 (10.9×) | 3.6 (0.2×) |
+| clear 1k | 15.1 (2.3×) | 6.2 (1.0×) |
+| select row (10k) | 125.8 (16.4×) | 3.3 (0.4×) |
+| swap (10k) | 6943.4 (252.9×) | 10.2 (0.4×) |
+| remove (10k) | **36976.1 (877.3×)** | 6.0 (0.1×) |
+| update every 10th (10k) | 234.8 (8.1×) | 5.6 (0.2×) |
+
+Geomean in the same units: Column **18.8×**, Lazy **0.4×** — the Lazy variant beats the fastest DOM
+framework on average, which is precisely why canvas entries must stay out of the `fastest` baseline;
+inside it they would have re-based every DOM framework's factor. Payload 17.2 MB raw / 5.4 MB gzip
+(vs Compose HTML's 172 KB gz), mount ~151 ms, heap after 1k rows 48.6 MB (Column) / 10.0 MB (Lazy),
+animate 83 fps (Column) vs 120 fps (Lazy). Sample spread is tight (remove-10k 36504–37252 ms, ±1%)
+and no operation shows `min < 0.5 × median`, i.e. the cluster anchor never truncated a window.
+
+Two structural findings in the numbers: `select row (10k)` costs 125.8 ms against `select row`'s
+12.7 ms on the Column variant — selecting one row recomposes the whole list — and the Column/Lazy
+gap on 10k operations is three to four orders of magnitude, since LazyColumn never touches the
+off-screen rows at all.
+- **Why:** the suite already has **Compose HTML** (`compose-web`, DOM renderer). The question it cannot answer is what the *canvas* renderer — Compose UI on Skia, the way Compose is actually written — costs in a browser. Adding it makes the pair "same framework, two renderers" measurable in one environment.
+- **Placement decision:** a canvas app cannot satisfy the app contract (§"The app contract" rule 3 — same DOM, same nodes); it has no DOM at all. So the entries live in a **separate report section**, excluded from the main table's `fwOrder`, from the geometric mean, and — critically — from the `fastest(id)` baseline (`report/generate.mjs:91`), which is a `Math.min` over `fwOrder` and would silently re-base every DOM framework's factor if a virtualized list won an operation. Their factors are still printed *against* that same baseline, so the numbers stay readable in the table's units.
+- **Two entries, one codebase:** `compose-canvas` (`Column` inside `verticalScroll` — materializes every row, the DOM-comparable variant) and `compose-canvas-lazy` (`LazyColumn` — what people actually write). The delta between them is the point of the section. Variant selected by `?list=column|lazy`.
+- **Compose version:** `1.12.0-rc01` for **both** Compose entries — `browser-bench-compose` is bumped from 1.11.1 and re-benched, otherwise the two Compose rows sit on different runtimes. (Newest stable is 1.11.1; `<release>` on Central points at the rc.) Compose 1.12.0-rc01 is built with Kotlin 2.3.20, klibs read fine by 2.4.10. `samples/browser-game-of-life-compose` stays on 1.11.1 **deliberately** — it belongs to the Game of Life suite with its own published numbers and docs snapshot; bumping it would force a full GoL re-run for no gain here.
+- **Suites:** `main` only. `treeUrl` omitted (tree skips itself); `stress`/`extra` are already restricted to `kinetica,react,vanilla` (`run.mjs:312`); `scaling` defaults to *all* frameworks, so the entries declare `suites: ["main"]` and `scaling.mjs` learns to respect it.
+- **Driver shape:** `makeHarness` (`driver/common.mjs:69`) already abstracts most DOM access; only the assertion tails are inlined as raw `document.querySelector` inside the benchmarks' `wait()`. Those get lifted into the harness contract (`clickRowSelect`, `clickRowRemove`, `hasButton`, `waitReplaced`, `waitLabelSuffix`, `waitSelected`, `waitSwapped`, `waitLabelTick`), predicates byte-identical, so **nothing measured changes for the DOM frameworks** and existing part files stay comparable. A second implementation, `driver/canvas-harness.mjs`, serves the same contract over `window.__bench`: assertions via `page.evaluate`, clicks via `page.mouse.click` on published rects (trusted events — same methodology). One switch point, `harnessFor(page, fw)`, on the entry's `driver: "canvas"`. `measureTracedClick`, `parseTrace`, trace anchors, warmup/samples, viewport and the 700 ms settle are untouched.
+- **No scrolling needed:** every row-level operation in the suite targets rows 2–11 (`04`, `10`) or row 5 (`06`, `12`) — all on screen. Row 999 appears only in swap *assertions*, never as a click target.
+
+**Spike evidence (2026-08-19, toolchain 0.12.0-dev-4248, Kotlin 2.4.10, Compose 1.12.0-rc01, vendored Chromium):**
+- **Builds.** `product: wasm-js/app` + `settings.compose.enabled` resolves and compiles; `@OptIn(ExperimentalComposeUiApi::class)` on `ComposeViewport` is mandatory. The Gradle fallback is therefore *not* needed.
+- **Skiko runtime is NOT laid out by the toolchain** — the main build gap. `canvas.import-object.mjs:2` emits `import * as … from './skiko.mjs'`, but the web output holds only `<module>.{wasm,mjs,import-object.mjs,js-builtins.mjs}`; in Gradle the compose plugin unpacks it. The artifact is already in the toolchain's own m2 cache (`org/jetbrains/skiko/skiko-js-wasm-runtime/0.150.1/…jar`, version pinned by compose ui's `requires`), containing `skiko.mjs` + `skiko.wasm`. The build script unpacks those two next to `kotlin-output`.
+- **No continuous rAF.** 5 s idle after mount: **zero** Paint/Commit/CompositeLayers events, Compose frame counter unmoved. The "last Paint in window" anchor is valid — this was the risk that could have killed the methodology.
+- **Trace anchors work unmodified.** Coordinate click → `parseTrace` returns `durationMs 100.4`, `clickDispatchMs 0.006`; the window does not saturate against the 700 ms settle.
+- **Bridge works, and draw-phase granularity holds.** `js("window.__bench = …")` from Kotlin/Wasm publishes the frame snapshot and the rect map (`onGloballyPositioned` + `boundsInWindow()`); `@JsExport` gives JS→Kotlin calls; `window.__mountMs` is set from Kotlin (195.6 ms). A click changing **one** row's background *does* re-run the root `drawWithContent` — provided the asserted state is read **inside** the draw scope. Reads lifted outside it would leave the root un-invalidated and every `waitSelected` would hang.
+- **Canvas lives in a SHADOW ROOT.** `document.querySelector("canvas")` returns null. Consequences: mount detection and any canvas lookup must pierce the shadow root (or the bridge publishes readiness itself — chosen); the `__mountMs` snippet in `samples/browser-bench-compose/web/index.html` (which polls for `#run`) is useless here. `page.mouse.click` is unaffected.
+- **Static server needs a `.wasm` MIME** — `driver/server.mjs:5` has no entry, serves `application/octet-stream`, and `WebAssembly.instantiateStreaming` rejects that.
+- **Memory probe stays honest as-is.** `memory.buffer.byteLength` is 0 (Kotlin/Wasm objects live in the WasmGC heap, not linear memory), but V8 places WasmGC objects in its own managed heap and `JSHeapUsedSize` tracks them: 8.18 MB @100 rows → 19.90 MB @1k → 129.14 MB @10k. No wasm-specific accounting needed. Open observation: shrinking back to 100 rows left 120.54 MB after two forced GCs — re-check on the real app before reading it as a leak.
+- **Payload (hello-world, no material3): ~16.1 MB raw / ~5.1 MB gzip** — `canvas.wasm` 7297.6 KB (gzip 1825.2), `skiko.wasm` 8437.8 KB (gzip 3246.7), `skiko.mjs` 492.1 KB (gzip 59.4), glue ~32 KB. Mount 264 ms.
+- **Non-lazy `Column` is expensive**, on a primitive row (`Box` + `BasicText`, not the contract's four cells): 1k rows 151 ms, **10k rows 2705 ms**, 100k did not finish in 60 s. React's create-10k is ≈316 ms. This is what the separate section exists for.
+
+**Found during implementation (2026-08-19) — a real measurement bug, not a build detail:**
+`parseTrace` gates on having seen a Blink `Paint` and then takes the *last* Paint/Commit after the
+click. A canvas layer updates through a compositor `Commit` and emits **no Blink Paint at all**, so
+for the canvas app the anchor attached to an unrelated DOM-layer repaint arriving 100–350 ms later.
+Traced evidence — `09_clear1k`: `FireAnimationFrame` at 0.05 ms (18 ms of work) → real `Commit` at
+18.46 ms → stray `Paint`/`Commit` at 123.7 ms; `07_create10k`: 6620 ms rAF → real `Paint`+`Commit`
+at 6738–6778 ms → stray pair at 7131–7158 ms. Every cheap operation therefore measured a flat
+~104 ms regardless of workload (identical at 1280×900 and 640×450, so not fill cost), and
+`create10k` was inflated ~390 ms. The same app sustains 120 fps in the animate loop, which such a
+latency would make impossible. Fix: `parseTrace(buffer, { anchor })` — canvas entries use
+`"cluster"` (end of the first run of paint/commit activity, `Commit` alone counts, a >50 ms gap
+ends it; measured margins: clusters hold within ~5 ms, the stray repaint is ≥100 ms away). DOM
+frameworks keep the original branch byte-for-byte. After the fix, `compose-canvas` select-1k reads
+15 ms instead of 129 ms and `compose-canvas-lazy` 3 ms instead of 104 ms.
+
+**Work items:**
+1. [x] `samples/browser-bench-compose-canvas/` — `wasm-js/app`, compose 1.12.0-rc01, foundation + ui (no material3: no visual parity with the shared CSS is possible anyway, and the bytes would pollute startup). Full app contract semantics: seven toolbar actions, four-cell rows keyed by id, the standard data generator replicated in Kotlin (as `browser-bench-compose` already does — copy, not a shared module), `animate` via `requestAnimationFrame`, `clickable(indication = null)` (contract rule 11 bans press/hover repaints).
+2. [x] Bridge `window.__bench`: `frame` snapshot published from the root `drawWithContent` with all asserted reads **inside** the draw scope; `rects` from `onGloballyPositioned`; `__mountMs` on first frame; `__mount`/`__unmount` if `ComposeViewport` exposes teardown — if it does not, the memory leak columns print "—" rather than being faked.
+3. [x] `bench/build-compose-canvas.mjs` — `./kotlin build -v release -m browser-bench-compose-canvas`, then unpack `skiko.mjs` + `skiko.wasm` from the toolchain m2 cache (fall back to a Central download if absent). No esbuild step: the wasm glue fetches `.wasm` by URL, there is nothing to bundle.
+4. [x] `driver/server.mjs` — add `".wasm": "application/wasm"`.
+5. [x] `driver/common.mjs` — extend the harness contract with the lifted predicates; add `harnessFor(page, fw)`.
+6. [x] `driver/bench.mjs` — rewrite the 13 benchmark `wait()`/`action()` bodies plus the memory (`:449`) and animation (`:534`) blocks onto harness methods. Predicates must stay byte-identical.
+7. [x] `driver/canvas-harness.mjs` — the bridge-backed implementation.
+8. [x] `driver/scaling.mjs` — respect `suites` on a config entry.
+9. [x] `frameworks.config.mjs` — append the two entries (never reorder: position is the colour slot) and add one palette pair (7 of 8 slots are in use, two entries are being added).
+10. [x] `report/generate.mjs` — filter `fwOrder` by `renderer !== "canvas"`; new section after the main table with the 13 ops, startup, animation, loaded bytes (JS **+ `.wasm`**, or the sizes read as a fraction of reality) and a "× vs fastest DOM framework" column; explain why they are not in the main ranking.
+11. [x] Bump `samples/browser-bench-compose` to 1.12.0-rc01.
+12. [x] Verify `scripts/size-report.mjs` picks the new modules up (it keeps its own list) — it tracks only Kinetica's own bundles, so nothing to add; the startup byte collector *did* filter to `.mjs`/`.js` and now counts `.wasm` too (payload reads 17.2 MB raw / 5.4 MB gzip, matching the build script exactly).
+13. [x] README: the canvas methodology deviation (bridge assertions, coordinate clicks, shadow root) in "What is measured", and the out-of-`bench/` app note in "Adding a new framework".
+14. [x] Smoke: `node bench/run.mjs --suites=main --frameworks=compose-canvas,compose-canvas-lazy --iterations=2 --warmup=0`, then a full run for real numbers.
+
+**Verification:** a full `node bench/run.mjs` (every framework in one environment — Compose HTML's re-bench after the version bump requires it anyway), the printed report showing the new section, and the DOM frameworks' geomean unchanged versus the accepted numbers (the harness refactor must be measurement-neutral; that invariant is the review's main object).
+
 ## Order of work
 
-1. The backlog is unscheduled. Per-ticket starting points: KNT-0024 → re-profile, KNT-0028/KNT-0035 → spec decision, KNT-0036 → design decision, KNT-0045 → runtime listener API first (it unblocks both marshals), KNT-0046 → ListReconcile move + docs code-links, KNT-0047 → gtk-kn vs generated-def spike. Native-renderer sequence: commit Phase 1 (with `.zcode/` gitignored) → KNT-0045 → KNT-0046 → KNT-0047. (KNT-0031/0033/0033b/0034/0038/0039 landed on `mem-opt-experiments`, pending merge review — see the "Landed" one-liners above; full detail in git history.)
+1. The backlog is unscheduled. Per-ticket starting points: KNT-0024 → re-profile, KNT-0028/KNT-0035 → spec decision, KNT-0036 → design decision, KNT-0045 → runtime listener API first (it unblocks both marshals), KNT-0046 → ListReconcile move + docs code-links, KNT-0047 → gtk-kn vs generated-def spike, KNT-0049 → implemented, only the full re-bench remains. Native-renderer sequence: commit Phase 1 (with `.zcode/` gitignored) → KNT-0045 → KNT-0046 → KNT-0047. (KNT-0031/0033/0033b/0034/0038/0039 landed on `mem-opt-experiments`, pending merge review — see the "Landed" one-liners above; full detail in git history.)
 2. The compiler plugin is MANDATORY for every module: any pass touching it starts with `./kotlin publish mavenLocal -m kinetica-compiler && ./kotlin test -m kinetica-compiler --platform jvm` before building dependents — publish FIRST: the plugin resolves from the toolchain-local repo and even the compiler's own test fragment (via kinetica-runtime) needs the published artifact (mirrors ci.yml:26-30).
 3. Each pass: build + module tests before moving on.
 

@@ -1,0 +1,16 @@
+product: wasm-js/app
+
+settings:
+  kotlin:
+    version: 2.4.10
+    languageVersion: 2.4
+    apiVersion: 2.4
+  compose:
+    enabled: true
+    version: 1.12.0-rc01
+
+dependencies:
+  - org.jetbrains.compose.foundation:foundation:1.12.0-rc01
+  - org.jetbrains.compose.ui:ui:1.12.0-rc01
+
+description: "js-framework-benchmark style keyed table app using Compose Multiplatform on a canvas (Skia/skiko, Kotlin/Wasm), for performance comparison against the DOM renderers. Renders no DOM at all, so the benchmark driver reads its state through the window.__bench bridge instead of DOM assertions."

@@ -39,7 +39,12 @@ export async function launchChromium() {
   );
   const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ??
     (existsSync(vendoredChromium) ? vendoredChromium : undefined);
-  return chromium.launch({ headless: true, executablePath });
+  // Demo knobs, off by default — for watching a run, never for recording one. A headed window
+  // composites to a real display (and on a HiDPI screen draws ~4x the pixels), so anything
+  // measured under them is not comparable with the recorded numbers.
+  const headless = process.env.BENCH_HEADED !== "1";
+  const slowMo = Number(process.env.BENCH_SLOWMO ?? 0);
+  return chromium.launch({ headless, executablePath, slowMo });
 }
 
 export function resolveVersion(spec) {
@@ -62,15 +67,32 @@ export function frameworkSelectors(fw) {
     status: fw.buttons === "testid" ? '[data-testid="status"]' : "#status",
     rowLink: (n) => `tbody tr:nth-child(${n}) td.col-label ${fw.rowControl}`,
     rowRemove: (n) => `tbody tr:nth-child(${n}) td.col-remove ${fw.rowControl}`,
+    driver: fw.driver ?? "dom",
+    renderer: fw.renderer ?? "dom",
+    suites: fw.suites ?? null,
     version: resolveVersion(fw.version),
   };
 }
 
+// The harness is the *only* place the drivers touch a page's state, so that a renderer without
+// a DOM can be measured by the same benchmark definitions. Every assertion the main suite makes
+// lives here as a named method rather than as an inline document.querySelector in bench.mjs;
+// the DOM implementation below keeps those predicates byte-identical to what they were, so
+// nothing measured changes for the DOM frameworks and old result parts stay comparable.
 export function makeHarness(page, fw) {
   return {
     page,
     async clickButton(name) {
       await page.click(fw.button(name));
+    },
+    async hasButton(name) {
+      return (await page.$(fw.button(name))) !== null;
+    },
+    async clickRowSelect(n) {
+      await page.click(fw.rowLink(n));
+    },
+    async clickRowRemove(n) {
+      await page.click(fw.rowRemove(n));
     },
     async waitRows(count) {
       await page.waitForFunction(
@@ -97,7 +119,51 @@ export function makeHarness(page, fw) {
     async waitFn(fn, arg) {
       await page.waitForFunction(fn, arg, { polling: 100, timeout: 60_000 });
     },
+    // --- assertions the main suite ends its measured windows on ---
+    async waitReplaced(prevId, count) {
+      await this.waitFn(
+        ({ p, c }) =>
+          document.querySelectorAll("tbody tr").length === c &&
+          document.querySelector("tbody tr")?.getAttribute("data-id") !== p,
+        { p: prevId, c: count },
+      );
+    },
+    async waitLabelSuffix(suffix) {
+      await this.waitFn(
+        (s) => (document.querySelector("tbody tr td.col-label")?.textContent ?? "").endsWith(s),
+        suffix,
+      );
+    },
+    async waitSelected(n) {
+      await this.waitFn(
+        (r) => document.querySelector(`tbody tr:nth-child(${r})`)?.classList.contains("danger"),
+        n,
+      );
+    },
+    async waitSwapped(prevRow2) {
+      await this.waitFn(
+        (p) =>
+          document.querySelector("tbody tr:nth-child(999)")?.getAttribute("data-id") === p &&
+          document.querySelector("tbody tr:nth-child(2)")?.getAttribute("data-id") !== p,
+        prevRow2,
+      );
+    },
+    async labelHasTick() {
+      return page.evaluate(() =>
+        /( !\d+)$/.test(document.querySelector("tbody tr td.col-label")?.textContent ?? ""),
+      );
+    },
   };
+}
+
+// Single switch point between the DOM harness and the bridge-backed one used by canvas
+// renderers (see canvas-harness.mjs and the `driver` field in frameworks.config.mjs).
+export async function harnessFor(page, fw) {
+  if (fw.driver === "canvas") {
+    const { makeCanvasHarness } = await import("./canvas-harness.mjs");
+    return makeCanvasHarness(page);
+  }
+  return makeHarness(page, fw);
 }
 
 export async function openPage(browser, url, { throttle = 0 } = {}) {
@@ -125,8 +191,25 @@ export async function openPage(browser, url, { throttle = 0 } = {}) {
 // Also extracts GC time (MinorGC/MajorGC/V8.GC*/BlinkGC.*) inside the measured window.
 
 const GC_EVENT = /^(MinorGC|MajorGC|GCEvent|BlinkGC\.|V8\.GC)/;
+const PAINT_EVENT = /^(Paint|PaintImage|Commit|CompositeLayers)$/;
+// A gap this long with no paint or commit at all means the response to the click is over; the
+// "cluster" anchor stops there. Measured margins on the canvas app: real clusters hold together
+// within ~5ms, and the unrelated repaint that follows arrives 100-350ms later.
+const CLUSTER_GAP_US = 50_000;
 
-export function parseTrace(buffer) {
+// `anchor` selects how the end of the measured window is found.
+//
+//   "last-paint" (default, DOM frameworks, unchanged): the last Paint/Commit anywhere after the
+//   click, requiring at least one real Paint — a DOM update always produces one, and taking the
+//   last covers async flushes.
+//
+//   "cluster" (canvas renderers): the end of the FIRST run of paint/commit activity after the
+//   click, and Commit alone counts as evidence. A canvas layer updates through a compositor
+//   commit and produces no Blink Paint at all, so requiring one anchors the measurement to
+//   whatever repaints the DOM layers next — verified on this app to be an unrelated repaint
+//   100-350ms after the frame the click actually produced (while the same app sustains 120fps
+//   in the animate loop, which that latency would make impossible).
+export function parseTrace(buffer, { anchor = "last-paint" } = {}) {
   const { traceEvents } = JSON.parse(buffer.toString());
   const clicks = traceEvents.filter(
     (e) => e.name === "EventDispatch" && e.args?.data?.type === "click",
@@ -136,13 +219,30 @@ export function parseTrace(buffer) {
   const clickDur = Math.max(...clicks.map((e) => (e.dur ?? 0))) / 1000;
   let paintEnd = -1;
   let sawPaint = false;
-  for (const e of traceEvents) {
-    if (e.ts < clickStart) continue;
-    if (e.name === "Paint" || e.name === "PaintImage") {
+  if (anchor === "cluster") {
+    const painted = traceEvents
+      .filter((e) => e.ts >= clickStart && PAINT_EVENT.test(e.name))
+      .sort((a, b) => a.ts - b.ts);
+    for (const e of painted) {
+      const end = e.ts + (e.dur ?? 0);
+      if (paintEnd < 0) {
+        paintEnd = end;
+      } else if (e.ts - paintEnd > CLUSTER_GAP_US) {
+        break;
+      } else {
+        paintEnd = Math.max(paintEnd, end);
+      }
       sawPaint = true;
-      paintEnd = Math.max(paintEnd, e.ts + (e.dur ?? 0));
-    } else if (e.name === "Commit" || e.name === "CompositeLayers") {
-      paintEnd = Math.max(paintEnd, e.ts + (e.dur ?? 0));
+    }
+  } else {
+    for (const e of traceEvents) {
+      if (e.ts < clickStart) continue;
+      if (e.name === "Paint" || e.name === "PaintImage") {
+        sawPaint = true;
+        paintEnd = Math.max(paintEnd, e.ts + (e.dur ?? 0));
+      } else if (e.name === "Commit" || e.name === "CompositeLayers") {
+        paintEnd = Math.max(paintEnd, e.ts + (e.dur ?? 0));
+      }
     }
   }
   if (!sawPaint || paintEnd < clickStart) return { error: "no paint after click" };
@@ -255,7 +355,7 @@ export function logLogSlope(xs, ys) {
 // compositor), and 280ms was tight enough to misreport that as "no paint after click"
 // rather than recording the (large, real) duration. Applied uniformly to every
 // framework — negligible cost for frameworks that already paint within tens of ms.
-export async function measureTracedClick(browser, page, action, wait) {
+export async function measureTracedClick(browser, page, action, wait, { anchor } = {}) {
   await browser.startTracing(page, {
     screenshots: false,
     categories: ["devtools.timeline", "disabled-by-default-devtools.timeline"],
@@ -265,5 +365,5 @@ export async function measureTracedClick(browser, page, action, wait) {
   await wait();
   await page.waitForTimeout(700);
   const trace = await browser.stopTracing();
-  return parseTrace(trace);
+  return parseTrace(trace, { anchor });
 }

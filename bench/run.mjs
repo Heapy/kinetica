@@ -19,7 +19,7 @@ import {
 import { arch, cpus, platform, tmpdir, totalmem } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { frameworks } from "./frameworks.config.mjs";
+import { frameworks, supportsSuite } from "./frameworks.config.mjs";
 import { resolveVersion } from "./driver/common.mjs";
 import { generateComparison, updatePerformanceDocs } from "./report/comparison.mjs";
 
@@ -325,7 +325,8 @@ if (reuseFrom !== undefined && filters.length > 0) {
 }
 const frameworksBySuite = Object.fromEntries(browserSuites.map((suite) => [
   suite,
-  suite === "stress" || suite === "extra" ? stressFrameworks : selectedFrameworks,
+  (suite === "stress" || suite === "extra" ? stressFrameworks : selectedFrameworks)
+    .filter((framework) => supportsSuite(framework, suite)),
 ]));
 const eligibleReusableFrameworksBySuite = Object.fromEntries(browserSuites.map((suite) => {
   const universe = suite === "stress" || suite === "extra"
@@ -333,7 +334,8 @@ const eligibleReusableFrameworksBySuite = Object.fromEntries(browserSuites.map((
     : frameworks.filter((framework) => suite !== "tree" || framework.treeUrl);
   return [suite, reuseFrom === undefined
     ? []
-    : universe.filter((framework) => !frameworksBySuite[suite].includes(framework))];
+    : universe.filter((framework) =>
+      supportsSuite(framework, suite) && !frameworksBySuite[suite].includes(framework))];
 }));
 if (reuseFrom !== undefined && !Object.values(eligibleReusableFrameworksBySuite).some((suiteFrameworks) => suiteFrameworks.length > 0)) {
   throw new Error("--reuse-from requires a partial framework selection, e.g. --frameworks=kinetica");
@@ -1135,7 +1137,8 @@ function requireCompleteRun(action) {
   const missingSuites = DEFAULT_SUITES.filter((suite) => !suites.includes(suite));
   const optInSuites = suites.filter((suite) => !DEFAULT_SUITES.includes(suite));
   const missingFrameworks = DEFAULT_BROWSER_SUITES.flatMap((suite) => {
-    const expected = frameworks.filter((framework) => suite !== "tree" || framework.treeUrl);
+    const expected = frameworks.filter((framework) =>
+      supportsSuite(framework, suite) && (suite !== "tree" || framework.treeUrl));
     const available = artifactFrameworksBySuite[suite] ?? [];
     return expected.filter((framework) => !available.includes(framework)).map((framework) => `${suite}:${framework.name}`);
   });
@@ -1215,8 +1218,15 @@ async function buildBrowserApps(browserFrameworks = executedBrowserFrameworks) {
       for (const target of genericTargets) await buildTarget(target);
     }
   }
+  // Several entries can share one app (the two canvas variants differ only by a query
+  // parameter), so a build command runs once per distinct command line.
+  const ranBuilds = new Set();
   for (const framework of browserFrameworks) {
-    if (framework.build) run(framework.build.cmd, framework.build.args);
+    if (!framework.build) continue;
+    const key = [framework.build.cmd, ...framework.build.args].join(" ");
+    if (ranBuilds.has(key)) continue;
+    ranBuilds.add(key);
+    run(framework.build.cmd, framework.build.args);
   }
 }
 
