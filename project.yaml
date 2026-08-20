@@ -21,6 +21,7 @@ modules:
   - ./samples/annotated-js
   - ./samples/browser-bench
   - ./samples/browser-bench-compose
+  - ./samples/browser-bench-compose-canvas
   - ./samples/browser-counter
   - ./samples/browser-game-of-life
   - ./samples/browser-game-of-life-compose

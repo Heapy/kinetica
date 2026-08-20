@@ -10,6 +10,9 @@ const MIME = {
   ".json": "application/json",
   ".map": "application/json",
   ".svg": "image/svg+xml",
+  // WebAssembly.instantiateStreaming rejects anything but application/wasm, so the Kotlin/Wasm
+  // apps fail to start without this entry.
+  ".wasm": "application/wasm",
 };
 
 export function startServer(rootDir, port) {

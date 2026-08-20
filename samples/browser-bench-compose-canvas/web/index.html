@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Compose canvas keyed benchmark</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #fff; }
+  </style>
+  <!--
+    No shared stylesheet and no __mountMs DOM-polling snippet here, unlike the DOM apps: this
+    app paints into a canvas (which Compose puts inside a shadow root), so there is nothing for
+    a MutationObserver to find. window.__mountMs is set from Kotlin on the first drawn frame,
+    and the driver reads state through window.__bench — see src/bridge.kt.
+  -->
+</head>
+<body>
+  <script type="module"
+          src="../../../build/artifacts/CompiledWebArtifact/browser-bench-compose-canvaswasmJsrelease/kotlin-output/browser-bench-compose-canvas.mjs"></script>
+</body>
+</html>

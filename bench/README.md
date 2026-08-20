@@ -134,9 +134,13 @@ frameworks.config.mjs   ← REGISTRY: every benchmarked framework (order = chart
 run.mjs                 ← unified provision/build/run/merge/report orchestrator
 build.mjs               ← esbuild bundling for the JS frameworks (has its own `targets` list)
 build-kinetica.mjs      ← Kotlin/JS link + esbuild production bundle for Kinetica
+build-compose.mjs       ← Kotlin/JS link + esbuild bundle for the Compose HTML app
+build-compose-canvas.mjs ← Kotlin/Wasm link + skiko runtime layout for the Compose canvas app
 frameworks/<name>/      ← table app (main.*) and tree app (tree.* / Tree*.svelte) per framework
 frameworks/shared/      ← data.mjs + tree-data.mjs (generators), styles.css (shared page CSS)
-driver/common.mjs       ← shared machinery: args, Playwright, trace parsing (incl. GC), stats
+driver/common.mjs       ← shared machinery: args, Playwright, trace parsing (incl. GC), stats,
+                          the harness contract (DOM implementation) and harnessFor()
+driver/canvas-harness.mjs ← same harness contract over the window.__bench bridge (canvas apps)
 driver/bench.mjs        ← main driver: 13 ops + startup + memory churn + animation
 driver/tree.mjs         ← deep-tree driver (create/update/reverse/no-op on 1,555 nodes)
 driver/scaling.mjs      ← standard 1k–20k and opt-in 10k–100k stress curves
@@ -177,6 +181,25 @@ at `../samples/browser-bench-compose/web/index.html`, tree app at the same page 
 purpose Compose Multiplatform runtime (slot-table composition, snapshot state) rather than a
 web-specific fine-grained or vdom renderer — and its numbers reflect that (see Interpreting
 results below).
+
+The Compose **canvas** app lives at `../samples/browser-bench-compose-canvas/` (module
+`browser-bench-compose-canvas`, `wasm-js/app` + Compose Multiplatform's Skia renderer), built
+through `build-compose-canvas.mjs`. It is the same framework as the Compose HTML entry with a
+different renderer, and it produces **no DOM at all** — one `<canvas>`, which Compose puts
+inside a shadow root. Consequences worth knowing before reading its numbers:
+
+- It cannot satisfy the app contract below (which is written in terms of DOM nodes), so the
+  report keeps it in its own section, out of the ranking, the geometric mean **and** the
+  per-operation `fastest` baseline. Its factors are still measured against that baseline.
+- Two config entries, one app and one build, selected by `?list=`: `compose-canvas` renders a
+  `Column` (every row composed and laid out — the variant comparable with a DOM framework
+  building 10,000 nodes) and `compose-canvas-lazy` a `LazyColumn` (only the visible window,
+  how Compose is normally written). The gap between them is virtualization, not render speed.
+- There is no esbuild step: the Kotlin/Wasm glue fetches its `.wasm` by URL. The build script
+  additionally unpacks `skiko.mjs` + `skiko.wasm` next to the linked output, because the
+  toolchain resolves the skiko runtime as a dependency but does not lay it out (in a Gradle
+  build the Compose plugin does that). Serving it needs the `.wasm` MIME type that
+  `driver/server.mjs` now sets.
 
 ## What is measured
 
@@ -231,6 +254,23 @@ Also collected per framework:
   toggle; the app re-labels every 10th row on every `requestAnimationFrame` until toggled off.
   An injected rAF collector records real frame deltas for `--anim-seconds` (default 6, first
   500ms discarded); reported as fps, median/p95 frame time and % of frames >25ms.
+
+**Canvas renderers deviate in three documented ways**, because there is nothing to query or
+click. Two are in `driver/canvas-harness.mjs`: assertions read `window.__bench.frame`, a
+snapshot the app publishes **from its draw phase** — so it describes a frame that was actually
+painted, which is what the DOM assertions get for free — and clicks are `page.mouse.click` on
+published rectangles, which are trusted events with the same `EventDispatch` trace anchor as an
+element click. The third is in `parseTrace` (`driver/common.mjs`), selected by `renderer:
+"canvas"`: the window ends at the end of the **first run** of paint/commit activity after the
+click (`anchor: "cluster"`), and a `Commit` on its own counts. A canvas layer updates through a
+compositor commit and produces no Blink `Paint` at all, so the default "last paint anywhere
+after the click" anchor attaches to whatever repaints the DOM layers next — measured on this
+app to be an unrelated repaint 100–350 ms after the frame the click produced, which turned
+every cheap operation into a flat ~104 ms and inflated `create10k` by ~390 ms. The same app
+sustains 120 fps in the animate loop, which that latency would make impossible. Warmup/samples,
+viewport and the post-click settle are shared, and the DOM frameworks keep the original anchor
+byte-for-byte. The memory leak probe needs `__mount`/`__unmount`; Compose's
+`ComposeViewport` exposes no teardown, so those two checkpoints report "—" instead of a number.
 
 `--throttle=N` applies CDP `Emulation.setCPUThrottlingRate` to the op and animation contexts
 (startup/memory stay unthrottled). Throttled parts land in the run's `throttled/`
@@ -370,6 +410,12 @@ For a framework whose app lives outside `bench/` (like Kinetica, or Compose HTML
 `__mountMs` snippet in its HTML (copy from `../samples/browser-bench/web/index.html`), and
 declare a `build` command in its config entry.
 
+For a framework that renders no DOM, add `driver: "canvas"` (harness switches to the
+`window.__bench` bridge), `renderer: "canvas"` (report puts it outside the main ranking) and
+`suites: ["main"]` to its entry, and have the app publish `frame`, `rects`, `rowGeometry` and
+`__mountMs` — `../samples/browser-bench-compose-canvas/src/bridge.kt` documents what each one
+has to guarantee. Entries that share a build command run it once.
+
 ## Environment assumptions (things that break silently)
 
 - **Vendored browser**: `driver/common.mjs` imports Playwright from `../.tools/playwright/` and
@@ -377,6 +423,12 @@ declare a `build` command in its config entry.
   another machine, adjust both constants there (or set `PLAYWRIGHT_IMPORT` /
   `PLAYWRIGHT_CHROMIUM_EXECUTABLE`).
 - **Port 4573** (`BENCH_PORT` to override); the static server serves the whole repo root.
+- **Watching a run** (demo only, all off by default): `BENCH_HEADED=1` opens a visible window,
+  `BENCH_SLOWMO=<ms>` slows every Playwright action, `BENCH_STEP_PAUSE=<ms>` idles after each
+  sample. The pause sits outside `measureTracedClick`, so none of them can alter a recorded
+  duration — but a headed window composites to a real display and, on a HiDPI screen, draws
+  several times the pixels, so numbers produced under them are **not** comparable with recorded
+  ones. Pair with `--warmup=0 --samples=1` unless you want to watch each operation 13 times.
 - Numbers are only comparable **within one machine + one Chromium**. The generic comparator
   blocks mismatched environments by default; after changing either, re-run all frameworks.
 - Kinetica's payload/TTI figures use the benchmark's esbuild production bundle over the Kotlin

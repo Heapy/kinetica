@@ -17,7 +17,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { arch, cpus, platform, totalmem } from "node:os";
 import { dirname, join } from "node:path";
 import { startServer } from "./server.mjs";
-import { frameworks } from "../frameworks.config.mjs";
+import { frameworks, supportsSuite } from "../frameworks.config.mjs";
 import {
   driverDir,
   frameworkSelectors,
@@ -45,7 +45,10 @@ if (SIZES.some((s) => s < 1000 || s % 1000 !== 0)) {
   process.exit(1);
 }
 
-const FRAMEWORKS = Object.fromEntries(frameworks.map((fw) => [fw.name, frameworkSelectors(fw)]));
+// Canvas renderers declare `suites: ["main"]` — they have no DOM for the scaling assertions.
+const FRAMEWORKS = Object.fromEntries(
+  frameworks.filter((fw) => supportsSuite(fw, "scaling")).map((fw) => [fw.name, frameworkSelectors(fw)]),
+);
 const selectedFrameworks = (args.frameworks ?? Object.keys(FRAMEWORKS).join(","))
   .split(",")
   .filter((f) => f in FRAMEWORKS);
