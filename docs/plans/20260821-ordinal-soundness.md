@@ -838,21 +838,82 @@
 - Modify: `kinetica-compiler/src/KineticaFirExtension.kt`
 - Modify: `kinetica-compiler/src/KineticaCommandLineProcessor.kt`
 - Modify: `kinetica-compiler/test/KineticaFirCheckerTest.kt`
+- Modify: `kinetica-compiler/test/KineticaIrFrameCompileTest.kt` (➕ its checks=off
+  probes from Tasks 2/6/7/14 compiled unsound shapes and had to follow the semantics
+  change — see the conversion note below)
 
-- [ ] write failing test: with `checks=off`, the val-lambda aliasing probe (Task 7)
+- [x] write failing test: with `checks=off`, the val-lambda aliasing probe (Task 7)
       and the multi-run rule F probes must still be compile errors
-- [ ] split diagnostics into soundness (rules that prevent runtime crash/aliasing —
+      (`checksOffKeepsValStoredLambdaRuleAnError` and
+      `checksOffKeepsMultiRunOrdinalRuleAnError` — both red before the fix — plus the
+      flipped `checksOffKeepsSlotCallOutsideComponentAnError` (was
+      `checksOffLeavesViolationsUnreported`) pinning rule A, and
+      `checksWarningKeepsSoundnessRulesAsErrors` pinning that `warning` never
+      downgrades soundness either)
+- [x] split diagnostics into soundness (rules that prevent runtime crash/aliasing —
       always error, not configurable) and style (governed by `checks`)
-- [ ] implement the severity mechanism `checks=warning` needs (it is currently a
+      (decision: style = rule E ONLY (COMPONENT_WITHOUT_SCOPE_RECEIVER); every other
+      rule guards a crash or aliasing — A/B/F violations fail fast at render, D
+      aliases silently, rule C's F8 half has no IR backstop, G/H mirror the located IR
+      declines. Making E style required closing its crash shadow:
+      `classifyContainment` now grants COMPONENT_BODY only to @UiComponent functions
+      WITH a ComponentScope receiver — exactly IR's `isUiComponentWithScopeReceiver`
+      framing predicate — so slot/component calls inside a scope-free component stay
+      OUTSIDE for rules A/B in every mode, pinned by
+      `scopeFreeComponentBodyStaysOutsideForSoundnessRules`)
+- [x] implement the severity mechanism `checks=warning` needs (it is currently a
       behavioral no-op alias for `error` — the registrar's only branch is `!= "off"`
       and all factories are fixed-severity `error1`/`error2`): either parallel
       warning factories or severity remapping at report time — pick one and record
       the choice here
-- [ ] `checks=off` keeps style rules off but registers the FIR extension with
+      (decision: parallel warning factory — `COMPONENT_WITHOUT_SCOPE_RECEIVER_WARNING`
+      via `warning1`, sharing the error factory's message template; report-time
+      severity remapping is not possible with fixed-severity `KtDiagnosticFactory`.
+      The declaration checker takes the factory to report; the new
+      `KineticaChecksMode` (ERROR/WARNING/OFF, unknown option values → ERROR) selects
+      it, and OFF registers no declaration checker at all. Pinned by
+      `checksWarningDowngradesStyleDiagnosticsToWarnings` — red before the fix, since
+      `warning` was an error alias — and `checksOffSuppressesStyleDiagnostics`)
+- [x] `checks=off` keeps style rules off but registers the FIR extension with
       soundness rules active; `checks=warning` downgrades style rules only
-- [ ] update the CLI option help text: `checks` is no longer an escape hatch for
+      (the registrar registers the FIR extension unconditionally and passes the mode.
+      Conversion note — the pre-S1 checks=off probes compiled unsound shapes and were
+      updated to the new semantics: 7 runtime fail-fast probes in
+      `KineticaIrFrameCompileTest` (List/derived, button handler, each key selector,
+      val-stored lambda, derive/invalidate/serverActionStub) now pin the rule F
+      compile error at checks=off; the 4 `...FailsCompileWhenChecksAreOff` FIR probes
+      now stop at the FIR rule C/G/H error before IR runs, so the IR located-ERROR
+      declines became untestable defense-in-depth (the dead
+      `assertSingleIrDeclineError` helper was removed);
+      `unstagedComponentCallThrowsMissingPlugin` became the rule B compile pin
+      `rawComponentCallOutsideComponentsFailsCompileWhenChecksAreOff`;
+      `emptyOracleFallsBackToNameListsForScopeFunctionLambdas` was renamed
+      `nameListFallbackNumbersScopeFunctionLambdas` per its own Task 15 NOTE; and two
+      sound-but-rule-A-rejected probes
+      (`componentContentParametersWrapInsideComponentBodies` and the F3 fork probe
+      `contentLambdaInvokedTwiceForksRegionFramesPerInvocation`) moved their slot
+      calls into child components — the blessed shape, matching what every consumer
+      already writes at the default checks=error)
+- [x] update the CLI option help text: `checks` is no longer an escape hatch for
       soundness
-- [ ] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 16
+      (`<error|warning|off>`; the text names the style scope and states that the
+      soundness rules cannot be disabled because their absence crashes or aliases at
+      render)
+- [x] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 16
+      (140/140 green: 135 prior + 5 new checks-mode tests; consumer scan: no module in
+      the repo sets `checks` at all — everyone already builds at the default `error` —
+      so no mavenLocal republish is needed and no new Task 19 fallout is possible)
+- ⚠️ known gap surfaced while converting (predates this task and is checks-mode
+  independent): `listOf(1).forEach { helper { Badge() } }` — a content-wrapper call
+  inside a multi-run lambda — compiles clean at EVERY checks mode (the rule-F walk
+  stops at the component-typed lambda boundary, and post-F1 the wrapper consumes no
+  ordinal) yet crashes at first render, because the IR walker never descends into the
+  multi-run lambda to wrap the content. Pinned by
+  `multiRunCallWithComponentTypedLambdaArgumentCompiles` (compile-only) and
+  `multiRunComponentTypedHelperFailsFastWhenChecksAreOff` (runtime fail-fast, kept).
+  Task 20's findings walk must weigh this against the Overview promise; fixing it is
+  new scope (either FIR rejects wrapper calls in multi-run lambdas, or IR wraps
+  content arguments even in undescended lambdas).
 
 ### Task 16: Context-aware diagnostic advice (S2)
 

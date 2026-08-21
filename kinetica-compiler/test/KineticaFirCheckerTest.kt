@@ -2,6 +2,7 @@ package io.heapy.kinetica.compiler
 
 import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.KineticaRuntime
+import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
 import java.io.File
 import java.lang.reflect.Modifier
 import java.util.jar.JarFile
@@ -445,8 +446,11 @@ class KineticaFirCheckerTest {
     }
 
     @Test
-    fun checksOffLeavesViolationsUnreported() {
-        harness.compile(
+    fun checksOffKeepsSlotCallOutsideComponentAnError() {
+        // S1: rule A is a soundness rule — IR never numbers slot calls outside framed
+        // components, so this helper throws MissingKineticaPluginException at runtime.
+        // `checks` governs style diagnostics only and must not remove it.
+        harness.compileExpectingErrors(
             mapOf(
                 "main.kt" to """
                     package app
@@ -461,7 +465,7 @@ class KineticaFirCheckerTest {
                 """,
             ),
             checks = "off",
-        ).close()
+        ).assertContainsError("'state' can only be called inside a @UiComponent function")
     }
 
     @Test
@@ -803,8 +807,11 @@ class KineticaFirCheckerTest {
     }
 
     @Test
-    fun checksOffLeavesMultiRunViolationsUnreported() {
-        harness.compile(
+    fun checksOffKeepsMultiRunOrdinalRuleAnError() {
+        // S1 primary probe: rule F is a soundness rule with no IR counterpart —
+        // removing it turned this compile error into a first-render crash blaming a
+        // correct build config. `checks=off` must keep it an error.
+        val messages = harness.compileExpectingErrors(
             mapOf(
                 "main.kt" to """
                     package app
@@ -823,7 +830,158 @@ class KineticaFirCheckerTest {
                 """,
             ),
             checks = "off",
-        ).close()
+        )
+
+        messages.assertSingleErrorEquals(multiRunMessage("state", "forEach"))
+    }
+
+    @Test
+    fun checksOffKeepsValStoredLambdaRuleAnError() {
+        // S1's "no error at all" case: the Task 7 aliasing probe — the IR walker never
+        // numbers a val-stored lambda, so at checks=off this used to compile silently
+        // and alias slot 0 across every invocation.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.ValLambdaFan(items: List<Int>) {
+                        val row: (Int) -> Unit = { i ->
+                            val s = state { i }
+                            text("row=" + i + " state=" + s.value)
+                        }
+                        items.forEach { row(it) }
+                    }
+                """,
+            ),
+            checks = "off",
+        )
+
+        messages.assertSingleErrorEquals(multiRunMessage("state", "row"))
+    }
+
+    @Test
+    fun checksWarningKeepsSoundnessRulesAsErrors() {
+        // `checks=warning` downgrades style diagnostics only; soundness rules stay
+        // fixed-severity errors.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+
+                    @UiComponent
+                    fun ComponentScope.Fan() {
+                        listOf(1, 2).forEach { item ->
+                            val value = state { item }
+                            value.value
+                        }
+                    }
+                """,
+            ),
+            checks = "warning",
+        )
+
+        messages.assertSingleErrorEquals(multiRunMessage("state", "forEach"))
+    }
+
+    @Test
+    fun checksOffSuppressesStyleDiagnostics() {
+        // Rule E is the style bucket: a scope-free @UiComponent declaration is never
+        // framed or staged, so on its own it is provably inert at runtime.
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.UiComponent
+
+                    @UiComponent
+                    fun Standalone() {
+                    }
+                """,
+            ),
+            checks = "off",
+        ).use { compiled ->
+            assertTrue(
+                compiled.messages.none {
+                    "must be an extension of io.heapy.kinetica.ComponentScope" in it.message
+                },
+                "checks=off must fully suppress the style diagnostic. Messages:\n" +
+                    compiled.messages.joinToString("\n") { "${it.severity}: ${it.message}" },
+            )
+        }
+    }
+
+    @Test
+    fun checksWarningDowngradesStyleDiagnosticsToWarnings() {
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.UiComponent
+
+                    @UiComponent
+                    fun Standalone() {
+                    }
+                """,
+            ),
+            checks = "warning",
+        ).use { compiled ->
+            val styleWarnings = compiled.messages.filter {
+                it.severity == CompilerMessageSeverity.WARNING &&
+                    "@UiComponent function 'Standalone' must be an extension of " +
+                    "io.heapy.kinetica.ComponentScope." in it.message
+            }
+            assertEquals(
+                1,
+                styleWarnings.size,
+                "Expected exactly one style WARNING. Messages:\n" +
+                    compiled.messages.joinToString("\n") { "${it.severity}: ${it.message}" },
+            )
+        }
+    }
+
+    @Test
+    fun scopeFreeComponentBodyStaysOutsideForSoundnessRules() {
+        // The crash shape rule E used to shadow: IR frames only @UiComponent functions
+        // WITH a ComponentScope receiver, so a slot call reached through a scope
+        // parameter inside a scope-free @UiComponent is never numbered and crashes at
+        // render. COMPONENT_BODY containment mirrors IR's framing predicate, keeping
+        // this a soundness error even when the style rule is downgraded or off.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+
+                    @UiComponent
+                    fun Standalone(scope: ComponentScope) {
+                        val count = scope.state { 0 }
+                        count.value
+                    }
+                """,
+            ),
+            checks = "off",
+        )
+
+        messages.assertSingleErrorEquals(
+            "'state' can only be called inside a @UiComponent function. " +
+                "Move the call into a @UiComponent, or annotate the enclosing function.",
+        )
     }
 
     @Test
@@ -1766,14 +1924,17 @@ class KineticaFirCheckerTest {
 
     @Test
     fun suspendSubtreeExplicitKeyFailsCompileWhenChecksAreOff() {
-        // F9's other half: when the FIR extension is absent, the IR decline must be a
-        // located compile ERROR, not a LOGGING line invisible without -verbose.
+        // F9 + S1: rule G is a soundness rule, so `checks=off` no longer removes it —
+        // the compile stops at the FIR error before IR runs. The IR located-ERROR
+        // decline stays behind it as defense-in-depth for shapes FIR might miss.
         val messages = harness.compileExpectingErrors(
             mapOf("main.kt" to SUSPEND_SUBTREE_EXPLICIT_KEY_SOURCE),
             checks = "off",
         )
 
-        messages.assertSingleIrDeclineError("suspendSubtree with an explicit key")
+        messages.assertSingleErrorEquals(
+            explicitKeyMessage("suspendSubtree", SUSPEND_SUBTREE_KEY_CONSEQUENCE),
+        )
     }
 
     @Test
@@ -1849,8 +2010,8 @@ class KineticaFirCheckerTest {
 
     @Test
     fun persistentStateExplicitKeyFailsCompileWhenChecksAreOff() {
-        // The IR bail-out that skips the SlotId retarget must fail the compilation with
-        // a located ERROR instead of silently dropping persistence addressing.
+        // S1: rule G stays active at checks=off, so the persistence-losing key is a FIR
+        // error before IR runs (the IR located-ERROR bail-out remains as backstop).
         val messages = harness.compileExpectingErrors(
             mapOf(
                 "skew.kt" to KEY_ADDRESSED_STATE_OVERLOAD_SOURCE,
@@ -1871,7 +2032,9 @@ class KineticaFirCheckerTest {
             checks = "off",
         )
 
-        messages.assertSingleIrDeclineError("persistent state with an explicit key")
+        messages.assertSingleErrorEquals(
+            explicitKeyMessage("state", PERSISTENT_STATE_KEY_CONSEQUENCE),
+        )
     }
 
     @Test
@@ -1911,9 +2074,9 @@ class KineticaFirCheckerTest {
 
     @Test
     fun regionContentNotLiteralFailsCompileWhenChecksAreOff() {
-        // The third documented IR decline (F9): non-literal region content. FIR rule C
-        // already rejects it at checks=error; with checks off the IR pass must fail the
-        // compilation with a located ERROR instead of logging and crashing at render.
+        // The third documented IR decline (F9): non-literal region content. Rule C is a
+        // soundness rule, so since S1 `checks=off` keeps it active and the compile
+        // stops at the FIR error (the IR located-ERROR decline remains as backstop).
         val messages = harness.compileExpectingErrors(
             mapOf(
                 "main.kt" to """
@@ -1934,7 +2097,12 @@ class KineticaFirCheckerTest {
             checks = "off",
         )
 
-        messages.assertSingleIrDeclineError("each content is not a lambda literal")
+        messages.assertSingleErrorEquals(
+            "The 'content' content argument must be a lambda literal so the compiler " +
+                "can assign its slot ordinals: content hoisted into a local variable or passed " +
+                "as a function reference is never frame-wrapped and fails at render. " +
+                "Pass the lambda literal directly.",
+        )
     }
 
     @Test
@@ -2079,8 +2247,9 @@ class KineticaFirCheckerTest {
 
     @Test
     fun componentCallNonTrivialReceiverFailsCompileWhenChecksAreOff() {
-        // F10's other half: with the FIR extension absent, the IR "left unstaged" decline
-        // must be a located compile ERROR, not a LOGGING line invisible without -verbose.
+        // F10 + S1: rule H is a soundness rule, so `checks=off` keeps it active and the
+        // compile stops at the FIR error before IR runs (the IR "left unstaged" located
+        // ERROR remains behind it as defense-in-depth for shapes FIR might miss).
         val messages = harness.compileExpectingErrors(
             mapOf(
                 "main.kt" to """
@@ -2104,9 +2273,11 @@ class KineticaFirCheckerTest {
             checks = "off",
         )
 
-        messages.assertSingleIrDeclineError(
-            "component call Badge has a non-trivial receiver expression",
-            pathMarker = "left unstaged",
+        messages.assertSingleErrorEquals(
+            "@UiComponent call 'Badge' must be invoked on a simple receiver — 'this', a parameter, " +
+                "or a plain local val — so the compiler can stage the child frame ordinal. " +
+                "Call-result, safe-call, and smart-cast receivers are left unstaged and fail at " +
+                "first render. Bind the receiver to a plain local val of the scope type first.",
         )
     }
 
@@ -2139,30 +2310,6 @@ class KineticaFirCheckerTest {
             "the call is left on the legacy path and $consequence"
 
     /** A decline-to-transform IR error: exactly one, matching [needle], with a location. */
-    private fun List<RecordedCompilerMessage>.assertSingleIrDeclineError(
-        needle: String,
-        pathMarker: String = "left on the legacy path",
-    ) {
-        val errors = filter { it.severity.isError }
-        assertEquals(
-            1,
-            errors.size,
-            "Expected exactly one IR decline error. Messages:\n" +
-                joinToString("\n") { "${it.severity}: ${it.message}" },
-        )
-        val error = errors.single()
-        assertTrue(needle in error.message, "Expected '$needle' in: ${error.message}")
-        assertTrue(
-            pathMarker in error.message,
-            "Decline errors must name the declined path ('$pathMarker'): ${error.message}",
-        )
-        val location = error.location
-        assertTrue(
-            location != null && location.line > 0,
-            "IR decline errors must carry a source location, got: ${error.location}",
-        )
-    }
-
     private fun List<RecordedCompilerMessage>.assertSingleErrorEquals(expected: String) {
         assertEquals(listOf(expected), filter { it.severity.isError }.map { it.message })
     }

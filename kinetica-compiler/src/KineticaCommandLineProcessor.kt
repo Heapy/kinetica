@@ -76,10 +76,12 @@ public class KineticaCommandLineProcessor : CommandLineProcessor {
         ),
         CliOption(
             optionName = KineticaCompilerContract.optionChecks,
-            valueDescription = "<error|off>",
-            description = "Kinetica authoring rules (slot DSL only in @UiComponent, no stateful calls in " +
-                "loops, ComponentScope receivers). Defaults to error; off is an escape hatch for " +
-                "migration branches.",
+            valueDescription = "<error|warning|off>",
+            description = "Severity of Kinetica style diagnostics (currently the @UiComponent " +
+                "ComponentScope-receiver convention): error (default), warning, or off. Soundness rules " +
+                "(slot DSL outside components, ordinals in loops or multi-run lambdas, non-literal " +
+                "content, unstageable receivers, unsupported explicit keys) are always compile errors " +
+                "and cannot be disabled: without them the same code crashes or aliases state at render.",
             required = false,
             allowMultipleOccurrences = false,
         ),

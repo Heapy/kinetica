@@ -10,6 +10,7 @@ import org.jetbrains.kotlin.diagnostics.KtDiagnosticFactoryToRendererMap
 import org.jetbrains.kotlin.diagnostics.KtDiagnosticsContainer
 import org.jetbrains.kotlin.diagnostics.error1
 import org.jetbrains.kotlin.diagnostics.error2
+import org.jetbrains.kotlin.diagnostics.warning1
 import org.jetbrains.kotlin.diagnostics.rendering.BaseDiagnosticRendererFactory
 import org.jetbrains.kotlin.diagnostics.rendering.CommonRenderers
 import org.jetbrains.kotlin.diagnostics.reportOn
@@ -55,8 +56,11 @@ import org.jetbrains.kotlin.types.ConstantValueKind
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Frontend authoring rules for the plugin-only slot model. Registered on every backend
- * (FIR is platform-neutral) when the `checks` plugin option is not `off`:
+ * Frontend rules for the plugin-only slot model. Registered unconditionally on every
+ * backend (FIR is platform-neutral): rules A-D and F-H are SOUNDNESS rules — their
+ * absence converts a compile error into a runtime crash or silent state aliasing — so
+ * no `checks` value can remove them (S1). Rule E is the one STYLE rule; the `checks`
+ * option governs only its severity (error/warning/off):
  *
  * A. Slot/event DSL calls are legal only lexically inside `@UiComponent` functions.
  * B. `@UiComponent` calls are legal inside `@UiComponent` bodies or inside lambda
@@ -70,7 +74,10 @@ import java.util.concurrent.ConcurrentHashMap
  *    and non-local properties carry content that was wrapped at its own literal site.
  * D. No slot/event/component call directly inside a loop body: static ordinals cannot
  *    tell iterations apart. `keyed {}` / `each(key = …)` are the sanctioned loop forms.
- * E. `@UiComponent` functions must have a `ComponentScope` receiver.
+ * E. `@UiComponent` functions must have a `ComponentScope` receiver (style: a
+ *    scope-free component is never framed or staged, so the declaration alone is inert
+ *    at runtime — and anything unsound INSIDE it stays OUTSIDE for rules A/B/D/F, see
+ *    `classifyContainment`).
  * F. Ordinal-consuming calls cannot sit in arbitrary multi-run lambdas. Kinetica DSL
  *    content and Kotlin's single-run scope functions share the enclosing frame safely.
  *    A lambda that is not a resolved call argument (stored in a val/var or property)
@@ -123,6 +130,14 @@ public object KineticaFirErrors : KtDiagnosticsContainer() {
     public val UNSUPPORTED_EXPLICIT_KEY: KtDiagnosticFactory2<String, String> by
         error2<PsiElement, String, String>()
     public val COMPONENT_WITHOUT_SCOPE_RECEIVER: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
+
+    /**
+     * `checks=warning` twin of [COMPONENT_WITHOUT_SCOPE_RECEIVER]: KtDiagnosticFactory
+     * severities are fixed per factory, so the style-only downgrade needs a parallel
+     * warning factory rather than report-time severity remapping.
+     */
+    public val COMPONENT_WITHOUT_SCOPE_RECEIVER_WARNING: KtDiagnosticFactory1<String> by
+        warning1<PsiElement, String>()
     public val COMPONENT_RECEIVER_NOT_SIMPLE: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
 
     override fun getRendererFactory(): BaseDiagnosticRendererFactory = KineticaFirErrorRenderers
@@ -172,7 +187,12 @@ public object KineticaFirErrorRenderers : BaseDiagnosticRendererFactory() {
         )
         map.put(
             KineticaFirErrors.COMPONENT_WITHOUT_SCOPE_RECEIVER,
-            "@UiComponent function ''{0}'' must be an extension of io.heapy.kinetica.ComponentScope.",
+            COMPONENT_WITHOUT_SCOPE_RECEIVER_TEMPLATE,
+            CommonRenderers.STRING,
+        )
+        map.put(
+            KineticaFirErrors.COMPONENT_WITHOUT_SCOPE_RECEIVER_WARNING,
+            COMPONENT_WITHOUT_SCOPE_RECEIVER_TEMPLATE,
             CommonRenderers.STRING,
         )
         map.put(
@@ -186,12 +206,37 @@ public object KineticaFirErrorRenderers : BaseDiagnosticRendererFactory() {
     }
 }
 
+private const val COMPONENT_WITHOUT_SCOPE_RECEIVER_TEMPLATE: String =
+    "@UiComponent function ''{0}'' must be an extension of io.heapy.kinetica.ComponentScope."
+
+/**
+ * Parsed value of the `checks` plugin option. It governs STYLE diagnostics only (rule
+ * E): [ERROR] reports them as errors, [WARNING] as warnings, [OFF] not at all. The
+ * soundness rules are errors in every mode — removing them would convert compile
+ * errors into runtime crashes or silent state aliasing (S1).
+ */
+internal enum class KineticaChecksMode {
+    ERROR,
+    WARNING,
+    OFF,
+    ;
+
+    companion object {
+        fun from(value: String): KineticaChecksMode = when (value) {
+            "off" -> OFF
+            "warning" -> WARNING
+            else -> ERROR
+        }
+    }
+}
+
 public class KineticaFirExtensionRegistrar internal constructor(
     private val singleRunOracle: SingleRunOracle,
+    private val checksMode: KineticaChecksMode,
 ) : FirExtensionRegistrar() {
     override fun ExtensionRegistrarContext.configurePlugin() {
         val factory: (FirSession) -> FirAdditionalCheckersExtension = { session ->
-            KineticaFirCheckersExtension(session, singleRunOracle)
+            KineticaFirCheckersExtension(session, singleRunOracle, checksMode)
         }
         +factory
     }
@@ -200,6 +245,7 @@ public class KineticaFirExtensionRegistrar internal constructor(
 internal class KineticaFirCheckersExtension(
     session: FirSession,
     singleRunOracle: SingleRunOracle,
+    checksMode: KineticaChecksMode,
 ) : FirAdditionalCheckersExtension(session) {
 
     override val expressionCheckers: ExpressionCheckers = object : ExpressionCheckers() {
@@ -209,7 +255,15 @@ internal class KineticaFirCheckersExtension(
 
     override val declarationCheckers: DeclarationCheckers = object : DeclarationCheckers() {
         override val simpleFunctionCheckers: Set<FirDeclarationChecker<FirNamedFunction>> =
-            setOf(KineticaComponentDeclarationChecker)
+            when (checksMode) {
+                KineticaChecksMode.ERROR -> setOf(
+                    KineticaComponentDeclarationChecker(KineticaFirErrors.COMPONENT_WITHOUT_SCOPE_RECEIVER),
+                )
+                KineticaChecksMode.WARNING -> setOf(
+                    KineticaComponentDeclarationChecker(KineticaFirErrors.COMPONENT_WITHOUT_SCOPE_RECEIVER_WARNING),
+                )
+                KineticaChecksMode.OFF -> emptySet()
+            }
     }
 }
 
@@ -286,7 +340,8 @@ private class KineticaCallChecker(
         }
 
         // Static ordinals are sound only in lambdas known to run at most once per frame.
-        // FIR owns this authoring error so `checks=off` consistently disables it before IR.
+        // FIR owns this soundness error: IR has no counterpart diagnostic — it declines
+        // to number the lambda and the call fails fast at render.
         if (consumesCompilerOrdinal) {
             val unsafeHost = context.multiRunLambdaHost(expression, session, multiRunReportedCalls)
             if (unsafeHost != null) {
@@ -599,7 +654,9 @@ private fun FirFunctionCall.literalBooleanArgument(name: String): Boolean? {
     return null
 }
 
-private object KineticaComponentDeclarationChecker : FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common) {
+private class KineticaComponentDeclarationChecker(
+    private val factory: KtDiagnosticFactory1<String>,
+) : FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common) {
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(declaration: FirNamedFunction) {
         if (!declaration.hasAnnotation(UI_COMPONENT_CLASS_ID, context.session)) return
@@ -607,7 +664,7 @@ private object KineticaComponentDeclarationChecker : FirDeclarationChecker<FirNa
         if (receiverClassId != COMPONENT_SCOPE_CLASS_ID) {
             reporter.reportOn(
                 declaration.source,
-                KineticaFirErrors.COMPONENT_WITHOUT_SCOPE_RECEIVER,
+                factory,
                 declaration.name.asString(),
                 context,
             )
@@ -636,7 +693,15 @@ private fun CheckerContext.classifyContainment(session: FirSession): KineticaCon
                 // Plain lambdas share the enclosing numbering region; keep walking out.
             }
             is FirNamedFunction ->
-                return if (element.hasAnnotation(UI_COMPONENT_CLASS_ID, session)) {
+                // COMPONENT_BODY mirrors exactly what the IR pass frames: @UiComponent
+                // WITH a ComponentScope receiver (IR's isUiComponentWithScopeReceiver).
+                // A scope-free @UiComponent is never framed, so ordinal consumers inside
+                // it (reached through a scope parameter) are as unsound as in any plain
+                // function; classifying them OUTSIDE keeps rules A/B guarding the crash
+                // even when the style rule E is downgraded to a warning or off.
+                return if (element.hasAnnotation(UI_COMPONENT_CLASS_ID, session) &&
+                    element.receiverParameter?.typeRef?.coneTypeOrNull?.classId == COMPONENT_SCOPE_CLASS_ID
+                ) {
                     KineticaContainment.COMPONENT_BODY
                 } else {
                     KineticaContainment.OUTSIDE
