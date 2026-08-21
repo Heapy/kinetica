@@ -1,6 +1,8 @@
 package io.heapy.kinetica.compiler
 
 import org.jetbrains.kotlin.com.intellij.psi.PsiElement
+import org.jetbrains.kotlin.contracts.description.EventOccurrencesRange
+import org.jetbrains.kotlin.contracts.description.KtCallsEffectDeclaration
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.diagnostics.KtDiagnosticFactory1
 import org.jetbrains.kotlin.diagnostics.KtDiagnosticFactory2
@@ -33,7 +35,7 @@ import org.jetbrains.kotlin.fir.expressions.unwrapArgument
 import org.jetbrains.kotlin.fir.extensions.FirExtensionRegistrar
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
-import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.canBeNull
 import org.jetbrains.kotlin.fir.types.classId
@@ -137,17 +139,25 @@ public object KineticaFirErrorRenderers : BaseDiagnosticRendererFactory() {
     }
 }
 
-public class KineticaFirExtensionRegistrar : FirExtensionRegistrar() {
+public class KineticaFirExtensionRegistrar internal constructor(
+    private val singleRunOracle: SingleRunOracle,
+) : FirExtensionRegistrar() {
     override fun ExtensionRegistrarContext.configurePlugin() {
-        +::KineticaFirCheckersExtension
+        val factory: (FirSession) -> FirAdditionalCheckersExtension = { session ->
+            KineticaFirCheckersExtension(session, singleRunOracle)
+        }
+        +factory
     }
 }
 
-internal class KineticaFirCheckersExtension(session: FirSession) : FirAdditionalCheckersExtension(session) {
+internal class KineticaFirCheckersExtension(
+    session: FirSession,
+    singleRunOracle: SingleRunOracle,
+) : FirAdditionalCheckersExtension(session) {
 
     override val expressionCheckers: ExpressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers: Set<FirExpressionChecker<FirFunctionCall>> =
-            setOf(KineticaCallChecker)
+            setOf(KineticaCallChecker(singleRunOracle))
     }
 
     override val declarationCheckers: DeclarationCheckers = object : DeclarationCheckers() {
@@ -156,10 +166,16 @@ internal class KineticaFirCheckersExtension(session: FirSession) : FirAdditional
     }
 }
 
-private object KineticaCallChecker : FirExpressionChecker<FirFunctionCall>(MppCheckerKind.Common) {
+private class KineticaCallChecker(
+    private val singleRunOracle: SingleRunOracle,
+) : FirExpressionChecker<FirFunctionCall>(MppCheckerKind.Common) {
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
         val callee = expression.calleeReference.toResolvedCallableSymbol() ?: return
+        // Verdicts are recorded for EVERY call carrying a lambda literal — before the
+        // Kinetica-relevance early return, and independent of the rule-F walk — so oracle
+        // coverage never depends on which calls happen to classify as ordinal consumers.
+        expression.recordContractVerdicts(callee, singleRunOracle)
         val session = context.session
         val name = callee.callableId?.callableName?.asString() ?: callee.name.asString()
         // Same-package members of other classes (e.g. KineticaRuntime.frameValue) are not
@@ -228,6 +244,56 @@ private object KineticaCallChecker : FirExpressionChecker<FirFunctionCall>(MppCh
             }
         }
     }
+}
+
+/**
+ * Records the callee's `callsInPlace` single-run verdicts in the per-compilation
+ * [SingleRunOracle] when this call passes at least one lambda literal. The IR frame pass
+ * descends into exactly the lambda parameters recorded here; everything else falls back
+ * to the [KineticaFramePolicy] name lists on both sides.
+ */
+private fun FirFunctionCall.recordContractVerdicts(
+    callee: FirCallableSymbol<*>,
+    singleRunOracle: SingleRunOracle,
+) {
+    // Cheap gates first: most calls carry no lambda literal, and contract resolution is
+    // comparatively expensive (lazy resolve to the CONTRACTS phase).
+    val mapping = (argumentList as? FirResolvedArgumentList)?.mapping ?: return
+    if (mapping.keys.none { argument -> argument.unwrapArgument() is FirAnonymousFunctionExpression }) return
+    val function = callee as? FirFunctionSymbol<*> ?: return
+    val callableId = function.callableId ?: return
+    val singleRunParameters = function.contractSingleRunParameterNames()
+    if (singleRunParameters.isEmpty()) return
+    val regularParameterCount = function.valueParameterSymbols.size
+    for (parameterName in singleRunParameters) {
+        singleRunOracle.recordSingleRun(callableId, regularParameterCount, parameterName)
+    }
+}
+
+/**
+ * Names of the callee's lambda parameters whose resolved contract proves them single-run:
+ * `callsInPlace(block, EXACTLY_ONCE)` or `AT_MOST_ONCE`. Any other occurrence kind — or
+ * no contract at all — contributes nothing: absence is NOT a multi-run verdict, it falls
+ * through to the [KineticaFramePolicy] name lists on both compiler phases, so the Kotlin
+ * scope functions never regress if contract resolution fails.
+ */
+private fun FirCallableSymbol<*>.contractSingleRunParameterNames(): Set<String> {
+    val function = this as? FirFunctionSymbol<*> ?: return emptySet()
+    val effects = function.resolvedContractDescription?.effects ?: return emptySet()
+    if (effects.isEmpty()) return emptySet()
+    val parameters = function.valueParameterSymbols
+    var names: MutableSet<String>? = null
+    for (declaration in effects) {
+        val effect = declaration.effect as? KtCallsEffectDeclaration<*, *> ?: continue
+        if (effect.kind != EventOccurrencesRange.EXACTLY_ONCE &&
+            effect.kind != EventOccurrencesRange.AT_MOST_ONCE
+        ) {
+            continue
+        }
+        val parameter = parameters.getOrNull(effect.valueParameterReference.parameterIndex) ?: continue
+        (names ?: mutableSetOf<String>().also { names = it }) += parameter.name.asString()
+    }
+    return names ?: emptySet()
 }
 
 /**
@@ -362,6 +428,11 @@ private data class LambdaHost(
 
     fun isKnownSingleRun(): Boolean {
         if (callee.isKineticaDsl()) return true
+        // Contract verdict first: callsInPlace(…, EXACTLY_ONCE / AT_MOST_ONCE) proves the
+        // parameter single-run. This predicate stays pure (it re-derives the verdict, it
+        // never reads the oracle) so checker traversal order cannot matter; the oracle is
+        // populated separately in recordContractVerdicts.
+        if (parameter.name.asString() in callee.contractSingleRunParameterNames()) return true
         val callableId = callee.callableId ?: return false
         return KineticaFramePolicy.isSingleRunScopeFunction(
             containerFqName = callableId.classId?.asSingleFqName() ?: callableId.packageName,

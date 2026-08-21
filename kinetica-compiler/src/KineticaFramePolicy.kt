@@ -37,8 +37,16 @@ internal object KineticaFramePolicy {
 
     val REGION_CONSTRUCT_NAMES: Set<String> = REGION_CONTENT_PARAMETERS.keys
 
-    /** `kotlin` package scope functions whose lambdas run exactly once, in place. */
-    val SINGLE_RUN_SCOPE_FUNCTIONS: Set<String> = setOf("let", "run", "with", "apply", "also")
+    /**
+     * `kotlin` package functions whose lambdas run at most once, in place. This is the
+     * shared FALLBACK for callees without a usable `callsInPlace` contract verdict (the
+     * contract-derived verdicts travel FIR→IR through `SingleRunOracle` instead).
+     * `runCatching` is listed because the pinned stdlib (2.4.10) declares no contract on
+     * it, yet it is semantically a `try` block — single-run by construction. Both
+     * overloads (top-level and `T.runCatching`) live in package `kotlin`.
+     */
+    val SINGLE_RUN_SCOPE_FUNCTIONS: Set<String> =
+        setOf("let", "run", "with", "apply", "also", "runCatching")
 
     /**
      * Top-level `io.heapy.kinetica` functions WITHOUT a ComponentScope receiver whose

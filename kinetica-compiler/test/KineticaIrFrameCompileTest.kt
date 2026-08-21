@@ -361,6 +361,50 @@ class KineticaIrFrameCompileTest {
     }
 
     @Test
+    fun emptyOracleFallsBackToNameListsForScopeFunctionLambdas() {
+        // checks=off keeps the FIR extension unregistered, so the per-compilation
+        // SingleRunOracle stays empty and IR must number scope-function lambdas from the
+        // shared KineticaFramePolicy name lists alone. NOTE for Task 15: once checks=off
+        // starts registering the FIR soundness rules, the oracle will no longer be empty
+        // here — the assertion stays valid but weakens; keep the name lists covered.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Wrapped() {
+                        run {
+                            val id = state { nextId++ }
+                            text("run=" + id.value)
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Wrapped() }.tree
+                """,
+            ),
+            checks = "off",
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val first = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
+            val second = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
+            assertTrue("run=0" in first, "name-list fallback must number the run {} lambda: $first")
+            assertEquals(first, second, "slots must be reused, not re-initialized, across renders")
+        }
+    }
+
+    @Test
     fun multiRunLambdaSlotCallsFailFastWhenChecksAreOff() {
         harness.compile(
             mapOf(

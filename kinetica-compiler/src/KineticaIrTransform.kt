@@ -77,9 +77,10 @@ import org.jetbrains.kotlin.platform.konan.isNative
 internal const val KINETICA_IR_TRANSFORM_ORDER_PROPERTY: String =
     "io.heapy.kinetica.compiler.irTransformOrder"
 
-public class KineticaIrGenerationExtension(
+public class KineticaIrGenerationExtension internal constructor(
     private val messageCollector: MessageCollector,
     private val pluginConfiguration: KineticaCompilerPluginConfiguration,
+    private val singleRunOracle: SingleRunOracle,
 ) : IrGenerationExtension {
     override fun generate(moduleFragment: IrModuleFragment, pluginContext: IrPluginContext) {
         val unwrapAtomics = pluginContext.platform.shouldUnwrapAtomicsOnSingleThreadedBackend()
@@ -98,7 +99,14 @@ public class KineticaIrGenerationExtension(
             val hoister = hoistSymbols?.let { KineticaHoistTransformer(file, pluginContext, it, constPropsIndex) }
             val templater = templateSymbols?.let { KineticaTemplateTransformer(file, pluginContext, it, constPropsIndex) }
             val framer = frameSymbols?.let {
-                KineticaFrameTransformer(file, pluginContext, it, pluginConfiguration.moduleId, ::report)
+                KineticaFrameTransformer(
+                    file,
+                    pluginContext,
+                    it,
+                    pluginConfiguration.moduleId,
+                    ::report,
+                    singleRunOracle,
+                )
             }
             // snapshot: hoisting appends file-level fields while we iterate declarations.
             // Class members are included: test methods and object members hold render {}
