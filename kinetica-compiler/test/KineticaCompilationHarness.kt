@@ -39,6 +39,7 @@ internal class KineticaCompilationHarness {
             restoreSystemProperty(KINETICA_IR_TRANSFORM_ORDER_PROPERTY, previousTransformOrder)
         }
         if (!result.success || result.messages.any { it.severity.isError }) {
+            result.root.deleteRecursively()
             fail(
                 buildString {
                     appendLine("Compilation failed.")
@@ -55,6 +56,7 @@ internal class KineticaCompilationHarness {
                 arrayOf(result.outputDir.toURI().toURL()),
                 Thread.currentThread().contextClassLoader,
             ),
+            root = result.root,
         )
     }
 
@@ -65,16 +67,21 @@ internal class KineticaCompilationHarness {
         checks: String = "error",
     ): List<RecordedCompilerMessage> {
         val result = compileInternal(sources, moduleName, transforms = "on", checks = checks)
-        assertTrue(
-            !result.success || result.messages.any { it.severity.isError },
-            "Expected compilation errors, but compilation succeeded. Messages:\n" +
-                result.messages.joinToString("\n") { "${it.severity}: ${it.message}" },
-        )
+        try {
+            assertTrue(
+                !result.success || result.messages.any { it.severity.isError },
+                "Expected compilation errors, but compilation succeeded. Messages:\n" +
+                    result.messages.joinToString("\n") { "${it.severity}: ${it.message}" },
+            )
+        } finally {
+            result.root.deleteRecursively()
+        }
         return result.messages
     }
 
     private class InternalCompilationResult(
         val success: Boolean,
+        val root: File,
         val outputDir: File,
         val messages: List<RecordedCompilerMessage>,
     )
@@ -91,37 +98,44 @@ internal class KineticaCompilationHarness {
         checks: String,
     ): InternalCompilationResult {
         val root = createTempDirectory(prefix = "kinetica-compile-")
-        val sourceRoot = root.resolve("src").createDirectories()
-        val outputDir = root.resolve("out").createDirectories()
-        sources.forEach { (relativePath, text) ->
-            val file = sourceRoot.resolve(relativePath)
-            file.parent?.createDirectories()
-            file.writeText(text.trimIndent())
-        }
+        try {
+            val sourceRoot = root.resolve("src").createDirectories()
+            val outputDir = root.resolve("out").createDirectories()
+            sources.forEach { (relativePath, text) ->
+                val file = sourceRoot.resolve(relativePath)
+                file.parent?.createDirectories()
+                file.writeText(text.trimIndent())
+            }
 
-        val collector = RecordingMessageCollector()
-        val arguments = K2JVMCompilerArguments().apply {
-            freeArgs = listOf(sourceRoot.toString())
-            destination = outputDir.toString()
-            // The classpath is passed explicitly; without these the CLI probes a
-            // non-existent kotlin-home and logs STRONG_WARNINGs per compilation.
-            noStdlib = true
-            noReflect = true
-            classpath = compilerClasspath().joinToString(File.pathSeparator) { it.absolutePath }
-            this.moduleName = moduleName
-            pluginClasspaths = arrayOf(pluginJar.absolutePath)
-            pluginOptions = arrayOf(
-                "plugin:${KineticaCompilerContract.pluginId}:${KineticaCompilerContract.optionModuleId}=$moduleName",
-                "plugin:${KineticaCompilerContract.pluginId}:${KineticaCompilerContract.optionTransforms}=$transforms",
-                "plugin:${KineticaCompilerContract.pluginId}:${KineticaCompilerContract.optionChecks}=$checks",
+            val collector = RecordingMessageCollector()
+            val arguments = K2JVMCompilerArguments().apply {
+                freeArgs = listOf(sourceRoot.toString())
+                destination = outputDir.toString()
+                // The classpath is passed explicitly; without these the CLI probes a
+                // non-existent kotlin-home and logs STRONG_WARNINGs per compilation.
+                noStdlib = true
+                noReflect = true
+                classpath = compilerClasspath().joinToString(File.pathSeparator) { it.absolutePath }
+                this.moduleName = moduleName
+                pluginClasspaths = arrayOf(pluginJar.absolutePath)
+                pluginOptions = arrayOf(
+                    "plugin:${KineticaCompilerContract.pluginId}:${KineticaCompilerContract.optionModuleId}=$moduleName",
+                    "plugin:${KineticaCompilerContract.pluginId}:${KineticaCompilerContract.optionTransforms}=$transforms",
+                    "plugin:${KineticaCompilerContract.pluginId}:${KineticaCompilerContract.optionChecks}=$checks",
+                )
+            }
+            val exitCode = K2JVMCompiler().exec(collector, Services.EMPTY, arguments)
+            return InternalCompilationResult(
+                success = exitCode == ExitCode.OK,
+                root = root.toFile(),
+                outputDir = outputDir.toFile(),
+                messages = collector.messages,
             )
+        } catch (failure: Throwable) {
+            // Ownership of the temp tree passes to the caller only on normal return.
+            root.toFile().deleteRecursively()
+            throw failure
         }
-        val exitCode = K2JVMCompiler().exec(collector, Services.EMPTY, arguments)
-        return InternalCompilationResult(
-            success = exitCode == ExitCode.OK,
-            outputDir = outputDir.toFile(),
-            messages = collector.messages,
-        )
     }
 
     private fun compilerClasspath(): List<File> =
@@ -177,6 +191,8 @@ internal class CompiledKineticaModule(
     val outputDir: File,
     val messages: List<RecordedCompilerMessage>,
     private val classLoader: URLClassLoader,
+    /** The `kinetica-compile-*` temp tree; classes load lazily, so it lives until [close]. */
+    private val root: File,
 ) : AutoCloseable {
     fun assertTransformFired(needle: String) {
         assertTrue(
@@ -257,5 +273,6 @@ internal class CompiledKineticaModule(
 
     override fun close() {
         classLoader.close()
+        root.deleteRecursively()
     }
 }

@@ -996,12 +996,36 @@
 
 **Files:**
 - Modify: `kinetica-compiler/test/KineticaCompilationHarness.kt`
+- ➕ Create: `kinetica-compiler/test/KineticaCompilationHarnessTest.kt` (repo
+  convention is one test class per `*Test.kt` file, so the S5 tests live beside the
+  harness rather than inside it)
 
-- [ ] make `compileExpectingErrors` (and any sibling entry point) delete its
+- [x] make `compileExpectingErrors` (and any sibling entry point) delete its
       `kinetica-compile-*` temp tree in a `finally` block / `deleteRecursively`
-- [ ] write a test asserting the temp root contains no `kinetica-compile-*` entries
+      (note: `compileExpectingErrors` deletes in a `finally` around its assertion;
+      the sibling `compile` deletes on its failure path before `fail(...)` and on
+      success hands the root to `CompiledKineticaModule`, whose `close()` deletes it
+      AFTER closing the classLoader — classes load lazily from `outputDir`, so
+      deletion cannot happen earlier; every `compile` result in the suite is already
+      `.use{}`/`.close()`-terminated, verified by grep. `compileInternal` itself
+      deletes on exceptional exit, so ownership passes to callers only on normal
+      return and no path leaks)
+- [x] write a test asserting the temp root contains no `kinetica-compile-*` entries
       after a compile-expecting-errors run
-- [ ] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 19
+      (note: asserted as no NEW `kinetica-compile-*` entries against a pre-run
+      snapshot, not as an empty temp root — the literal reading is unsatisfiable:
+      the shared temp dir holds ~3.7k trees leaked by pre-fix suite runs, and
+      sweeping entries this process did not create would be unsafe. Three tests in
+      `KineticaCompilationHarnessTest`: expect-errors run leaves nothing; successful
+      compile keeps its tree while classes still load inside `use` and deletes it on
+      close; failed compile deletes before `fail` throws. The `startsWith
+      ("kinetica-compile-")` filter keeps the trailing hyphen so the JVM-lifetime
+      `kinetica-compiler-plugin*.jar` can never enter the diff)
+- [x] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 19
+      (144/144 green: 141 prior + 3 new; empirically re-verified with a temp-dir
+      snapshot around a full suite rerun — 0 new entries, where a pre-fix run left
+      ~104. Test-harness-only change: no compiler-behavior delta, no mavenLocal
+      republish needed, no Task 19 fallout possible)
 
 ### Task 19: Publish, clean, and force-rebuild every consumer — the check that caches defeated
 
