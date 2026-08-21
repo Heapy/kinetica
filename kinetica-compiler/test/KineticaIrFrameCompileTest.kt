@@ -7,6 +7,7 @@ import io.heapy.kinetica.HostNode
 import io.heapy.kinetica.KineticaRuntime
 import io.heapy.kinetica.MissingKineticaPluginException
 import io.heapy.kinetica.Node
+import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -1562,6 +1563,599 @@ class KineticaIrFrameCompileTest {
 
         messages.assertContainsError(
             "multi-run 'serverActionStub' lambda",
+        )
+    }
+
+    @Test
+    fun entryPointInPropertyGetterIsFrameWrapped() {
+        // Review finding: collectSimpleFunctions never reached IrProperty accessors, so a
+        // render entry point in a getter kept its content lambda unwrapped and threw
+        // MissingKineticaPluginException at first render while compiling clean.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Badge() {
+                        val id = state { nextId++ }
+                        text("id:" + id.value)
+                    }
+
+                    class Screen(private val runtime: KineticaRuntime, private val scope: ComponentScope) {
+                        val tree: Node get() = runtime.render(scope) { Badge() }.tree
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        Screen(runtime, scope).tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val first = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
+            val second = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
+            assertTrue("id:0" in first, "getter entry point must be framed: $first")
+            assertEquals(first, second, "slots must be reused across renders")
+        }
+    }
+
+    @Test
+    fun entryPointInPropertyInitializerIsFrameWrapped() {
+        // Same hole, backing-field initializer flavor: `object Holder { val tree = render {} }`.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Badge() {
+                        val id = state { nextId++ }
+                        text("id:" + id.value)
+                    }
+
+                    object Holder {
+                        val holderRuntime: KineticaRuntime = KineticaRuntime()
+                        val tree: Node = holderRuntime.render { Badge() }.tree
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node = Holder.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val tree = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
+            assertTrue("id:0" in tree, "property-initializer entry point must be framed: $tree")
+        }
+    }
+
+    @Test
+    fun entryPointInAnonymousInitializerIsFrameWrapped() {
+        // Same hole, `init { }` flavor: IrAnonymousInitializer was never collected.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Badge() {
+                        val id = state { nextId++ }
+                        text("id:" + id.value)
+                    }
+
+                    class Screen(runtime: KineticaRuntime, scope: ComponentScope) {
+                        var tree: Node? = null
+
+                        init {
+                            tree = runtime.render(scope) { Badge() }.tree
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        Screen(runtime, scope).tree!!
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val tree = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
+            assertTrue("id:0" in tree, "init-block entry point must be framed: $tree")
+        }
+    }
+
+    @Test
+    fun componentInObjectLiteralInsidePropertyInitializerIsFramed() {
+        // Review finding: LOCAL_COMPONENT_FUNCTION never fires for an object literal in a
+        // property initializer (no function on the FIR containment path) while IR never
+        // collected the anonymous class — compile-clean crash at first render.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    abstract class Panel {
+                        // Annotated on the declaration the CALL resolves to as well:
+                        // Kotlin does not inherit annotations onto overrides, and the
+                        // staging site reads the callee it resolved.
+                        @UiComponent(skippable = false)
+                        abstract fun ComponentScope.Render()
+                    }
+
+                    class Screen {
+                        val panel: Panel = object : Panel() {
+                            @UiComponent(skippable = false)
+                            override fun ComponentScope.Render() {
+                                val id = state { nextId++ }
+                                text("panel:" + id.value)
+                            }
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node {
+                        val screen = Screen()
+                        return runtime.render(scope) {
+                            with(screen.panel) { Render() }
+                        }.tree
+                    }
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val first = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
+            assertTrue("panel:0" in first, "object-literal component must be framed: $first")
+        }
+    }
+
+    @Test
+    fun componentInEnumEntryBodyIsFramed() {
+        // Enum-entry bodies are IrEnumEntry, not IrClass, so collection skipped them too.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    enum class Tab {
+                        HOME {
+                            @UiComponent(skippable = false)
+                            override fun ComponentScope.Render() {
+                                val id = state { nextId++ }
+                                text("home:" + id.value)
+                            }
+                        };
+
+                        @UiComponent(skippable = false)
+                        abstract fun ComponentScope.Render()
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) {
+                            with(Tab.HOME) { Render() }
+                        }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val first = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
+            assertTrue("home:0" in first, "enum-entry component must be framed: $first")
+        }
+    }
+
+    @Test
+    fun fileLevelContentPropertyIsFrameWrappedAtItsLiteralSite() {
+        // Rule C exempts reads of non-local properties on the premise that the content was
+        // wrapped at its own literal site. Before the collection fix that premise was
+        // false for a property INITIALIZER: field initializers were never visited by the
+        // entry-point pass, so the literal handed to `wrapContent` stayed unwrapped and
+        // `render(scope, hoisted)` threw at first render while compiling clean.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Badge() {
+                        val id = state { nextId++ }
+                        text("id:" + id.value)
+                    }
+
+                    fun wrapContent(
+                        content: @UiComponent ComponentScope.() -> Unit,
+                    ): @UiComponent ComponentScope.() -> Unit = content
+
+                    val hoisted: @UiComponent ComponentScope.() -> Unit = wrapContent { Badge() }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope, hoisted).tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val first = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
+            val second = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
+            assertTrue("id:0" in first, "hoisted content must be framed at its literal site: $first")
+            assertEquals(first, second, "slots must be reused across renders")
+        }
+    }
+
+    @Test
+    fun contentLambdaOfSlotDslCallIsFrameWrapped() {
+        // Review finding: the slot-DSL branch of visitCall returns before
+        // wrapAnnotatedContentArguments, so a @UiComponent content literal on a slot-DSL
+        // callee was neither descended nor wrapped — compile-clean crash at first render.
+        harness.compile(
+            mapOf(
+                "kinetica/SlotExt.kt" to """
+                    package io.heapy.kinetica
+
+                    public fun ComponentScope.frameValue(
+                        label: String,
+                        content: @UiComponent ComponentScope.() -> Unit,
+                    ) {
+                        text(label)
+                        content()
+                    }
+                """,
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.frameValue
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Badge() {
+                        val id = state { nextId++ }
+                        text("id:" + id.value)
+                    }
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Panel() {
+                        frameValue(label = "slot") {
+                            Badge()
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Panel() }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val first = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
+            val second = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
+            assertTrue("id:0" in first, "slot-DSL content must be framed: $first")
+            assertEquals(first, second, "slots must be reused across renders")
+        }
+    }
+
+    @Test
+    fun contentLambdaOfEventDslCallIsFrameWrapped() {
+        // Same asymmetry on the event-DSL branch.
+        harness.compile(
+            mapOf(
+                "kinetica/EventExt.kt" to """
+                    package io.heapy.kinetica
+
+                    public fun ComponentScope.button(
+                        label: String,
+                        content: @UiComponent ComponentScope.() -> Unit,
+                    ) {
+                        text(label)
+                        content()
+                    }
+                """,
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.button
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Badge() {
+                        val id = state { nextId++ }
+                        text("id:" + id.value)
+                    }
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Panel() {
+                        button(label = "event") {
+                            Badge()
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Panel() }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val first = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
+            val second = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
+            assertTrue("id:0" in first, "event-DSL content must be framed: $first")
+            assertEquals(first, second, "slots must be reused across renders")
+        }
+    }
+
+    @Test
+    fun hostEventFusionKeepsArgumentsItCannotCarry() {
+        // The hostEvent -> hostEventBlock fusion retargets to a callee with only
+        // (ordinal, block): any other argument of the source call is silently dropped, and
+        // a @UiComponent content literal there is neither wrapped nor executed. The fusion
+        // must decline for callees it cannot faithfully retarget.
+        harness.compile(
+            mapOf(
+                "kinetica/FusionExt.kt" to """
+                    package io.heapy.kinetica
+
+                    public fun ComponentScope.hostEvent(
+                        label: String,
+                        onEvent: () -> Unit,
+                        content: @UiComponent ComponentScope.() -> Unit,
+                    ): String {
+                        text(label)
+                        content()
+                        onEvent()
+                        return label
+                    }
+                """,
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.event
+                    import io.heapy.kinetica.hostEvent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Badge() {
+                        val id = state { nextId++ }
+                        text("id:" + id.value)
+                    }
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Panel() {
+                        hostEvent(label = "fused", onEvent = event { }) {
+                            Badge()
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Panel() }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val first = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
+            val second = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
+            assertTrue("id:0" in first, "fusion must not drop the content argument: $first")
+            assertEquals(first, second, "slots must be reused across renders")
+        }
+    }
+
+    @Test
+    fun componentsInInitBlockAndDelegateInitializerAreFramed() {
+        // The two remaining initializer positions the widened collection must reach, and
+        // FIR must therefore NOT reject: an `init { }` block and the backing field of a
+        // delegated property. Neither puts a function on the FIR containment path.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+                    import kotlin.reflect.KProperty
+
+                    var nextId: Int = 0
+
+                    abstract class Panel {
+                        @UiComponent(skippable = false)
+                        abstract fun ComponentScope.Render()
+                    }
+
+                    class PanelDelegate(private val panel: Panel) {
+                        operator fun getValue(thisRef: Any?, property: KProperty<*>): Panel = panel
+                    }
+
+                    val delegated: Panel by PanelDelegate(
+                        object : Panel() {
+                            @UiComponent(skippable = false)
+                            override fun ComponentScope.Render() {
+                                val id = state { nextId++ }
+                                text("delegated:" + id.value)
+                            }
+                        },
+                    )
+
+                    class Screen(runtime: KineticaRuntime, scope: ComponentScope) {
+                        var tree: Node? = null
+
+                        init {
+                            val localPanel: Panel = object : Panel() {
+                                @UiComponent(skippable = false)
+                                override fun ComponentScope.Render() {
+                                    val id = state { nextId++ }
+                                    text("init:" + id.value)
+                                }
+                            }
+                            tree = runtime.render(scope) {
+                                with(localPanel) { Render() }
+                                with(delegated) { Render() }
+                            }.tree
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        Screen(runtime, scope).tree!!
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val tree = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
+            assertTrue("init:0" in tree, "init-block object literal must be framed: $tree")
+            assertTrue("delegated:1" in tree, "delegate-initializer object literal must be framed: $tree")
+        }
+    }
+
+    @Test
+    fun firCheckerSeamIgnoresAnyValueButItsToken() {
+        // S1: the seam must not be trippable by a build that merely sets the property
+        // name (e.g. through kotlin.daemon.jvmargs). Only the opaque token removes the
+        // rules; "true" — the previous gate value — keeps every checker registered.
+        val previous = System.getProperty(KINETICA_DISABLE_FIR_CHECKERS_PROPERTY)
+        System.setProperty(KINETICA_DISABLE_FIR_CHECKERS_PROPERTY, "true")
+        try {
+            harness.compileExpectingErrors(
+                mapOf(
+                    "main.kt" to """
+                        package app
+
+                        import io.heapy.kinetica.ComponentScope
+                        import io.heapy.kinetica.UiComponent
+                        import io.heapy.kinetica.state
+                        import io.heapy.kinetica.text
+
+                        @UiComponent
+                        fun ComponentScope.Rows(items: List<String>) {
+                            items.forEach { item ->
+                                val hits = state { 0 }
+                                text(item + hits.value)
+                            }
+                        }
+                    """,
+                ),
+            ).assertContainsError("multi-run 'forEach' lambda")
+        } finally {
+            restoreSystemProperty(KINETICA_DISABLE_FIR_CHECKERS_PROPERTY, previous)
+        }
+    }
+
+    @Test
+    fun firCheckerSeamAnnouncesItselfWhenActive() {
+        // The seam removes rules that have no IR counterpart, so a compilation running
+        // with it active must say so out loud rather than look like a normal build.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.suspendSubtree
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Profile(id: String) {
+                        suspendSubtree(key = id, fallback = { text("loading") }) {
+                            text("profile " + id)
+                        }
+                    }
+                """,
+            ),
+            disableFirCheckersForTesting = true,
+        )
+        assertTrue(
+            messages.any {
+                it.severity == CompilerMessageSeverity.STRONG_WARNING &&
+                    "FIR soundness checkers are DISABLED" in it.message
+            },
+            "Expected a STRONG_WARNING announcing the disabled checkers. Messages:\n" +
+                messages.joinToString("\n") { "${it.severity}: ${it.message}" },
         )
     }
 

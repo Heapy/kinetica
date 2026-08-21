@@ -99,8 +99,9 @@ import java.util.concurrent.ConcurrentHashMap
  *    ordinal and renders into the wrong frame (F10).
  *
  * Two further soundness rules mirror hard IR limitations: `@UiComponent` functions
- * declared locally are rejected (LOCAL_COMPONENT_FUNCTION — the framing pass collects
- * only file- and class-level functions), and content literals bound to a receiver-less
+ * declared inside a function body are rejected (LOCAL_COMPONENT_FUNCTION — the framing
+ * pass reaches only declarations whose path from the file crosses no function body, so
+ * this rule is its exact complement), and content literals bound to a receiver-less
  * `@UiComponent` function type are rejected (COMPONENT_CONTENT_WITHOUT_SCOPE_RECEIVER —
  * IR wraps content by its ComponentScope receiver).
  */
@@ -145,11 +146,13 @@ public object KineticaFirErrors : KtDiagnosticsContainer() {
     public val COMPONENT_RECEIVER_NOT_SIMPLE: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
 
     /**
-     * A `@UiComponent` function declared locally, inside another function. The IR frame
-     * pass collects only file- and class-level functions, so a local component is never
-     * framed or staged: the enclosing walker numbers its body's slots into the ENCLOSING
-     * component's region — every call site silently shares one set of cells — and each
-     * call leaks a staged child ordinal. Soundness rule, active in every checks mode.
+     * A `@UiComponent` function declared inside a function body — a local function, a
+     * lambda, a property accessor, or an object literal in one of those. The IR frame
+     * pass reaches only declarations whose path from the file crosses no function body,
+     * so such a component is never framed or staged: the enclosing walker numbers its
+     * body's slots into the ENCLOSING component's region — every call site silently
+     * shares one set of cells — and each call leaks a staged child ordinal. Soundness
+     * rule, active in every checks mode.
      */
     public val LOCAL_COMPONENT_FUNCTION: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
 
@@ -239,10 +242,12 @@ public object KineticaFirErrorRenderers : BaseDiagnosticRendererFactory() {
         )
         map.put(
             KineticaFirErrors.LOCAL_COMPONENT_FUNCTION,
-            "@UiComponent function ''{0}'' is declared locally. The compiler can only frame " +
-                "file-level and class-level components; a local component is never framed, so " +
-                "its calls alias the enclosing component''s state or fail at first render. " +
-                "Move the declaration to file or class level.",
+            "@UiComponent function ''{0}'' is declared locally. The compiler frames only " +
+                "declarations it can reach without crossing a function body (file, class, " +
+                "object, enum entry, property initializer, init block); a component declared " +
+                "inside a function, lambda or property accessor is never framed, so its calls " +
+                "alias the enclosing component''s state or fail at first render. " +
+                "Move the declaration out of the enclosing function body.",
             CommonRenderers.STRING,
         )
         map.put(
@@ -832,10 +837,14 @@ private fun FirFunctionCall.literalBooleanArgument(name: String): Boolean? {
 }
 
 /**
- * Rejects `@UiComponent` functions declared inside another function (rule mirrored by
- * the IR walker's refusal to number local component bodies): IR's framing pass collects
- * only file- and class-level functions, so a local component provably cannot be framed —
- * calling it aliases the enclosing component's slots and leaks staged ordinals.
+ * Rejects `@UiComponent` functions the IR framing pass provably cannot reach, and
+ * exactly those. IR collects every declaration whose path from the file crosses no
+ * function body — file, class, object, enum-entry body, property initializer, `init { }`
+ * block, and anonymous-object literals inside those initializers. The complement, which
+ * this rule reports, is "some function is on the containment path": a local function, a
+ * lambda, a property accessor, a constructor body, or an object literal inside any of
+ * them. Unframed, a component aliases the enclosing component's slots and leaks staged
+ * ordinals, so the declaration itself is the violation.
  */
 private class KineticaLocalComponentDeclarationChecker :
     FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common) {
