@@ -1032,28 +1032,55 @@
 **Files:**
 - Modify: none expected (fix fallout only; if fixes are needed, add ➕ tasks)
 
-- [ ] publish the rebuilt plugin: `./kotlin publish mavenLocal -m kinetica-compiler`
+- [x] publish the rebuilt plugin: `./kotlin publish mavenLocal -m kinetica-compiler`
       — consumers pin `io.heapy.kinetica:kinetica-compiler:0.4.0` from mavenLocal
       (`common.module-template.yaml`), so this OVERWRITES the 0.4.0 coordinate; verify
       the artifact timestamp in `~/.m2/repository/io/heapy/kinetica/kinetica-compiler/0.4.0/`
       changed before rebuilding anything
-- [ ] clean consumer outputs so no stale compile task survives (remove the toolchain
+      (verified BEFORE any rebuild: jar 320881 → 334412 bytes, sha256
+      fbfcf85f… → fc7361bd…, all timestamps fresh — the previous artifact was Task 4's
+      republish, stale relative to Tasks 5-18)
+- [x] clean consumer outputs so no stale compile task survives (remove the toolchain
       `build/` outputs for the consumer modules, or use the toolchain clean command)
-- [ ] rebuild ALL consumers of `common.module-template.yaml`, not just the six that
+      (`./kotlin clean` — the project `build/` directory was gone entirely, so every
+      consumer fragment recompiled from scratch)
+- [x] rebuild ALL consumers of `common.module-template.yaml`, not just the six that
       broke at 657eef5: `kinetica-runtime`, `kinetica-test`, `kinetica-persist`,
       `kinetica-data`, `kinetica-forms`, `kinetica-browser`, `kinetica-router`,
       `kinetica-appkit`, `kinetica-gtk`, `kinetica-markdown`, `kinetica-motion`,
       `kinetica-theme`, `bench-jvm`, `docs/docs-client`, `samples/*`
-- [ ] confirm zero compile errors (the 657eef5 baseline was 28: runtime/test 19,
+      (28 of 30 template consumers rebuilt via `./kotlin build -m …` after the clean;
+      `kinetica-render-core` and `docs-site` included too — the list above omitted
+      them but they apply the template. EXCLUDED: `kinetica-gtk` +
+      `samples/native-counter-gtk` — documented Linux/CI-only (module.yaml: GTK dev
+      headers required, `cinterop/gtk4.def` generated on Linux by `generate-def.sh`,
+      not committed, KNT-0047); their linuxX64 cinterop cannot run on this macOS host.
+      Baseline parity holds: the 657eef5 forced rebuild produced zero gtk errors, so
+      gtk was never part of this verification on this machine; its real verification
+      is the first CI run (Post-Completion). The three compose samples do not apply
+      the template — not plugin consumers, not rebuilt)
+- [x] confirm zero compile errors (the 657eef5 baseline was 28: runtime/test 19,
       persist/test 5, bench-jvm 4)
-- [ ] run the module test suites:
+      (0 errors across 126 fragment compilations — and the comparison is
+      like-for-like: the exact fragments that carried the baseline all compiled clean,
+      including `kinetica-runtime` + `kinetica-persist` TEST fragments, `bench-jvm`
+      src, and the ~57 `KineticaTest.render` sites in kinetica-test/data/forms test
+      fragments, which `./kotlin build` compiles — `[jvm tests]` lines confirmed)
+- [x] run the module test suites:
       `./kotlin test -m kinetica-runtime --platform jvm`,
       `./kotlin test -m kinetica-test --platform jvm`,
       `./kotlin test -m kinetica-persist --platform jvm`
-- [ ] run the review's silent-aliasing probes end-to-end via
+      (225/225, 52/52, 4/4 — all green against the freshly published plugin; renders
+      succeed, so the plugin demonstrably ran — no MissingKineticaPluginException, no
+      stale-plugin false pass)
+- [x] run the review's silent-aliasing probes end-to-end via
       `KineticaCompilationHarness` one final time — every probe must now be either a
       compile error or correct runtime behavior; none may crash or alias
-- [ ] run tests - must pass before task 20
+      (`./kotlin test -m kinetica-compiler --platform jvm` — 144/144; every review
+      probe was ported into this suite by Tasks 2-14, so this run IS the probe sweep)
+- [x] run tests - must pass before task 20
+      (all of the above in one post-clean cycle: compiler 144, runtime 225,
+      kinetica-test 52, persist 4 — zero failures)
 
 ### Task 20: Verify acceptance criteria
 - [ ] verify all 20 findings from `20260821-ordinal-soundness-findings.md` are
