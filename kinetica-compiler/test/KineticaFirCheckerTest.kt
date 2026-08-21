@@ -461,6 +461,50 @@ class KineticaFirCheckerTest {
     }
 
     @Test
+    fun ruleC_contentLiteralsOutsideArgumentPositionCarryNoOrdinalConsumers() {
+        // Why rule C may exempt reads of non-local properties: the compiler wraps a
+        // content lambda at its LITERAL site, and it only reaches literals in argument
+        // position (including inside property initializers, since the framing collection
+        // now visits those). A literal that is a property initializer or a return value
+        // is never wrapped — but it also cannot carry an ordinal consumer, because FIR
+        // drops the @UiComponent annotation from its inferred type and rules A and B
+        // reject slot and component calls inside it. Both non-argument positions are
+        // pinned here: if a future toolchain preserved the annotation there, this test
+        // turns green and the exemption would need a declaration-site rule.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        val id = state { 0 }
+                        text("id:" + id.value)
+                    }
+
+                    val stored: @UiComponent ComponentScope.() -> Unit = { Badge() }
+
+                    fun returned(): @UiComponent ComponentScope.() -> Unit = { Badge() }
+                """,
+            ),
+        )
+        assertEquals(
+            2,
+            messages.count {
+                it.severity.isError &&
+                    "@UiComponent function 'Badge' can only be called" in it.message
+            },
+            "Both non-argument content literals must be rejected. Messages:\n" +
+                messages.joinToString("\n") { "${it.severity}: ${it.message}" },
+        )
+    }
+
+    @Test
     fun componentInObjectLiteralInsideAccessorOrLambdaIsReported() {
         // LOCAL_COMPONENT_FUNCTION must be the exact complement of what the IR framing
         // pass collects: everything reachable from the file WITHOUT crossing a function
