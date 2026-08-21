@@ -695,16 +695,41 @@
 - Modify: `kinetica-compiler/src/KineticaFirExtension.kt`
 - Modify: `kinetica-compiler/test/KineticaFirCheckerTest.kt`
 
-- [ ] write failing test: a `@UiComponent` symbol without a `callableId` inside
+- [x] write failing test: a `@UiComponent` symbol without a `callableId` inside
       `forEach { Badge() }` must be a rule D/F error, not silence (probe via the same
       synthetic-symbol path that motivated the `?: callee.name.asString()` fallback)
-- [ ] in `consumesCompilerOrdinal`, check `hasAnnotation(UI_COMPONENT_CLASS_ID)` before
+      (note: red-before-fix was IMPOSSIBLE — the reviewed shape is inexpressible in
+      Kotlin 2.4.10. Bytecode-verified in kotlin-compiler-embeddable 2.4.10:
+      `FirFunctionSymbol` stores a NON-null `CallableId` (local functions get the
+      `<local>` package), and the only null-returning symbol, `FirLocalPropertySymbol`,
+      is never a `FirFunctionCall` callee — F11 was a code-inspection finding (no
+      "probe-verified" tag in the findings file) and its hole is latent, not reachable.
+      The new probe `localComponentFunctionCallsInRepeatedContextsAreReported` pins the
+      nearest expressible shape — a local `@UiComponent` fun called in `forEach` (rule F)
+      and a `for` loop (rule D), green before AND after — and becomes the real red probe
+      if a future toolchain nulls local callableIds)
+- [x] in `consumesCompilerOrdinal`, check `hasAnnotation(UI_COMPONENT_CLASS_ID)` before
       the `callableId ?: return false` bail
-- [ ] extract one shared classification helper (slot call / component call / host event /
+      (note: subsumed by the classification helper below — the component verdict is now
+      `hasAnnotation` with NO callableId dependence at all; latent defense in 2.4.10,
+      where every function callee carries a callableId, see the checkbox above)
+- [x] extract one shared classification helper (slot call / component call / host event /
       entry point) used by both `check()` and `consumesCompilerOrdinal`, so the five
       facts are derived once
-- [ ] verify the full existing checker suite stays green
-- [ ] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 13
+      (note: `KineticaCallClassification` (name + isSlotDsl/isRegionConstruct/
+      isLoopSafeRegion/isComponentCall, built once by `classifyKineticaCall`) now feeds
+      both the rule dispatch in `check()` and `consumesCompilerOrdinal()`, which carries
+      the host-event literal-null exemption; entry points are the none-of-the-above
+      case handled via `unwrappableComponentContentArguments`. The
+      `FirFunctionCall.consumesCompilerOrdinal(session)` extension survives only for
+      `multiRunLambdaHost`'s nested-consumer walk)
+- [x] verify the full existing checker suite stays green
+      (127/127 — the unification is behavior-identical in this toolchain, provably: with
+      non-null callableIds everywhere, old and new predicates agree on every callee, so
+      no new Task 19 fallout is possible; consumer scan found no local `@UiComponent`
+      declarations outside the compiler tests either)
+- [x] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 13
+      (127/127 green: 126 prior + 1 new pin)
 
 ### Task 13: Fix nested-report suppression and drop the dead source matcher (F14 + S3)
 

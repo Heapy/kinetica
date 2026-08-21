@@ -217,22 +217,18 @@ private class KineticaCallChecker(
 ) : FirExpressionChecker<FirFunctionCall>(MppCheckerKind.Common) {
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
-        val callee = expression.calleeReference.toResolvedCallableSymbol() ?: return
+        val session = context.session
+        val facts = expression.classifyKineticaCall(session) ?: return
         // Verdicts are recorded for EVERY call carrying a lambda literal — before the
         // Kinetica-relevance early return, and independent of the rule-F walk — so oracle
         // coverage never depends on which calls happen to classify as ordinal consumers.
-        expression.recordContractVerdicts(callee, singleRunOracle)
-        val session = context.session
-        val name = callee.callableId?.callableName?.asString() ?: callee.name.asString()
-        // Same-package members of other classes (e.g. KineticaRuntime.frameValue) are not
-        // slot DSL: only ComponentScope members and ComponentScope extensions qualify.
-        val isKineticaDsl = callee.isKineticaDsl()
-        val isSlotDsl = isKineticaDsl && name in SLOT_DSL_NAMES
-        val isRegionConstruct = isKineticaDsl && name in REGION_CONSTRUCT_NAMES
-        val isLoopSafeRegion = isKineticaDsl && name in LOOP_SAFE_REGION_NAMES
-        val isComponentCall = callee.hasAnnotation(UI_COMPONENT_CLASS_ID, session)
+        expression.recordContractVerdicts(facts.callee, singleRunOracle)
+        val name = facts.name
+        val isSlotDsl = facts.isSlotDsl
+        val isRegionConstruct = facts.isRegionConstruct
+        val isComponentCall = facts.isComponentCall
         val unwrappableContentArguments = expression.unwrappableComponentContentArguments()
-        if (!isSlotDsl && !isRegionConstruct && !isLoopSafeRegion &&
+        if (!isSlotDsl && !isRegionConstruct && !facts.isLoopSafeRegion &&
             !isComponentCall && unwrappableContentArguments.isEmpty()
         ) {
             return
@@ -266,11 +262,11 @@ private class KineticaCallChecker(
             }
         }
 
-        val consumesCompilerOrdinal = expression.consumesCompilerOrdinal(session)
+        val consumesCompilerOrdinal = facts.consumesCompilerOrdinal()
 
         // Static ordinals cannot tell loop iterations apart. Optional host-event calls
         // whose handler is absent or a literal null never register an event at runtime.
-        if (!isLoopSafeRegion && consumesCompilerOrdinal && context.isDirectlyInsideLoop(session)) {
+        if (!facts.isLoopSafeRegion && consumesCompilerOrdinal && context.isDirectlyInsideLoop(session)) {
             reporter.reportOn(expression.source, KineticaFirErrors.SLOT_CALL_IN_LOOP, name, context)
             return
         }
@@ -399,33 +395,71 @@ private fun FirCallableSymbol<*>.contractSingleRunParameterNames(): Set<String> 
 }
 
 /**
- * Whether this call needs an ordinal injected by the IR frame pass — true only for the
- * calls IR actually numbers: slot DSL calls, region constructs, host event registrations,
- * and staged @UiComponent component calls. Merely receiving a @UiComponent-typed lambda
- * argument (an entry point such as `render`, or a user content-wrapper helper) does NOT
- * consume an ordinal: IR only wraps that content into a fresh frame table and numbers
- * nothing on the call itself. Optional host-event handlers are exempt only when the
- * argument is absent or a literal `null` — then the runtime provably never registers the
- * event, so the statically filled ordinal stays unused. The parameter's declared
- * nullability is deliberately NOT consulted: a nullable-typed value can still be non-null
- * at runtime, registering an ordinal IR never assigned (crash) or one static ordinal
- * shared across iterations (event aliasing).
+ * The facts `check()` and [consumesCompilerOrdinal] need about a resolved call — the
+ * display name plus the slot-call / region / loop-safe-region / component-call verdicts —
+ * derived once per call so the rule dispatch and the ordinal-consumer predicate can never
+ * disagree about what a call is (F11). A call that is none of these is at most an entry
+ * point (it merely receives `@UiComponent`-typed content), which `check()` covers via
+ * [unwrappableComponentContentArguments] and which never consumes an ordinal itself.
  */
-private fun FirFunctionCall.consumesCompilerOrdinal(session: FirSession): Boolean {
-    val callee = calleeReference.toResolvedCallableSymbol() ?: return false
-    val callableId = callee.callableId ?: return false
-    val name = callableId.callableName.asString()
-    if (callee.hasAnnotation(UI_COMPONENT_CLASS_ID, session)) return true
-    if (!callee.isKineticaDsl()) return false
-    if (name in REGION_CONSTRUCT_NAMES) return true
-    if (name !in SLOT_DSL_NAMES) return false
+private class KineticaCallClassification(
+    private val call: FirFunctionCall,
+    val callee: FirCallableSymbol<*>,
+    val name: String,
+    val isSlotDsl: Boolean,
+    val isRegionConstruct: Boolean,
+    val isLoopSafeRegion: Boolean,
+    val isComponentCall: Boolean,
+) {
+    /**
+     * Whether this call needs an ordinal injected by the IR frame pass — true only for
+     * the calls IR actually numbers: slot DSL calls, region constructs, host event
+     * registrations, and staged @UiComponent component calls. Merely receiving a
+     * @UiComponent-typed lambda argument (an entry point such as `render`, or a user
+     * content-wrapper helper) does NOT consume an ordinal: IR only wraps that content
+     * into a fresh frame table and numbers nothing on the call itself. Optional
+     * host-event handlers are exempt only when the argument is absent or a literal
+     * `null` — then the runtime provably never registers the event, so the statically
+     * filled ordinal stays unused. The parameter's declared nullability is deliberately
+     * NOT consulted: a nullable-typed value can still be non-null at runtime,
+     * registering an ordinal IR never assigned (crash) or one static ordinal shared
+     * across iterations (event aliasing).
+     */
+    fun consumesCompilerOrdinal(): Boolean {
+        if (isComponentCall) return true
+        if (isRegionConstruct) return true
+        if (!isSlotDsl) return false
 
-    val optionalEventParameters = OPTIONAL_EVENT_PARAMETERS[name] ?: return true
-    val mapping = (argumentList as? FirResolvedArgumentList)?.mapping ?: return false
-    return mapping.any { (argument, parameter) ->
-        parameter.name.asString() in optionalEventParameters && !argument.isLiteralNull()
+        val optionalEventParameters = OPTIONAL_EVENT_PARAMETERS[name] ?: return true
+        val mapping = (call.argumentList as? FirResolvedArgumentList)?.mapping ?: return false
+        return mapping.any { (argument, parameter) ->
+            parameter.name.asString() in optionalEventParameters && !argument.isLiteralNull()
+        }
     }
 }
+
+private fun FirFunctionCall.classifyKineticaCall(session: FirSession): KineticaCallClassification? {
+    val callee = calleeReference.toResolvedCallableSymbol() ?: return null
+    val name = callee.callableId?.callableName?.asString() ?: callee.name.asString()
+    // Same-package members of other classes (e.g. KineticaRuntime.frameValue) are not
+    // slot DSL: only ComponentScope members and ComponentScope extensions qualify.
+    val isKineticaDsl = callee.isKineticaDsl()
+    return KineticaCallClassification(
+        call = this,
+        callee = callee,
+        name = name,
+        isSlotDsl = isKineticaDsl && name in SLOT_DSL_NAMES,
+        isRegionConstruct = isKineticaDsl && name in REGION_CONSTRUCT_NAMES,
+        isLoopSafeRegion = isKineticaDsl && name in LOOP_SAFE_REGION_NAMES,
+        // The component verdict must never sit behind a callableId bail (F11): a
+        // @UiComponent symbol without a callableId is still a component call, and rules
+        // D and F must see it as an ordinal consumer, exactly as the rule dispatch does.
+        isComponentCall = callee.hasAnnotation(UI_COMPONENT_CLASS_ID, session),
+    )
+}
+
+private fun FirFunctionCall.consumesCompilerOrdinal(session: FirSession): Boolean =
+    classifyKineticaCall(session)?.consumesCompilerOrdinal() == true
 
 /**
  * Arguments of `@UiComponent`-typed content parameters that the IR frame pass provably
