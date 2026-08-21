@@ -166,6 +166,61 @@ private fun ComponentScope.RowWithExitEffect(item: String, probe: RowExitProbe) 
     }
 }
 
+private class BatchedRowsProbe(
+    var batches: List<List<Int>> = emptyList(),
+) {
+    val inits = mutableListOf<Any>()
+
+    fun initCount(key: Any): Int =
+        inits.count { seen -> seen == key }
+}
+
+@UiComponent(skippable = false)
+private fun ComponentScope.BatchedRowsApp(probe: BatchedRowsProbe) {
+    column {
+        for ((index, batch) in probe.batches.withIndex()) {
+            each(batch, key = { item -> item }, memoize = false) { item ->
+                var count by state {
+                    probe.inits += item
+                    0
+                }
+                host("li", key = "$index:$item") {
+                    text("$index:$item:$count", semantics = null)
+                    button(onClick = { count += 1 }, semantics = null) {
+                        text("+", semantics = null)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private class KeyedLoopProbe(
+    var labels: List<String> = emptyList(),
+) {
+    var inits = 0
+}
+
+@UiComponent(skippable = false)
+private fun ComponentScope.KeyedLoopApp(probe: KeyedLoopProbe) {
+    column {
+        for ((index, label) in probe.labels.withIndex()) {
+            keyed("shared") {
+                var count by state {
+                    probe.inits += 1
+                    0
+                }
+                host("section", key = "pass-$index") {
+                    text("$label:$count", semantics = null)
+                    button(onClick = { count += 1 }, semantics = null) {
+                        text("+", semantics = null)
+                    }
+                }
+            }
+        }
+    }
+}
+
 private data class StableKey(val id: Int)
 
 class EachIdentitySemanticsTest {
@@ -491,6 +546,135 @@ class EachIdentitySemanticsTest {
             assertEquals(ids.map { id -> "k$id:${id * 10}" }, tree.rowTexts())
             assertEquals(3, probe.inits.size)
         }
+    }
+
+    @Test
+    fun eachInsideLoopPreservesRowStateAcrossRenders() {
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+        val probe = BatchedRowsProbe(listOf(listOf(1, 2), listOf(3, 4)))
+
+        fun render(): Node = runtime.render(scope) { BatchedRowsApp(probe) }.tree
+
+        var tree = render()
+        assertEquals(4, probe.inits.size)
+        assertEquals(listOf("0:1:0", "0:2:0", "1:3:0", "1:4:0"), tree.rowTexts())
+
+        tree = render()
+        assertEquals(4, probe.inits.size)
+
+        runtime.dispatch(tree.rows()[0].findClickEventId())
+        runtime.dispatch(tree.rows()[3].findClickEventId())
+        tree = render()
+        assertEquals(4, probe.inits.size)
+        assertEquals(listOf("0:1:1", "0:2:0", "1:3:0", "1:4:1"), tree.rowTexts())
+    }
+
+    @Test
+    fun eachInsideLoopWithSingleBatchKeepsExistingBehavior() {
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+        val probe = BatchedRowsProbe(listOf(listOf(1, 2, 3, 4)))
+
+        fun render(): Node = runtime.render(scope) { BatchedRowsApp(probe) }.tree
+
+        render()
+        render()
+        val tree = render()
+        assertEquals(4, probe.inits.size)
+        assertEquals(listOf("0:1:0", "0:2:0", "0:3:0", "0:4:0"), tree.rowTexts())
+    }
+
+    @Test
+    fun eachInvocationsSharingUserKeysKeepIndependentRowState() {
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+        val probe = BatchedRowsProbe(listOf(listOf(1, 2), listOf(1, 2)))
+
+        fun render(): Node = runtime.render(scope) { BatchedRowsApp(probe) }.tree
+
+        var tree = render()
+        assertEquals(4, probe.inits.size)
+        assertEquals(listOf("0:1:0", "0:2:0", "1:1:0", "1:2:0"), tree.rowTexts())
+
+        runtime.dispatch(tree.rows()[0].findClickEventId())
+        tree = render()
+        assertEquals(listOf("0:1:1", "0:2:0", "1:1:0", "1:2:0"), tree.rowTexts())
+        assertEquals(4, probe.inits.size)
+    }
+
+    @Test
+    fun eachInsideLoopStillDisposesRowsWhoseKeysLeave() {
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+        val probe = BatchedRowsProbe(listOf(listOf(1, 2), listOf(3, 4)))
+
+        fun render(): Node = runtime.render(scope) { BatchedRowsApp(probe) }.tree
+
+        render()
+        assertEquals(4, probe.inits.size)
+
+        probe.batches = listOf(listOf(1), listOf(3))
+        var tree = render()
+        assertEquals(listOf("0:1:0", "1:3:0"), tree.rowTexts())
+
+        probe.batches = listOf(listOf(1, 2), listOf(3, 4))
+        tree = render()
+        assertEquals(listOf("0:1:0", "0:2:0", "1:3:0", "1:4:0"), tree.rowTexts())
+        assertEquals(1, probe.initCount(1))
+        assertEquals(2, probe.initCount(2))
+        assertEquals(1, probe.initCount(3))
+        assertEquals(2, probe.initCount(4))
+    }
+
+    @Test
+    fun vanishedEachInvocationDisposesItsRows() {
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+        val probe = BatchedRowsProbe(listOf(listOf(1, 2), listOf(3, 4)))
+
+        fun render(): Node = runtime.render(scope) { BatchedRowsApp(probe) }.tree
+
+        render()
+        assertEquals(4, probe.inits.size)
+
+        probe.batches = listOf(listOf(1, 2))
+        var tree = render()
+        assertEquals(listOf("0:1:0", "0:2:0"), tree.rowTexts())
+
+        probe.batches = listOf(listOf(1, 2), listOf(3, 4))
+        tree = render()
+        assertEquals(listOf("0:1:0", "0:2:0", "1:3:0", "1:4:0"), tree.rowTexts())
+        assertEquals(1, probe.initCount(1))
+        assertEquals(1, probe.initCount(2))
+        assertEquals(2, probe.initCount(3))
+        assertEquals(2, probe.initCount(4))
+    }
+
+    @Test
+    fun keyedInvocationsSharingKeyInLoopKeepIndependentState() {
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+        val probe = KeyedLoopProbe(listOf("a", "b"))
+
+        fun render(): Node = runtime.render(scope) { KeyedLoopApp(probe) }.tree
+
+        var tree = render()
+        assertEquals(2, probe.inits)
+
+        runtime.dispatch(tree.rows()[0].findClickEventId())
+        tree = render()
+        assertEquals(listOf("a:1", "b:0"), tree.rowTexts())
+        assertEquals(2, probe.inits)
+
+        probe.labels = listOf("a")
+        tree = render()
+        assertEquals(listOf("a:1"), tree.rowTexts())
+
+        probe.labels = listOf("a", "b")
+        tree = render()
+        assertEquals(listOf("a:1", "b:0"), tree.rowTexts())
+        assertEquals(2, probe.inits)
     }
 
     private fun numberItems(keys: List<Int>): List<IdentityItem> =

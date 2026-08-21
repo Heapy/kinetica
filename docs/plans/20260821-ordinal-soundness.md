@@ -522,26 +522,52 @@
 - Modify: `kinetica-runtime/src/Frames.kt`
 - Modify: `kinetica-runtime/test/EachIdentitySemanticsTest.kt`
 
-- [ ] write failing test from the review probe: `for (batch in listOf(a, b)) { each(batch, ...) }`
+- [x] write failing test from the review probe: `for (batch in listOf(a, b)) { each(batch, ...) }`
       rendered 3 times must give `initCount == 4` (state preserved), not 12
-- [ ] implement the mechanism (region forking does NOT apply — `enterRegionChild` is
+      (`eachInsideLoopPreservesRowStateAcrossRenders` — red before the fix with 8 inits
+      by render 2, the F7 re-init signature; post-fix clicks pin that row events survive
+      commit too)
+- [x] implement the mechanism (region forking does NOT apply — `enterRegionChild` is
       unreachable from a raw loop body, see Context): preferred — defer keyed eviction
       from `renderEachRegion` to `Frame.commitChecks`, which already collects unkept
       children by generation; alternative — accumulate the `seen` set per
       `(ordinal, render generation)` on `Frame` so eviction only drops keys unseen by
       EVERY invocation in the pass
-- [ ] decide overlapping-keys semantics for two loop iterations sharing a user key
+      (note: preferred mechanism implemented — `renderEachRegion` stamps the ordinal via
+      `Frame.beginKeyedEvictionPass` and `commitChecks` disposes-and-removes unkept rows
+      of stamped ordinals only; unstamped keyed ordinals — `keyed {}`, exit groups —
+      keep retain-on-deactivate. Deferral also disposes rows of a pass that vanished
+      entirely when the loop count shrinks, which per-call scoped eviction cannot)
+- [x] decide overlapping-keys semantics for two loop iterations sharing a user key
       (`for (batch in listOf(listOf(1,2), listOf(1,2)))` — rows currently alias via
       `enterKeyedChild(ordinal, key)`): include the render-pass invocation index in
       the keyed-child identity (recommended — keeps the blessed pattern sound), or
       reject `each`/`keyed` in un-keyed loops in FIR; update
       `keyedAndEachRemainAllowedDirectlyInsideLoops` accordingly and add the
       overlapping-keys test
-- [ ] verify keyed-child disposal still happens when items genuinely disappear
+      (decision: recommended option — each-row identity is `keyedPassChildKey(pass,
+      key)`; pass 0 keeps the bare user key so single-invocation identity and all
+      existing frames are unchanged, and state follows (pass, key) across renders.
+      `keyedAndEachRemainAllowedDirectlyInsideLoops` needs NO update — the pattern stays
+      blessed. `keyed` itself needs no pass indexing: its content is a compiler-wrapped
+      region, so Task 3's re-entry fork already forks same-key invocations — pinned by
+      new `keyedInvocationsSharingKeyInLoopKeepIndependentState`, green pre-fix; the
+      overlapping-keys test is `eachInvocationsSharingUserKeysKeepIndependentRowState`,
+      red pre-fix with 2 aliased rows instead of 4. `disposeKeyScope` matching extended
+      so pass-indexed `KeyedPassKey` rows still match their user key)
+- [x] verify keyed-child disposal still happens when items genuinely disappear
       between renders (existing eviction tests stay green)
-- [ ] write test for the single-batch case (unchanged behavior, matches the test
+      (`rowDisposalOnKeyExitRunsExactlyOnce`, `removedThenReaddedKeyGetsFresh...` et al
+      stay green; new `eachInsideLoopStillDisposesRowsWhoseKeysLeave` and
+      `vanishedEachInvocationDisposesItsRows` pin per-batch disposal and vanished-pass
+      disposal without state resurrection)
+- [x] write test for the single-batch case (unchanged behavior, matches the test
       added in 657eef5)
-- [ ] run `./kotlin test -m kinetica-runtime --platform jvm` - must pass before task 10
+      (`eachInsideLoopWithSingleBatchKeepsExistingBehavior` — the findings' control
+      probe: one batch in a loop, 3 renders, initCount == 4)
+- [x] run `./kotlin test -m kinetica-runtime --platform jvm` - must pass before task 10
+      (runtime 222/222: 216 prior + 6 new; compiler suite re-run as a sanity check,
+      113/113 — no compiler change, no republish needed)
 
 ### Task 10: No silent IR bail-outs — suspendSubtree and persistent keys (F9)
 
