@@ -515,6 +515,56 @@ class KineticaFirCheckerTest {
     }
 
     @Test
+    fun multiRunReportSurvivesOuterConsumerRuleAEarlyExit() {
+        // F14: the outer `state` exits check() at rule A (entry content is not a
+        // component body) and never reaches rule F, so its report says nothing about
+        // the multi-run hazard. Suppression must key on the reports that actually
+        // happened, not on "the enclosing call is an ordinal consumer" — before the
+        // fix, Badge's CALL_IN_MULTI_RUN_LAMBDA vanished here. The rule-B flavor of
+        // this early exit is inexpressible: restoring the inner call's containment
+        // needs a component-typed lambda between outer and inner, and that same
+        // lambda is a numbering boundary that ends the inner call's rule-F walk.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.TextNode
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        emit(TextNode(value = "badge"))
+                    }
+
+                    fun runContent(scope: ComponentScope, content: @UiComponent ComponentScope.() -> Unit) {
+                        scope.content()
+                    }
+
+                    fun entry(scope: ComponentScope) {
+                        runContent(scope) {
+                            listOf(1, 2).forEach { item ->
+                                state {
+                                    Badge()
+                                    item
+                                }
+                            }
+                        }
+                    }
+                """,
+            ),
+        )
+
+        messages.assertErrorMessages(
+            "'state' can only be called inside a @UiComponent function. " +
+                "Move the call into a @UiComponent, or annotate the enclosing function.",
+            multiRunMessage("Badge", "forEach"),
+        )
+    }
+
+    @Test
     fun multiRunRegionAndComponentCallsAreReported() {
         val messages = harness.compileExpectingErrors(
             mapOf(
