@@ -29,6 +29,7 @@ import org.jetbrains.kotlin.fir.declarations.hasAnnotation
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
+import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirLoop
 import org.jetbrains.kotlin.fir.expressions.impl.FirResolvedArgumentList
 import org.jetbrains.kotlin.fir.expressions.unwrapArgument
@@ -37,14 +38,13 @@ import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
-import org.jetbrains.kotlin.fir.types.canBeNull
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.coneTypeOrNull
 import org.jetbrains.kotlin.fir.types.customAnnotations
-import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
+import org.jetbrains.kotlin.types.ConstantValueKind
 
 /**
  * Frontend authoring rules for the plugin-only slot model. Registered on every backend
@@ -206,8 +206,8 @@ private class KineticaCallChecker(
 
         val consumesCompilerOrdinal = expression.consumesCompilerOrdinal(session)
 
-        // Static ordinals cannot tell loop iterations apart. Optional host-event
-        // calls with no definitely-present handler do not consume an ordinal at runtime.
+        // Static ordinals cannot tell loop iterations apart. Optional host-event calls
+        // whose handler is absent or a literal null never register an event at runtime.
         if (!isLoopSafeRegion && consumesCompilerOrdinal && context.isDirectlyInsideLoop(session)) {
             reporter.reportOn(expression.source, KineticaFirErrors.SLOT_CALL_IN_LOOP, name, context)
             return
@@ -302,9 +302,12 @@ private fun FirCallableSymbol<*>.contractSingleRunParameterNames(): Set<String> 
  * and staged @UiComponent component calls. Merely receiving a @UiComponent-typed lambda
  * argument (an entry point such as `render`, or a user content-wrapper helper) does NOT
  * consume an ordinal: IR only wraps that content into a fresh frame table and numbers
- * nothing on the call itself. Optional host-event handlers are counted only when their
- * expression is definitely non-null: a nullable value is intentionally left to the
- * runtime's existing `!= null` branch.
+ * nothing on the call itself. Optional host-event handlers are exempt only when the
+ * argument is absent or a literal `null` — then the runtime provably never registers the
+ * event, so the statically filled ordinal stays unused. The parameter's declared
+ * nullability is deliberately NOT consulted: a nullable-typed value can still be non-null
+ * at runtime, registering an ordinal IR never assigned (crash) or one static ordinal
+ * shared across iterations (event aliasing).
  */
 private fun FirFunctionCall.consumesCompilerOrdinal(session: FirSession): Boolean {
     val callee = calleeReference.toResolvedCallableSymbol() ?: return false
@@ -318,7 +321,7 @@ private fun FirFunctionCall.consumesCompilerOrdinal(session: FirSession): Boolea
     val optionalEventParameters = OPTIONAL_EVENT_PARAMETERS[name] ?: return true
     val mapping = (argumentList as? FirResolvedArgumentList)?.mapping ?: return false
     return mapping.any { (argument, parameter) ->
-        parameter.name.asString() in optionalEventParameters && argument.isDefinitelyNonNull(session)
+        parameter.name.asString() in optionalEventParameters && !argument.isLiteralNull()
     }
 }
 
@@ -345,8 +348,10 @@ private fun FirCallableSymbol<*>.isKineticaDsl(): Boolean {
     )
 }
 
-private fun FirExpression.isDefinitelyNonNull(session: FirSession): Boolean =
-    !unwrapArgument().resolvedType.canBeNull(session)
+private fun FirExpression.isLiteralNull(): Boolean {
+    val unwrapped = unwrapArgument()
+    return unwrapped is FirLiteralExpression && unwrapped.kind == ConstantValueKind.Null
+}
 
 private object KineticaComponentDeclarationChecker : FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common) {
     context(context: CheckerContext, reporter: DiagnosticReporter)
