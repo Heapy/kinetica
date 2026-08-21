@@ -385,6 +385,46 @@ class KineticaFirCheckerTest {
     }
 
     @Test
+    fun localComponentFunctionCallsInRepeatedContextsAreReported() {
+        // F11 pin: the ordinal-consumer verdict for a component call must come from the
+        // @UiComponent annotation alone, never gated behind a callableId bail. The exact
+        // reviewed shape — a component callee with a NULL callableId — is inexpressible
+        // in Kotlin 2.4.10 (FirFunctionSymbol stores a non-null CallableId; locals get
+        // the `<local>` package, and only FirLocalPropertySymbol returns null, which is
+        // never a call callee), so this probe was green even before the F11 reorder. It
+        // pins the nearest expressible shape — a `<local>`-addressed component call in
+        // repeated contexts — and becomes the real red probe if a future toolchain nulls
+        // local callableIds.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.TextNode
+                    import io.heapy.kinetica.UiComponent
+
+                    @UiComponent
+                    fun ComponentScope.Rows(items: List<String>) {
+                        @UiComponent
+                        fun ComponentScope.LocalBadge() {
+                            emit(TextNode(value = "local"))
+                        }
+                        items.forEach {
+                            LocalBadge()
+                        }
+                        for (index in 0..1) {
+                            LocalBadge()
+                        }
+                    }
+                """,
+            ),
+        )
+        messages.assertContainsError(multiRunMessage("LocalBadge", "forEach"))
+        messages.assertContainsError("'LocalBadge' must not be called directly inside a loop")
+    }
+
+    @Test
     fun ruleE_componentWithoutScopeReceiverIsReported() {
         harness.compileExpectingErrors(
             mapOf(
