@@ -794,6 +794,9 @@ internal class KineticaFrameTransformer(
             it.kind == IrParameterKind.Regular && it.name.asString() == "ordinal"
         }
         if (parameter == null) {
+            // A same-package user overload may share a reserved DSL name without being a
+            // runtime ordinal consumer (hostEventFusionKeepsArgumentsItCannotCarry pins
+            // this). Content wrapping and argument traversal have already happened.
             log("${file.fileEntry.name}: no ordinal parameter on ${expression.symbol.owner.name}; skipped.")
             return
         }

@@ -27,8 +27,10 @@ import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirExpressionChecker
 import org.jetbrains.kotlin.fir.analysis.extensions.FirAdditionalCheckersExtension
 import org.jetbrains.kotlin.fir.declarations.FirAnonymousFunction
+import org.jetbrains.kotlin.fir.declarations.FirFunction
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.declarations.FirProperty
+import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.declarations.FirValueParameter
 import org.jetbrains.kotlin.fir.declarations.hasAnnotation
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
@@ -181,9 +183,9 @@ public object KineticaFirErrors : KtDiagnosticsContainer() {
      * An ordinal-consuming call in a value parameter's DEFAULT VALUE inside a
      * `@UiComponent` function. The default is evaluated by the `$default` stub BEFORE the
      * component's `beginComponentFrame` prologue runs, so there is no frame to number it
-     * into — and neither IR pass walks `IrValueParameter.defaultValue` in the first place.
-     * The ordinal keeps its `-1` sentinel and the call throws at first render. Soundness
-     * rule, active in every checks mode.
+     * into. The entry pass visits defaults only to wrap nested entry/content literals; the
+     * component's gated numbering walker still cannot assign an ordinal to the default
+     * expression itself. Soundness rule, active in every checks mode.
      */
     public val ORDINAL_CALL_IN_DEFAULT_ARGUMENT: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
 
@@ -478,9 +480,11 @@ private class KineticaCallChecker(
 
         // A default argument value runs in the $default stub, before the component's
         // beginComponentFrame prologue — no frame exists to number the call into, and the
-        // IR passes never walk parameter defaults either. Rules A/B already cover defaults
-        // of non-component functions (containment there is OUTSIDE), so this fires exactly
-        // where they pass: inside a component declaration.
+        // gated component-numbering pass cannot assign an ordinal to the default
+        // expression. (The entry pass visits defaults only to wrap nested entry/content
+        // literals.) Rules A/B already cover defaults of non-component functions
+        // (containment there is OUTSIDE), so this fires exactly where they pass: inside a
+        // component declaration.
         if (consumesCompilerOrdinal && context.isInsideValueParameterDefault(session)) {
             reporter.reportOn(
                 expression.source,
@@ -630,7 +634,7 @@ private fun FirFunctionCall.recordContractVerdicts(
     val mapping = (argumentList as? FirResolvedArgumentList)?.mapping ?: return
     if (mapping.keys.none { argument -> argument.unwrapArgument() is FirAnonymousFunctionExpression }) return
     val function = callee as? FirFunctionSymbol<*> ?: return
-    val callableId = function.callableId ?: return
+    val callableId = function.callableId
     val singleRunParameters = function.contractSingleRunParameterNames()
     if (singleRunParameters.isEmpty()) return
     val regularParameterCount = function.valueParameterSymbols.size
@@ -1026,7 +1030,12 @@ private class KineticaComponentDeclarationChecker(
 }
 
 private enum class KineticaContainment {
-    /** Lexically inside a @UiComponent function declaration. */
+    /**
+     * Directly owned by a @UiComponent function declaration. Reusable nested declarations
+     * (a local class, local function, property accessor, or constructor) are boundaries,
+     * even though the IR walker can lexically reach and number their bodies: one static
+     * ordinal there would be shared by every invocation or class instance.
+     */
     COMPONENT_BODY,
 
     /** Inside a lambda literal whose function type is annotated @UiComponent (entry content). */
@@ -1034,6 +1043,10 @@ private enum class KineticaContainment {
 
     OUTSIDE,
 }
+
+private fun FirNamedFunction.isComponentNumberingRoot(session: FirSession): Boolean =
+    hasAnnotation(UI_COMPONENT_CLASS_ID, session) &&
+        receiverParameter?.typeRef?.coneTypeOrNull?.classId == COMPONENT_SCOPE_CLASS_ID
 
 private fun CheckerContext.classifyContainment(session: FirSession): KineticaContainment {
     val elements = containingElements
@@ -1052,13 +1065,22 @@ private fun CheckerContext.classifyContainment(session: FirSession): KineticaCon
                 // it (reached through a scope parameter) are as unsound as in any plain
                 // function; classifying them OUTSIDE keeps rules A/B guarding the crash
                 // even when the style rule E is downgraded to a warning or off.
-                return if (element.hasAnnotation(UI_COMPONENT_CLASS_ID, session) &&
-                    element.receiverParameter?.typeRef?.coneTypeOrNull?.classId == COMPONENT_SCOPE_CLASS_ID
-                ) {
+                return if (element.isComponentNumberingRoot(session)) {
                     KineticaContainment.COMPONENT_BODY
                 } else {
                     KineticaContainment.OUTSIDE
                 }
+            // A getter, setter, or constructor is reusable and may run repeatedly or after
+            // the enclosing render. They are FirFunction implementations but not
+            // FirNamedFunction, which made them invisible here and let them borrow one
+            // static ordinal from the outer component frame.
+            is FirFunction -> return KineticaContainment.OUTSIDE
+            // A local class's property initializers and init blocks do not necessarily
+            // carry an explicit FirConstructor in containingElements. The class itself is
+            // therefore the boundary: constructing two instances must not alias the same
+            // ordinal from the enclosing component. Anonymous-object initializers remain
+            // tied to their expression site; their accessors/functions are caught above.
+            is FirRegularClass -> if (element.isLocal) return KineticaContainment.OUTSIDE
             else -> {}
         }
     }
@@ -1105,8 +1127,7 @@ private fun CheckerContext.isInsideValueParameterDefault(session: FirSession): B
 private fun CheckerContext.isInsideComponentNumberingRoot(session: FirSession): Boolean {
     for (element in containingElements) {
         if (element !is FirNamedFunction) continue
-        return element.hasAnnotation(UI_COMPONENT_CLASS_ID, session) &&
-            element.receiverParameter?.typeRef?.coneTypeOrNull?.classId == COMPONENT_SCOPE_CLASS_ID
+        return element.isComponentNumberingRoot(session)
     }
     return false
 }

@@ -56,6 +56,125 @@ class KineticaFirCheckerTest {
     }
 
     @Test
+    fun ruleA_slotCallInLocalClassInitializerIsReported() {
+        // A local class body is reusable even though its declaration is lexically inside
+        // the component. The IR walker used to number this initializer with Screen's one
+        // static slot; constructing Box twice then rendered values=1,1 instead of 1,2.
+        harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Screen() {
+                        val scope = this
+                        class Box(seed: Int) {
+                            val value = scope.state { seed }.value
+                        }
+                        val first = Box(1)
+                        val second = Box(2)
+                        text("values=" + first.value + "," + second.value)
+                    }
+                """,
+            ),
+        ).assertContainsError("'state' can only be called inside a @UiComponent function")
+    }
+
+    @Test
+    fun ruleA_slotCallInAnonymousObjectInitializerCompiles() {
+        // Unlike a named local class, an anonymous object is constructed at this exact
+        // expression site while the component frame is active. Its initializer cannot be
+        // invoked independently, so the outer component owns the ordinal legitimately.
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Screen() {
+                        val scope = this
+                        val box = object {
+                            val value = scope.state { 1 }.value
+                        }
+                        text(box.value.toString())
+                    }
+                """,
+            ),
+            checks = "error",
+        ).close()
+    }
+
+    @Test
+    fun ruleA_slotCallInNestedPropertyAccessorIsReported() {
+        // A property accessor is a FirFunction but not a FirNamedFunction. Ignoring that
+        // boundary let a getter run repeatedly or after render with an ordinal borrowed
+        // from the enclosing component frame.
+        harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Screen() {
+                        val scope = this
+                        val box = object {
+                            val value: Int
+                                get() = scope.state { 1 }.value
+                        }
+                        text(box.value.toString())
+                    }
+                """,
+            ),
+        ).assertContainsError("'state' can only be called inside a @UiComponent function")
+    }
+
+    @Test
+    fun ruleA_slotCallInNestedConstructorIsReported() {
+        // Constructor bodies are reusable FirFunction boundaries. Numbering this call
+        // lexically would make two Box instances read the same slot in Screen's frame.
+        harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Screen() {
+                        val scope = this
+                        class Box {
+                            val value: Int
+
+                            constructor(seed: Int) {
+                                value = scope.state { seed }.value
+                            }
+                        }
+                        text((Box(1).value + Box(2).value).toString())
+                    }
+                """,
+            ),
+        ).assertContainsError("'state' can only be called inside a @UiComponent function")
+    }
+
+    @Test
     fun ruleA_slotCallInRenderContentLambdaIsReported() {
         harness.compileExpectingErrors(
             mapOf(

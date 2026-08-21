@@ -1165,6 +1165,21 @@
       `lazyEachVisibleOnlyInLoopKeepsSiblingInvocationRows`,
       `lazyEachPersistentSlotsInLoopKeepsSiblingInvocationRows`,
       `lazyEachVisibleOnlySingleInvocationStillDisposesHiddenRows`
+- ➕ [x] close the final review's reusable-declaration gap for direct ordinal
+      consumers: `classifyContainment` now treats property accessors, constructors,
+      and named local-class initializers inside a component as `OUTSIDE`, matching the
+      already-rejected local-function case. Red-before-fix runtime probe constructed
+      `Box(1)` and `Box(2)` from one local class and rendered `values=1,1`; both
+      constructions had borrowed the same static state ordinal from the component
+      frame. Anonymous-object initializers remain legal because they execute at their
+      expression site. Tests: `ruleA_slotCallInLocalClassInitializerIsReported`,
+      `ruleA_slotCallInNestedPropertyAccessorIsReported`,
+      `ruleA_slotCallInNestedConstructorIsReported`, and
+      `ruleA_slotCallInAnonymousObjectInitializerCompiles`. A proposed broader ban on
+      escaping compiler-wrapped content was discarded after adversarial re-review:
+      its fresh region already provides documented call-site/invocation-position
+      identity, and the alleged A/B alias required unsupported closure-object identity.
+      Compiler suite: 211/211 (207 prior + 4 new).
 - [x] run full test suite: `./kotlin test -m kinetica-compiler --platform jvm` and
       `./kotlin test -m kinetica-runtime --platform jvm`
       (compiler 148/148: 144 prior + 4 new; runtime 229/229: 225 prior + 4 new;
