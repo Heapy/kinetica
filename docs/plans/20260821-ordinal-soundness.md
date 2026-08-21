@@ -973,15 +973,24 @@
 **Files:**
 - Modify: `kinetica-compiler/src/KineticaFirExtension.kt`
 
-- [ ] reorder `check()` so `unwrappableComponentContentArguments()` (renamed from
+- [x] reorder `check()` so `unwrappableComponentContentArguments()` (renamed from
       `hasComponentTypedLambdaArgument()` in Task 8; argument-mapping walk +
       cone-type + annotation resolution) runs only after the cheap early-return guard
       rejects the common case — it now also feeds the end-of-check rule C block, so
       compute it lazily rather than skipping it
-- [ ] confirm no diagnostic changes: full checker suite green (this is the test — the
+      (implemented as a local `by lazy(LazyThreadSafetyMode.NONE)` delegate: the probe
+      is now the guard's final conjunct, so Kinetica-construct calls short-circuit past
+      it on the cheap facts and pay it at most once — in the end-of-check rule C block —
+      while only the none-of-the-four call probes at the guard; the delegate has exactly
+      those two readers, verified by grep)
+- [x] confirm no diagnostic changes: full checker suite green (this is the test — the
       change is pure reordering; no new test cases apply to a no-behavior-change
       reorder, the existing suite is the coverage)
-- [ ] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 18
+      (the probe is pure — evaluating it 0 or 1 times instead of always-once cannot
+      change any diagnostic; suite confirms)
+- [x] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 18
+      (141/141 green, same count as after Task 16 — no new tests by design; diagnostics
+      unchanged, so no mavenLocal republish is needed and no Task 19 fallout is possible)
 
 ### Task 18: Clean up harness temp directories (S5)
 
