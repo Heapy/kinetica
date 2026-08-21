@@ -59,6 +59,14 @@ class KineticaPluginContractTest {
     }
 
     @Test
+    fun checksAllowlistCoversEveryDocumentedCompilerValue() {
+        // The compiler CLI documents `checks` as `<error|warning|off>`; the Gradle-side
+        // allowlist once lagged behind (no `warning`) and silently made the style-only
+        // warning mode unreachable from Gradle builds.
+        assertEquals(setOf("error", "warning", "off"), KineticaGradlePlugin.CHECKS)
+    }
+
+    @Test
     fun optionNamesMatchTheCompilerContract() {
         assertEquals(KineticaCompilerContract.pluginId, KineticaCoordinates.compilerPluginId)
         assertEquals(KineticaCompilerContract.optionModuleId, KineticaCoordinates.optionModuleId)
