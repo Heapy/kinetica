@@ -31,7 +31,10 @@ public abstract class KineticaExtension {
     /** `all` or `off` — kill switch for the IR perf transforms. */
     public abstract val transforms: Property<String>
 
-    /** `error` or `off` — the authoring-rule checkers. Turning them off is a migration escape. */
+    /**
+     * `error`, `warning`, or `off` — severity of the Kinetica STYLE diagnostics.
+     * Soundness rules are always compile errors; no value of this property disables them.
+     */
     public abstract val checks: Property<String>
 
     /**

@@ -208,7 +208,7 @@ public class KineticaGradlePlugin : KotlinCompilerPluginSupportPlugin {
     private fun KotlinPlatformType.isJvmLike(): Boolean =
         this == KotlinPlatformType.jvm || this == KotlinPlatformType.androidJvm
 
-    private companion object {
+    internal companion object {
         const val KOTLIN_EXTENSION_NAME = "kotlin"
         const val KOTLIN_JVM_PLUGIN_ID = "org.jetbrains.kotlin.jvm"
         const val KOTLIN_ANDROID_PLUGIN_ID = "org.jetbrains.kotlin.android"
@@ -219,6 +219,9 @@ public class KineticaGradlePlugin : KotlinCompilerPluginSupportPlugin {
 
         val SOURCE_PIPELINES = setOf("psi", "lightTree")
         val TRANSFORMS = setOf("all", "off")
-        val CHECKS = setOf("error", "off")
+        // Must accept every value the compiler's `checks` option documents
+        // (`<error|warning|off>`) — this list once lagged behind and made
+        // `checks=warning` unreachable from Gradle builds.
+        val CHECKS = setOf("error", "warning", "off")
     }
 }

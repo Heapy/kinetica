@@ -841,6 +841,13 @@
 - Modify: `kinetica-compiler/test/KineticaIrFrameCompileTest.kt` (➕ its checks=off
   probes from Tasks 2/6/7/14 compiled unsound shapes and had to follow the semantics
   change — see the conversion note below)
+- Modify: `kinetica-gradle-plugin/src/KineticaGradlePlugin.kt`,
+  `kinetica-gradle-plugin/src/KineticaExtension.kt`,
+  `kinetica-gradle-plugin/test/KineticaPluginContractTest.kt` (➕ the Gradle-side
+  `CHECKS` allowlist was `setOf("error", "off")` — it rejected `warning` with a
+  GradleException, making the new style-only warning mode unreachable from Gradle
+  builds; now accepts all three documented values, extension KDoc updated, and a new
+  contract test pins the allowlist so it cannot lag again; gradle-plugin suite 7/7)
 
 - [x] write failing test: with `checks=off`, the val-lambda aliasing probe (Task 7)
       and the multi-run rule F probes must still be compile errors
