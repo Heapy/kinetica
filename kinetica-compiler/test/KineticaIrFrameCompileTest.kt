@@ -914,6 +914,55 @@ class KineticaIrFrameCompileTest {
         }
     }
 
+    @Test
+    fun componentCallsOnSimpleReceiversStageAndRenderStably() {
+        // Positive side of F10 (rule H): explicit `this` and a plain local val are the
+        // IrGetValue shapes IR stages — the two calls get distinct child frames whose
+        // state survives re-render, and no "left unstaged" decline fires at checks=error.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Badge(label: String) {
+                        val id = state { nextId++ }
+                        text("badge:" + label + ":" + id.value)
+                    }
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Fan() {
+                        this.Badge("explicit")
+                        val scope = this
+                        scope.Badge("local")
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Fan() }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            compiled.assertTransformDidNotFire("left unstaged")
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val first = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
+            val second = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
+            assertTrue("badge:explicit:0" in first, "explicit-this call must get its own staged frame: $first")
+            assertTrue("badge:local:1" in first, "local-val call must get its own staged frame: $first")
+            assertEquals(first, second, "staged component frames must be reused, not re-initialized, across renders")
+        }
+    }
+
     private fun Node.toDebugString(): String = toString()
 
     private fun Node.collectHostEventIds(): List<String> = when (this) {

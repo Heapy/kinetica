@@ -89,6 +89,79 @@ class FrameKernelTest {
     }
 
     @Test
+    fun stagedOrdinalConsumedInDifferentFrameThrowsImmediately() {
+        // F10 backstop: staging always immediately precedes its call in the same frame,
+        // so a pop from another frame proves an unstaged component call (stale plugin
+        // output) is stealing someone else's ordinal. It must throw BEFORE entering any
+        // frame — not render into the wrong fixed child and surface later.
+        val scope = scope()
+        scope.beginRender()
+        scope.ordinal(0)
+        scope.beginRegionFrame(table)
+        val failure = assertFailsWith<IllegalStateException> {
+            scope.beginComponentFrame(table)
+        }
+        val message = failure.message.orEmpty()
+        assertTrue("staged in a different frame" in message, message)
+        assertTrue("recompile the module" in message, message)
+    }
+
+    @Test
+    fun argumentPositionStagingKeepsLifoDiscipline() {
+        // A component call in argument position of another component call pops its own
+        // ordinal before the outer one resolves — both staged in the same frame, in LIFO
+        // order. The discipline check must not disturb this blessed shape.
+        val scope = scope()
+        var inner: Any? = null
+        var outer: Any? = null
+        scope.render {
+            ordinal(1)
+            ordinal(0)
+            beginComponentFrame(table)
+            inner = frameSlot(0) { Any() }
+            endComponentFrame()
+            beginComponentFrame(table)
+            outer = frameSlot(0) { Any() }
+            endComponentFrame()
+        }
+        assertNotSame(inner, outer)
+        scope.render {
+            ordinal(1)
+            ordinal(0)
+            beginComponentFrame(table)
+            assertSame(inner, frameSlot(0) { Any() })
+            endComponentFrame()
+            beginComponentFrame(table)
+            assertSame(outer, frameSlot(0) { Any() })
+            endComponentFrame()
+        }
+    }
+
+    @Test
+    fun stagingInsideRegionFrameIsConsumedInThatFrame() {
+        // Component calls inside compiler-wrapped content lambdas stage and pop within
+        // the region frame; the discipline check keys on that frame, not the root.
+        val scope = scope()
+        var cell: Any? = null
+        scope.render {
+            beginRegionFrame(table)
+            ordinal(0)
+            beginComponentFrame(table)
+            cell = frameSlot(0) { Any() }
+            endComponentFrame()
+            endRegionFrame()
+        }
+        scope.render {
+            beginRegionFrame(table)
+            ordinal(0)
+            beginComponentFrame(table)
+            assertSame(cell, frameSlot(0) { Any() })
+            endComponentFrame()
+            endRegionFrame()
+        }
+    }
+
+    @Test
     fun transientSlotUntouchedByCommittedRenderIsDisposed() {
         val scope = scope()
         val effect = FakeEffect()

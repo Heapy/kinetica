@@ -77,8 +77,8 @@ import org.jetbrains.kotlin.name.Name
  * they run at most once per render in the same frame. Fresh counters start only at region
  * boundaries. Anything the pass cannot prove (non-trivial staging receiver, explicit
  * suspendSubtree key) is left on the legacy string-keyed path and reported — declines
- * whose legacy path crashes at render or silently loses persistence are located compile
- * ERRORS (F9), the rest LOGGING.
+ * whose legacy path crashes at render, aliases frames, or silently loses persistence are
+ * located compile ERRORS (F9, F10), the rest LOGGING.
  */
 internal class KineticaFrameSymbols private constructor(
     val frameTableConstructor: IrConstructorSymbol,
@@ -200,10 +200,11 @@ internal class KineticaFrameTransformer(
     }
 
     /**
-     * A decline-to-transform is a compile ERROR, never a LOGGING line (F9): the
-     * surviving legacy call either throws MissingKineticaPluginException at first render
-     * or silently loses behavior (persistence addressing). An error without a location
-     * is not actionable, so the declined element's file offset travels along.
+     * A decline-to-transform is a compile ERROR, never a LOGGING line (F9, F10): the
+     * surviving legacy call either throws MissingKineticaPluginException at first render,
+     * renders into another call's frame (unstaged component call), or silently loses
+     * behavior (persistence addressing). An error without a location is not actionable,
+     * so the declined element's file offset travels along.
      */
     private fun reportDecline(message: String, element: IrElement) {
         report(message, CompilerMessageSeverity.ERROR, sourceLocation(element))
@@ -513,10 +514,16 @@ internal class KineticaFrameTransformer(
             }
             val receiverArgument = expression.arguments[receiverParameter.indexInParameters]
             if (receiverArgument !is IrGetValue) {
-                // Stays LOGGING until Task 11 pairs it with the FIR receiver rule (F10).
-                log(
+                // Paired with FIR rule H (F10): safe-call subjects and smart-cast values
+                // also land here — fir2ir wraps the variable read, defeating IrGetValue.
+                reportDecline(
                     "${shared.functionFqName}: component call ${callee.name} has a non-trivial " +
-                        "receiver expression; left unstaged.",
+                        "receiver expression, so its child frame ordinal cannot be staged; " +
+                        "left unstaged — the callee prologue throws " +
+                        "MissingKineticaPluginException at first render or consumes an " +
+                        "enclosing call's staged ordinal and renders into the wrong frame. " +
+                        "Bind the receiver to a plain local val of the scope type first.",
+                    expression,
                 )
                 return expression
             }

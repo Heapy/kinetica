@@ -49,6 +49,13 @@ public class ComponentScope public constructor(
     // LIFO because a component call can appear in argument position of another component
     // call: the inner callee's prologue pops its own ordinal before the outer one resolves.
     private var ordinalStack = IntArray(8)
+    // The frame that was current when each entry was staged (parallel to ordinalStack).
+    // Compiler staging immediately precedes the call it identifies, in the same frame —
+    // argument evaluation between the two only enters/exits frames in balanced pairs —
+    // so a pop from a different frame proves an UNSTAGED component call (stale plugin
+    // output) is consuming another call's ordinal, and must fail fast instead of
+    // rendering into the wrong frame (F10).
+    private var ordinalStackFrames = arrayOfNulls<Frame>(8)
     private var ordinalStackSize = 0
     private val enteredFrames = mutableListOf<Frame>()
 
@@ -62,7 +69,9 @@ public class ComponentScope public constructor(
     public fun ordinal(n: Int) {
         if (ordinalStackSize == ordinalStack.size) {
             ordinalStack = ordinalStack.copyOf(ordinalStack.size * 2)
+            ordinalStackFrames = ordinalStackFrames.copyOf(ordinalStack.size)
         }
+        ordinalStackFrames[ordinalStackSize] = currentFrame
         ordinalStack[ordinalStackSize++] = n
     }
 
@@ -70,7 +79,23 @@ public class ComponentScope public constructor(
         if (ordinalStackSize == 0) {
             throw MissingKineticaPluginException(construct)
         }
-        return ordinalStack[--ordinalStackSize]
+        val top = ordinalStackSize - 1
+        // Stack-discipline check (F10): staged in one frame, consumed in another means an
+        // unstaged component call slipped in between. Throw before entering any frame so
+        // the tree is left uncorrupted. A same-frame steal is indistinguishable without
+        // tagging entries with the callee (a plugin<->runtime ABI change); it still fails
+        // loudly in the same render when the enclosing call finds its ordinal gone.
+        if (ordinalStackFrames[top] !== currentFrame) {
+            error(
+                "A Kinetica $construct consumed a child frame ordinal staged in a different " +
+                    "frame. A component call the compiler left unstaged consumed another " +
+                    "call's ordinal; recompile the module containing this call with the " +
+                    "current io.heapy.kinetica.compiler plugin.",
+            )
+        }
+        ordinalStackFrames[top] = null
+        ordinalStackSize = top
+        return ordinalStack[top]
     }
 
     /**
@@ -165,6 +190,10 @@ public class ComponentScope public constructor(
         rootFrame.markEntered(slotGeneration)
         enteredFrames += rootFrame
         currentFrame = rootFrame
+        // Entries can legitimately linger when a throw unwinds between staging and the
+        // staged call (an error boundary catching mid-argument-evaluation); drop them
+        // with their frame refs so a stale frame is never retained across renders.
+        ordinalStackFrames.fill(null)
         ordinalStackSize = 0
         layoutEffects.clear()
         postCommitEffects.clear()
