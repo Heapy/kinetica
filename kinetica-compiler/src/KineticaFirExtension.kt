@@ -297,13 +297,17 @@ private fun FirCallableSymbol<*>.contractSingleRunParameterNames(): Set<String> 
 }
 
 /**
- * Whether this call needs an ordinal injected by the IR frame pass. Optional host-event
- * handlers are counted only when their expression is definitely non-null: a nullable
- * value is intentionally left to the runtime's existing `!= null` branch.
+ * Whether this call needs an ordinal injected by the IR frame pass — true only for the
+ * calls IR actually numbers: slot DSL calls, region constructs, host event registrations,
+ * and staged @UiComponent component calls. Merely receiving a @UiComponent-typed lambda
+ * argument (an entry point such as `render`, or a user content-wrapper helper) does NOT
+ * consume an ordinal: IR only wraps that content into a fresh frame table and numbers
+ * nothing on the call itself. Optional host-event handlers are counted only when their
+ * expression is definitely non-null: a nullable value is intentionally left to the
+ * runtime's existing `!= null` branch.
  */
 private fun FirFunctionCall.consumesCompilerOrdinal(session: FirSession): Boolean {
     val callee = calleeReference.toResolvedCallableSymbol() ?: return false
-    if (hasComponentTypedLambdaArgument()) return true
     val callableId = callee.callableId ?: return false
     val name = callableId.callableName.asString()
     if (callee.hasAnnotation(UI_COMPONENT_CLASS_ID, session)) return true

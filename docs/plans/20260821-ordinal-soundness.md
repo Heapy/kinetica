@@ -295,27 +295,44 @@
 - Modify: `kinetica-compiler/src/KineticaFirExtension.kt`
 - Modify: `kinetica-compiler/test/KineticaFirCheckerTest.kt`
 
-- [ ] write failing tests from the review: `repeat(2) { runtime.render(scope) { text("x") } }`
+- [x] write failing tests from the review: `repeat(2) { runtime.render(scope) { text("x") } }`
       and `assertFailsWith<...> { KineticaTest.render { ... } }` must compile clean at
       `checks=error`
-- [ ] rebuild `consumesCompilerOrdinal`: a call consumes an ordinal only if IR numbers
+      (note: the `KineticaTest.render` probe is emulated with `runtime.render` —
+      kinetica-test is not on the compiler harness classpath; same F1 shape. Both
+      probes plus the flipped wrapper test were red before the fix — `assertFailsWith`
+      carries no `callsInPlace` contract in kotlin-test, so it was red too; the repeat
+      probe also renders end-to-end through the harness to pin runtime correctness)
+- [x] rebuild `consumesCompilerOrdinal`: a call consumes an ordinal only if IR numbers
       it — slot call, `@UiComponent` component call, or host event registration;
       merely receiving a `@UiComponent`-typed lambda argument (an entry point such as
       `render`, or a user content-wrapper helper) does NOT qualify
-- [ ] flip `multiRunCallWithComponentTypedLambdaArgumentIsReported` from expect-error
+      (note: the fix deletes the `hasComponentTypedLambdaArgument()` fast-path; region
+      constructs stay consumers — IR's `transformRegion` numbers their children and
+      boundary slots. The null-`callableId` bail now precedes the `@UiComponent`
+      annotation check — that pre-existing hole is Task 12's explicit checkbox)
+- [x] flip `multiRunCallWithComponentTypedLambdaArgumentIsReported` from expect-error
       to expect-clean — this is authorized and expected: the pattern is sound now
       because IR wraps the content lambda into one static FrameTable
       (`wrapAnnotatedContentArgumentsOf`) and Task 3's region re-entry fork makes
       repeated entries independent (this is why Task 3 lands first)
-- [ ] verify rules D and F still fire for true consumers inside loops; write negative
+      (renamed to `multiRunCallWithComponentTypedLambdaArgumentCompiles`)
+- [x] verify rules D and F still fire for true consumers inside loops; write negative
       tests: component call inside `forEach` still errors
-- [ ] ➕ publish the fixed compiler to mavenLocal (`./kotlin publish mavenLocal -m
+      (new `ruleD_componentCallInLoopIsReported` — component call directly in a `for`
+      loop; rule F pinned by the existing `multiRunComponentCallInsideRuntimeRenderIsReported`
+      — component call inside `forEach` within render content — still green)
+- [x] ➕ publish the fixed compiler to mavenLocal (`./kotlin publish mavenLocal -m
       kinetica-compiler`) and run `./kotlin test -m kinetica-runtime --platform jvm` at
       default checks — clears Task 3's deferred gate: the 0.4.0 plugin in mavenLocal
       rejects the runtime test module's 19 entry-point renders (F1 baseline) until this
       republish, and Task 9's runtime gate needs a compilable test module long before
       Task 19
-- [ ] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 5
+      (jar timestamp and size changed in ~/.m2; runtime 216/216 at default checks with
+      NO module.yaml override, re-verified from scratch after `./kotlin clean` so no
+      stale compile cache can be masking it)
+- [x] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 5
+      (95/95 green: 92 prior + 3 new probes, re-run after the clean)
 
 ### Task 5: Blocker — remove the nullable-handler exemption (F2)
 
