@@ -921,6 +921,15 @@
   Task 20's findings walk must weigh this against the Overview promise; fixing it is
   new scope (either FIR rejects wrapper calls in multi-run lambdas, or IR wraps
   content arguments even in undescended lambdas).
+  RESOLVED in Task 20: FIR now rejects it (new soundness factory
+  `COMPONENT_CONTENT_IN_MULTI_RUN_LAMBDA`, every checks mode), keyed on
+  COMPONENT_BODY containment + a @UiComponent content lambda literal + the existing
+  rule-F multi-run/stored-lambda host walk — exactly the positions IR's gated walker
+  never reaches, so entry content (wrapped ungated by transformEntryPoints) stays
+  compiling. The two pins named above became
+  `multiRunComponentTypedHelperFailsCompileWhenChecksAreOff` (compile-error pin) and
+  the forEach half of `multiRunCallWithComponentTypedLambdaArgumentCompiles` moved to
+  `componentContentWrapperInMultiRunLambdaIsReported`; see Task 20 for the full list.
 
 ### Task 16: Context-aware diagnostic advice (S2)
 
@@ -1083,16 +1092,83 @@
       kinetica-test 52, persist 4 — zero failures)
 
 ### Task 20: Verify acceptance criteria
-- [ ] verify all 20 findings from `20260821-ordinal-soundness-findings.md` are
+- [x] verify all 20 findings from `20260821-ordinal-soundness-findings.md` are
       addressed (walk the findings file's mapping table item by item; mark each with
       the task that fixed it)
-- [ ] verify edge cases are handled (platform types, vararg lambdas, nested local
+      (walk recorded IN the findings file — new section "Task 20 verification walk"
+      maps every ID to verdict, fixing task, and its dedicated tests; all 20 ✅)
+- [x] verify edge cases are handled (platform types, vararg lambdas, nested local
       functions, overlapping keys across loop iterations, `checks=off`/`warning` modes)
-- [ ] run full test suite: `./kotlin test -m kinetica-compiler --platform jvm` and
+      (platform types — `platformTypedHandlerInLoopIsReported` +
+      `typeParameterTypedHandlerInLoopIsReported`; vararg lambdas —
+      `varargLambdaElementWithOrdinalConsumersIsReported`; nested local functions —
+      `ruleC_localFunctionRenderWrapperCompiles` +
+      `localComponentFunctionCallsInRepeatedContextsAreReported`; overlapping keys
+      across loop iterations — Task 9's each/keyed tests PLUS the lazyEach hazard
+      flagged there, closed by the ➕ item below; checks modes — the six Task 15
+      checks-mode tests plus the new
+      `multiRunComponentTypedHelperFailsCompileWhenChecksAreOff`. The sweep also
+      re-probed the entry-content double-wrap suspicion: green —
+      `entryContentUserWrapperRendersWithStableIdentity` pins nested and looped
+      wrappers in entry content rendering with stable identity)
+- ➕ [x] close the Task 15 ⚠️ gap (in scope of the Overview promise: compile-clean
+      code crashed at first render): new FIR soundness rule
+      `COMPONENT_CONTENT_IN_MULTI_RUN_LAMBDA` rejects a @UiComponent content lambda
+      literal passed from inside a multi-run or stored lambda WITHIN a component body
+      — the exact positions IR's gated walker never wraps; entry content (ungated
+      `transformEntryPoints` wrap) and single-run hosts (`for` loops, `run`, contract
+      hosts) keep compiling. FIR option A2 chosen over teaching IR to wrap inside
+      undescended lambdas: it is the plan's own F9/F10 pattern ("every construct IR
+      declines gets a matching FIR error"), additive-errors-only for Task 19's
+      verification, and nothing that hits this shape today works (it crashes), so no
+      working code breaks. Tests: `componentContentWrapperInMultiRunLambdaIsReported`,
+      `componentContentWrapperInStoredLambdaIsReported`,
+      `componentContentWrapperInEntryContentCompiles`,
+      `multiRunComponentTypedHelperFailsCompileWhenChecksAreOff` (converted),
+      `entryContentUserWrapperRendersWithStableIdentity`, and the reshaped
+      `multiRunCallWithComponentTypedLambdaArgumentCompiles` (direct/loop/run hosts
+      stay clean). Consumer scan: the only @UiComponent-typed content wrappers
+      repo-wide are `render` (entry), Router's NavHost/navLazyEach (@UiComponent —
+      already rule-F consumers), and the gradle-ssr example's island/SiteLayout
+      (called directly in component bodies); `host`/`column` content params carry no
+      @UiComponent, so the ubiquitous host-in-forEach shapes are untouched —
+      confirmed by runtime 229/229, kinetica-test 52/52, persist 4/4 against the
+      republished plugin
+- ➕ [x] close the Task 9 lazyEach flag (F7 hazard shape, in scope of the "never
+      silently aliases" promise): `lazyEachRegion` rows now carry the render-pass
+      invocation index exactly like `each` rows (`Frame.beginKeyedPass` — pass
+      counting split out of `beginKeyedEvictionPass` WITHOUT the commit-time eviction
+      stamp, because lazyEach retention is policy-driven and hidden rows must stay
+      retained), and the VisibleOnly/PersistentSlots sweeps only touch rows their own
+      pass owns (`keyedPassUserKey`). Pass 0 keeps bare keys — single-invocation
+      identity and existing frames unchanged. Red-before-fix verified by stashing the
+      runtime fix: 2 aliased inits instead of 4 (Keyed overlap) and 12 re-inits
+      instead of 4 (VisibleOnly and PersistentSlots cross-invocation eviction).
+      Accepted semantic, mirroring Task 9's vanished-pass note: a loop pass that
+      vanishes between renders deactivate-retains its rows under
+      VisibleOnly/PersistentSlots instead of disposing them (no per-render sweep owns
+      them anymore). Tests: `lazyEachInvocationsSharingUserKeysKeepIndependentRowState`,
+      `lazyEachVisibleOnlyInLoopKeepsSiblingInvocationRows`,
+      `lazyEachPersistentSlotsInLoopKeepsSiblingInvocationRows`,
+      `lazyEachVisibleOnlySingleInvocationStillDisposesHiddenRows`
+- [x] run full test suite: `./kotlin test -m kinetica-compiler --platform jvm` and
       `./kotlin test -m kinetica-runtime --platform jvm`
-- [ ] no e2e suite in this repo — Task 19's downstream rebuild stands in; confirm it
+      (compiler 148/148: 144 prior + 4 new; runtime 229/229: 225 prior + 4 new;
+      compiler republished to mavenLocal BEFORE the runtime/test/persist runs — jar
+      334412 → 337258 bytes — so the consumer suites compiled under the new rule:
+      kinetica-test 52/52, kinetica-persist 4/4)
+- [x] no e2e suite in this repo — Task 19's downstream rebuild stands in; confirm it
       was completed
-- [ ] verify test coverage: every finding has at least one dedicated test case
+      (confirmed complete: every Task 19 checkbox done — artifact hash verified
+      before rebuild, `./kotlin clean`, 28 of 30 template consumers rebuilt with 0
+      errors across 126 fragment compilations, gtk pair documented Linux/CI-only, and
+      the three module suites green. Task 20's compiler change is additive-errors-only
+      and the scan above found no consumer hitting the new rule, so Task 19's zero-
+      error verdict stands without a second full rebuild)
+- [x] verify test coverage: every finding has at least one dedicated test case
+      (per-finding test list in the findings file's verification walk; one documented
+      exception carried from Task 17: S4 is a pure evaluation-order reorder whose only
+      honest check is the full suite — inventing a dedicated test would pin nothing)
 
 ### Task 21: [Final] Update documentation
 - [ ] update `plan.md` module status table if test counts changed
@@ -1117,7 +1193,13 @@
   `each`/`keyed`
 - new compile errors for previously crash-at-runtime constructs: `suspendSubtree`
   with explicit key, non-literal `@UiComponent` content, complex component-call
-  receivers, val-stored lambdas with ordinal consumers
+  receivers, val-stored lambdas with ordinal consumers, and (Task 20) content-wrapper
+  calls passing `@UiComponent` lambda literals from inside multi-run or stored lambdas
+  within component bodies (`items.forEach { section { … } }` — migration: hoist the
+  wrapper out of the multi-run lambda, or use `each(items, key = …)`/`keyed(…)`)
+- behavior fix (not an error): `lazyEach` invoked repeatedly from a loop no longer
+  aliases rows sharing a user key and no longer lets one invocation's
+  VisibleOnly/PersistentSlots sweep evict a sibling invocation's rows
 
 **External system updates:**
 - the Gradle consumer example (`examples/`) and any published-plugin consumers pick up
