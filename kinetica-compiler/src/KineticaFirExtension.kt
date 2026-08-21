@@ -6,10 +6,12 @@ import org.jetbrains.kotlin.contracts.description.KtCallsEffectDeclaration
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.diagnostics.KtDiagnosticFactory1
 import org.jetbrains.kotlin.diagnostics.KtDiagnosticFactory2
+import org.jetbrains.kotlin.diagnostics.KtDiagnosticFactory3
 import org.jetbrains.kotlin.diagnostics.KtDiagnosticFactoryToRendererMap
 import org.jetbrains.kotlin.diagnostics.KtDiagnosticsContainer
 import org.jetbrains.kotlin.diagnostics.error1
 import org.jetbrains.kotlin.diagnostics.error2
+import org.jetbrains.kotlin.diagnostics.error3
 import org.jetbrains.kotlin.diagnostics.warning1
 import org.jetbrains.kotlin.diagnostics.rendering.BaseDiagnosticRendererFactory
 import org.jetbrains.kotlin.diagnostics.rendering.CommonRenderers
@@ -124,8 +126,8 @@ public object KineticaFirErrors : KtDiagnosticsContainer() {
     public val SLOT_CALL_OUTSIDE_COMPONENT: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
     public val COMPONENT_CALL_OUTSIDE_COMPONENT: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
     public val SLOT_CALL_IN_LOOP: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
-    public val CALL_IN_MULTI_RUN_LAMBDA: KtDiagnosticFactory2<String, String> by
-        error2<PsiElement, String, String>()
+    public val CALL_IN_MULTI_RUN_LAMBDA: KtDiagnosticFactory3<String, String, String> by
+        error3<PsiElement, String, String, String>()
     public val REGION_CONTENT_NOT_LITERAL: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
     public val UNSUPPORTED_EXPLICIT_KEY: KtDiagnosticFactory2<String, String> by
         error2<PsiElement, String, String>()
@@ -165,8 +167,8 @@ public object KineticaFirErrorRenderers : BaseDiagnosticRendererFactory() {
         )
         map.put(
             KineticaFirErrors.CALL_IN_MULTI_RUN_LAMBDA,
-            "Kinetica call ''{0}'' cannot use a compiler-assigned ordinal inside the multi-run ''{1}'' lambda. " +
-                "Use each(items, key = ...) or keyed(...) for repeated rendering.",
+            "Kinetica call ''{0}'' cannot use a compiler-assigned ordinal inside the multi-run ''{1}'' lambda. {2}",
+            CommonRenderers.STRING,
             CommonRenderers.STRING,
             CommonRenderers.STRING,
         )
@@ -351,6 +353,11 @@ private class KineticaCallChecker(
                     KineticaFirErrors.CALL_IN_MULTI_RUN_LAMBDA,
                     name,
                     unsafeHost,
+                    if (facts.isLoopSafeRegion) {
+                        MULTI_RUN_KEYED_CONSTRUCT_ADVICE
+                    } else {
+                        MULTI_RUN_REPEATED_RENDERING_ADVICE
+                    },
                     context,
                 )
                 return
@@ -606,6 +613,17 @@ private fun FirExpression.isLiteralNull(): Boolean {
     val unwrapped = unwrapArgument()
     return unwrapped is FirLiteralExpression && unwrapped.kind == ConstantValueKind.Null
 }
+
+// Rendered as CALL_IN_MULTI_RUN_LAMBDA's third parameter, so the fix advice can depend
+// on the FLAGGED callee (S2): telling the author of a keyed construct to "use keyed(...)"
+// advises the construct they already wrote. Entry points (`render { … }`) stopped being
+// ordinal consumers with F1, so no advice is ever rendered for them.
+private const val MULTI_RUN_REPEATED_RENDERING_ADVICE: String =
+    "Use each(items, key = ...) or keyed(...) for repeated rendering."
+
+private const val MULTI_RUN_KEYED_CONSTRUCT_ADVICE: String =
+    "The call already keys its own content; hoist it out of the multi-run lambda, " +
+        "or key the outer repetition with keyed(...)."
 
 // Rendered as UNSUPPORTED_EXPLICIT_KEY's second parameter, so advice can differ per
 // callee without a parallel factory (the template itself carries the shared lead-in).
