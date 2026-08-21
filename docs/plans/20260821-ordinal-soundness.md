@@ -737,18 +737,42 @@
 - Modify: `kinetica-compiler/src/KineticaFirExtension.kt`
 - Modify: `kinetica-compiler/test/KineticaFirCheckerTest.kt`
 
-- [ ] write failing test: an ordinal consumer nested in the argument of an outer
+- [x] write failing test: an ordinal consumer nested in the argument of an outer
       consumer that exits early via rule A or B — the inner
       `CALL_IN_MULTI_RUN_LAMBDA` must still be reported
-- [ ] change `nestedUnderOrdinalConsumer` to suppress only when the enclosing call
+      (probe `multiRunReportSurvivesOuterConsumerRuleAEarlyExit`: outer `state` inside
+      entry content exits at rule A while inner `Badge` reaches rule F with host
+      'forEach' — red before the fix, only the rule-A error surfaced. The rule-B
+      flavor is inexpressible: restoring the inner call's containment needs a
+      component-typed lambda between outer and inner, and that same lambda is a
+      numbering boundary that ends the inner rule-F walk, so one rule-A probe covers
+      the finding)
+- [x] change `nestedUnderOrdinalConsumer` to suppress only when the enclosing call
       actually produced a report (track reported calls per file/function instead of
       re-deriving "would report")
-- [ ] delete the dead source-offset branch in `findLambdaHost` and the whole
+      (note: implemented as `multiRunReportedCalls` — a per-checker-instance (one per
+      session, hence per compilation) concurrent identity set of calls that actually
+      reported CALL_IN_MULTI_RUN_LAMBDA; node identity cannot collide across files, so
+      no per-file scoping is needed, and only erroring calls are retained. Checkers
+      visit enclosing calls before nested ones, so the outer verdict is recorded before
+      the inner check runs; chained suppression still works because the scan range
+      starts at the unsafe lambda. Suppression now also survives rule D/H early exits —
+      same principle as A/B; strictly narrower suppression can only ADD diagnostics to
+      code that already carried the outer error, so no new Task 19 fallout is possible.
+      The `FirFunctionCall.consumesCompilerOrdinal(session)` extension, kept in Task 12
+      solely for this walk, is now dead and deleted)
+- [x] delete the dead source-offset branch in `findLambdaHost` and the whole
       `hasSameSourceAs` (measured 0 hits across the suite; only branches able to match
       the wrong lambda)
-- [ ] verify suppression still works for the legitimate symbol-identity cases in the
+      (`findLambdaHost` matches by lambda symbol identity alone; `hasSameSourceAs`
+      deleted together with its only caller, the old suppression guard)
+- [x] verify suppression still works for the legitimate symbol-identity cases in the
       existing suite
-- [ ] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 14
+      (`multiRunNestedOrdinalCallsReportOnlyTheOutermostConsumer` — button reports,
+      nested event stays silent — stays green; it would fail with 2 errors if the
+      traversal-order assumption or the reported-set mechanism were wrong)
+- [x] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 14
+      (128/128 green: 127 prior + 1 new probe)
 
 ### Task 14: Per-function FIR/IR alignment for top-level Kinetica helpers (F12 remainder)
 

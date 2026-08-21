@@ -52,6 +52,7 @@ import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.types.ConstantValueKind
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Frontend authoring rules for the plugin-only slot model. Registered on every backend
@@ -215,6 +216,19 @@ internal class KineticaFirCheckersExtension(
 private class KineticaCallChecker(
     private val singleRunOracle: SingleRunOracle,
 ) : FirExpressionChecker<FirFunctionCall>(MppCheckerKind.Common) {
+    /**
+     * Calls that actually produced a CALL_IN_MULTI_RUN_LAMBDA report, so consumers
+     * nested in their arguments can suppress the duplicate report for the same unsafe
+     * host. Suppression must key on reports that HAPPENED, never on "the enclosing call
+     * is an ordinal consumer": an outer consumer can exit check() early with a different
+     * diagnostic (rule A/B/D/H) and would otherwise swallow the only multi-run report
+     * (F14). Checkers visit enclosing calls before nested ones, so the outer verdict is
+     * always recorded first. The set is concurrent because FIR checkers may run on
+     * multiple threads; identity-keyed nodes cannot collide across files, and only
+     * erroring calls are retained.
+     */
+    private val multiRunReportedCalls: MutableSet<FirFunctionCall> = ConcurrentHashMap.newKeySet()
+
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
         val session = context.session
@@ -274,8 +288,9 @@ private class KineticaCallChecker(
         // Static ordinals are sound only in lambdas known to run at most once per frame.
         // FIR owns this authoring error so `checks=off` consistently disables it before IR.
         if (consumesCompilerOrdinal) {
-            val unsafeHost = context.multiRunLambdaHost(expression, session)
+            val unsafeHost = context.multiRunLambdaHost(expression, session, multiRunReportedCalls)
             if (unsafeHost != null) {
+                multiRunReportedCalls += expression
                 reporter.reportOn(
                     expression.source,
                     KineticaFirErrors.CALL_IN_MULTI_RUN_LAMBDA,
@@ -457,9 +472,6 @@ private fun FirFunctionCall.classifyKineticaCall(session: FirSession): KineticaC
         isComponentCall = callee.hasAnnotation(UI_COMPONENT_CLASS_ID, session),
     )
 }
-
-private fun FirFunctionCall.consumesCompilerOrdinal(session: FirSession): Boolean =
-    classifyKineticaCall(session)?.consumesCompilerOrdinal() == true
 
 /**
  * Arguments of `@UiComponent`-typed content parameters that the IR frame pass provably
@@ -711,14 +723,11 @@ private fun findLambdaHost(
                     }
                     for (candidate in candidates) {
                         val expression = candidate as? FirAnonymousFunctionExpression ?: continue
-                        val argumentFunction = expression.anonymousFunction
-                        val argumentSource = argumentFunction.source
-                        val lambdaSource = lambda.source
-                        val sameLambda = argumentFunction.symbol == lambda.symbol ||
-                            argumentSource != null && lambdaSource != null &&
-                            argumentSource.startOffset == lambdaSource.startOffset &&
-                            argumentSource.endOffset == lambdaSource.endOffset
-                        if (sameLambda) {
+                        // Symbol identity is the sole matcher: measured across the whole
+                        // suite, every hosted lambda resolved by symbol identity and the
+                        // former source-offset fallback hit 0 times — it was also the
+                        // only branch able to match the WRONG lambda (S3).
+                        if (expression.anonymousFunction.symbol == lambda.symbol) {
                             val callee = element.calleeReference.toResolvedCallableSymbol() ?: return null
                             return LambdaHost(callee, parameter)
                         }
@@ -740,12 +749,17 @@ private fun isRegionContentArgument(
 
 /**
  * Returns the outermost arbitrary lambda host before the current numbering boundary.
- * That is the call the IR walker encounters and declines to enter. If another ordinal
- * consumer encloses the checked call inside that same lambda, only the outer call reports.
+ * That is the call the IR walker encounters and declines to enter. When an enclosing
+ * ordinal consumer inside that same lambda already REPORTED the multi-run violation
+ * ([reportedMultiRunCalls]), the nested call stays silent — one report per unsafe host.
+ * An enclosing consumer that reported some OTHER diagnostic (or nothing) never
+ * suppresses: predicting "the outer would report" from consumer-hood alone dropped the
+ * only multi-run report whenever the outer call exited check() early (F14).
  */
 private fun CheckerContext.multiRunLambdaHost(
     expression: FirFunctionCall,
     session: FirSession,
+    reportedMultiRunCalls: Set<FirFunctionCall>,
 ): String? {
     val elements = containingElements
     var unsafeLambdaIndex = -1
@@ -781,13 +795,11 @@ private fun CheckerContext.multiRunLambdaHost(
     }
 
     val hostName = unsafeHostName ?: return null
-    val nestedUnderOrdinalConsumer = ((unsafeLambdaIndex + 1)..elements.lastIndex).any { index ->
+    val nestedUnderReportedConsumer = ((unsafeLambdaIndex + 1)..elements.lastIndex).any { index ->
         val enclosingCall = elements[index] as? FirFunctionCall ?: return@any false
-        enclosingCall !== expression &&
-            !enclosingCall.hasSameSourceAs(expression) &&
-            enclosingCall.consumesCompilerOrdinal(session)
+        enclosingCall !== expression && enclosingCall in reportedMultiRunCalls
     }
-    return hostName.takeUnless { nestedUnderOrdinalConsumer }
+    return hostName.takeUnless { nestedUnderReportedConsumer }
 }
 
 /**
@@ -803,12 +815,6 @@ private fun storedLambdaHostName(elements: List<FirElement>, index: Int): String
         }
     }
     return "stored"
-}
-
-private fun FirFunctionCall.hasSameSourceAs(other: FirFunctionCall): Boolean {
-    val first = source ?: return false
-    val second = other.source ?: return false
-    return first.startOffset == second.startOffset && first.endOffset == second.endOffset
 }
 
 /**
