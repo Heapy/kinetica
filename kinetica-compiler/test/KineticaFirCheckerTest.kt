@@ -1472,6 +1472,194 @@ class KineticaFirCheckerTest {
         ).close()
     }
 
+    @Test
+    fun suspendSubtreeExplicitKeyIsReported() {
+        // F9 probe: suspendSubtree with an explicit non-null key is an ordinal the IR
+        // pass deliberately declines to assign — the call stays on the legacy path and
+        // throws MissingKineticaPluginException at first render. It compiled clean at
+        // checks=error before this rule.
+        val messages = harness.compileExpectingErrors(
+            mapOf("main.kt" to SUSPEND_SUBTREE_EXPLICIT_KEY_SOURCE),
+        )
+
+        messages.assertSingleErrorEquals(
+            explicitKeyMessage("suspendSubtree", SUSPEND_SUBTREE_KEY_CONSEQUENCE),
+        )
+    }
+
+    @Test
+    fun suspendSubtreeExplicitKeyFailsCompileWhenChecksAreOff() {
+        // F9's other half: when the FIR extension is absent, the IR decline must be a
+        // located compile ERROR, not a LOGGING line invisible without -verbose.
+        val messages = harness.compileExpectingErrors(
+            mapOf("main.kt" to SUSPEND_SUBTREE_EXPLICIT_KEY_SOURCE),
+            checks = "off",
+        )
+
+        messages.assertSingleIrDeclineError("suspendSubtree with an explicit key")
+    }
+
+    @Test
+    fun suspendSubtreeNullOrImplicitKeyCompilesAndTransforms() {
+        // Positive side of F9: a literal-null key and the implicit-key form stay on the
+        // compiler path — the calls are retargeted to suspendSubtreeRegion and render
+        // their fallbacks from real region frames. The content never completes
+        // (awaitCancellation), so both renders deterministically emit the fallback.
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.suspendSubtree
+                    import io.heapy.kinetica.text
+                    import kotlinx.coroutines.awaitCancellation
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Deferred() {
+                        val label = state { "deferred" }
+                        suspendSubtree(key = null, fallback = { text("fallback-null:" + label.value) }) {
+                            awaitCancellation()
+                        }
+                        suspendSubtree(fallback = { text("fallback-implicit") }) {
+                            awaitCancellation()
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Deferred() }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            compiled.assertIrNumberedAndRendersStably("fallback-null:deferred", "fallback-implicit")
+        }
+    }
+
+    @Test
+    fun persistentStateExplicitKeyIsReported() {
+        // Version-skew defense, mirroring IR's "persistent state with explicit key"
+        // decline. The pinned runtime addresses persistent state by SlotId only (audit:
+        // no state overload has a key parameter, zero key call sites repo-wide), so a
+        // simulated legacy overload is the only possible positive coverage.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "skew.kt" to KEY_ADDRESSED_STATE_OVERLOAD_SOURCE,
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+
+                    @UiComponent
+                    fun ComponentScope.Draft() {
+                        val draft = state(key = "draft", persistent = true) { "" }
+                        draft.value
+                    }
+                """,
+            ),
+        )
+
+        messages.assertSingleErrorEquals(
+            explicitKeyMessage("state", PERSISTENT_STATE_KEY_CONSEQUENCE),
+        )
+    }
+
+    @Test
+    fun persistentStateExplicitKeyFailsCompileWhenChecksAreOff() {
+        // The IR bail-out that skips the SlotId retarget must fail the compilation with
+        // a located ERROR instead of silently dropping persistence addressing.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "skew.kt" to KEY_ADDRESSED_STATE_OVERLOAD_SOURCE,
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+
+                    @UiComponent
+                    fun ComponentScope.Draft() {
+                        val draft = state(key = "draft", persistent = true) { "" }
+                        draft.value
+                    }
+                """,
+            ),
+            checks = "off",
+        )
+
+        messages.assertSingleIrDeclineError("persistent state with an explicit key")
+    }
+
+    @Test
+    fun nullLiteralOrAbsentPersistentKeysStayOnTheCompilerPath() {
+        // FIR exempts absent and literal-null keys (the Task 5 sound proxy); IR must
+        // agree and still retarget both forms to the compiler SlotId path — a literal
+        // null key on the simulated legacy overload previously tripped IR's bail-out.
+        harness.compile(
+            mapOf(
+                "skew.kt" to KEY_ADDRESSED_STATE_OVERLOAD_SOURCE,
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Draft() {
+                        val keyless = state(persistent = true) { "keyless" }
+                        val nullKey = state(key = null, persistent = true) { "null-key" }
+                        text(keyless.value + "/" + nullKey.value)
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Draft() }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            compiled.assertIrNumberedAndRendersStably("keyless/null-key")
+        }
+    }
+
+    @Test
+    fun regionContentNotLiteralFailsCompileWhenChecksAreOff() {
+        // The third documented IR decline (F9): non-literal region content. FIR rule C
+        // already rejects it at checks=error; with checks off the IR pass must fail the
+        // compilation with a located ERROR instead of logging and crashing at render.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.each
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Rows(items: List<String>) {
+                        val body: ComponentScope.(String) -> Unit = { item -> text(item) }
+                        each(items, key = { it }, content = body)
+                    }
+                """,
+            ),
+            checks = "off",
+        )
+
+        messages.assertSingleIrDeclineError("each content is not a lambda literal")
+    }
+
     /**
      * IR verdict of a drift probe: the frame pass numbered the construct (framed message,
      * no decline-to-transform bail-out) and the slots are real (rendering does not throw
@@ -1496,6 +1684,32 @@ class KineticaFirCheckerTest {
         "Kinetica call '$call' cannot use a compiler-assigned ordinal inside the multi-run '$host' lambda. " +
             "Use each(items, key = ...) or keyed(...) for repeated rendering."
 
+    private fun explicitKeyMessage(call: String, consequence: String): String =
+        "'$call' with an explicit 'key' argument cannot use compiler-assigned ordinals: " +
+            "the call is left on the legacy path and $consequence"
+
+    /** A decline-to-transform IR error: exactly one, matching [needle], with a location. */
+    private fun List<RecordedCompilerMessage>.assertSingleIrDeclineError(needle: String) {
+        val errors = filter { it.severity.isError }
+        assertEquals(
+            1,
+            errors.size,
+            "Expected exactly one IR decline error. Messages:\n" +
+                joinToString("\n") { "${it.severity}: ${it.message}" },
+        )
+        val error = errors.single()
+        assertTrue(needle in error.message, "Expected '$needle' in: ${error.message}")
+        assertTrue(
+            "left on the legacy path" in error.message,
+            "Decline errors must name the legacy path: ${error.message}",
+        )
+        val location = error.location
+        assertTrue(
+            location != null && location.line > 0,
+            "IR decline errors must carry a source location, got: ${error.location}",
+        )
+    }
+
     private fun List<RecordedCompilerMessage>.assertSingleErrorEquals(expected: String) {
         assertEquals(listOf(expected), filter { it.severity.isError }.map { it.message })
     }
@@ -1514,3 +1728,45 @@ class KineticaFirCheckerTest {
         )
     }
 }
+
+// Message tails pinned verbatim (like multiRunMessage) so wording changes are conscious.
+private const val SUSPEND_SUBTREE_KEY_CONSEQUENCE =
+    "throws MissingKineticaPluginException at first render. Remove the key argument " +
+        "(call-site identity is compiler-assigned), or wrap the call in keyed(...) for " +
+        "explicit identity."
+
+private const val PERSISTENT_STATE_KEY_CONSEQUENCE =
+    "the slot is never registered for persistence. Address it with state(slotId = ...) " +
+        "or omit the key so the compiler derives a durable SlotId."
+
+private val SUSPEND_SUBTREE_EXPLICIT_KEY_SOURCE = """
+    package app
+
+    import io.heapy.kinetica.ComponentScope
+    import io.heapy.kinetica.UiComponent
+    import io.heapy.kinetica.suspendSubtree
+    import io.heapy.kinetica.text
+
+    @UiComponent
+    fun ComponentScope.Profile(id: String) {
+        suspendSubtree(key = id, fallback = { text("loading") }) {
+            text("profile " + id)
+        }
+    }
+"""
+
+/**
+ * Simulates a runtime revision whose persistent state is addressed by string key. The
+ * pinned runtime has no such overload (persistent state is SlotId-addressed), so this is
+ * the only way to exercise the explicit-key rules that defend against exactly this skew.
+ */
+private val KEY_ADDRESSED_STATE_OVERLOAD_SOURCE = """
+    package io.heapy.kinetica
+
+    public fun <T> ComponentScope.state(
+        key: String?,
+        persistent: Boolean = false,
+        ordinal: Int = -1,
+        initial: () -> T,
+    ): MutableCell<T> = throw UnsupportedOperationException("simulated legacy overload")
+"""
