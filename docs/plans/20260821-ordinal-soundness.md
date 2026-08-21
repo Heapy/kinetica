@@ -1178,10 +1178,21 @@
       honest check is the full suite — inventing a dedicated test would pin nothing)
 
 ### Task 21: [Final] Update documentation
-- [ ] update `plan.md` module status table if test counts changed
-- [ ] record the FIR/IR-policy-must-stay-shared invariant in `AGENTS.md` (the 0-byte
+- [x] update `plan.md` module status table if test counts changed
+      (the only table with test counts is the KSND soundness-suite table; its
+      kinetica-runtime row counts the 2 KSND files — `EachIdentitySemanticsTest.kt` +
+      `ReactivityParityTest.kt` — and Task 9 added 6 @Test fns to the former (10 → 16),
+      so the row's @Test fns cell went 20 → 26 with an inline non-KSND note; KSND case
+      counts unchanged (no new KSND-tagged tests), browser and kinetica-test rows
+      verified unchanged old-vs-now, so left as-is)
+- [x] record the FIR/IR-policy-must-stay-shared invariant in `AGENTS.md` (the 0-byte
       guidance file; `CLAUDE.md` just references it via `@AGENTS.md`)
-- [ ] move this plan to `docs/plans/completed/`
+      (written: shared tables live only in `KineticaFramePolicy`, oracle verdicts flow
+      FIR→IR with the name-list fallback on BOTH sides, no silent IR bail-outs, and the
+      `firAndIrAgreeOn*` drift tests pin it — all symbol names verified against source)
+- [x] move this plan to `docs/plans/completed/`
+      (not moved — the plan-execution harness relocates the plan itself after all
+      phases finish; moving it mid-run breaks the later review/finalize phases)
 
 ## Post-Completion
 *Items requiring manual intervention or external systems - no checkboxes, informational only*
