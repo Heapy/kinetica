@@ -3,6 +3,7 @@ package io.heapy.kinetica
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotSame
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -198,6 +199,87 @@ class FrameKernelTest {
             beginComponentFrame(table)
             assertSame(second, frameSlot(0) { Any() })
             endComponentFrame()
+        }
+    }
+
+    @Test
+    fun regionReenteredWithinOneRenderForksSiblingFrames() {
+        val scope = scope()
+        var first: Any? = null
+        var second: Any? = null
+        var firstEvent: String? = null
+        var secondEvent: String? = null
+        scope.render {
+            beginRegionFrame(table)
+            first = frameSlot(0) { Any() }
+            firstEvent = frameEvent(0) { }
+            endRegionFrame()
+            beginRegionFrame(table)
+            second = frameSlot(0) { Any() }
+            secondEvent = frameEvent(0) { }
+            endRegionFrame()
+        }
+        assertNotSame(first, second, "repeated content invocations must not alias state")
+        assertNotEquals(firstEvent, secondEvent, "repeated content invocations must not alias events")
+        scope.render {
+            beginRegionFrame(table)
+            assertSame(first, frameSlot(0) { Any() })
+            assertEquals(firstEvent, frameEvent(0) { })
+            endRegionFrame()
+            beginRegionFrame(table)
+            assertSame(second, frameSlot(0) { Any() })
+            assertEquals(secondEvent, frameEvent(0) { })
+            endRegionFrame()
+        }
+    }
+
+    @Test
+    fun forkedRegionSiblingIsDeactivatedWhenLaterRenderEntersOnce() {
+        val scope = scope()
+        val effect = FakeEffect()
+        var forkState: Any? = null
+        scope.render {
+            beginRegionFrame(table)
+            endRegionFrame()
+            beginRegionFrame(table)
+            forkState = frameSlot(0) { Any() }
+            frameSlot(1, transient = true) { effect }
+            endRegionFrame()
+        }
+        scope.render {
+            beginRegionFrame(table)
+            endRegionFrame()
+        }
+        // commitChecks already deactivates regions whose keptGeneration lags — the fork
+        // needs no extra disposal mechanism.
+        assertTrue(effect.cancelled)
+        scope.render {
+            beginRegionFrame(table)
+            endRegionFrame()
+            beginRegionFrame(table)
+            assertSame(forkState, frameSlot(0) { Any() }, "fork state must survive deactivation")
+            val recreated = frameSlot(1, transient = true) { FakeEffect() }
+            assertNotSame(effect, recreated, "fork transients must be recreated after deactivation")
+            endRegionFrame()
+        }
+    }
+
+    @Test
+    fun singleEntryRegionKeepsIdentityAcrossRenders() {
+        val scope = scope()
+        var cell: Any? = null
+        var eventId: String? = null
+        scope.render {
+            beginRegionFrame(table)
+            cell = frameSlot(0) { Any() }
+            eventId = frameEvent(0) { }
+            endRegionFrame()
+        }
+        scope.render {
+            beginRegionFrame(table)
+            assertSame(cell, frameSlot(0) { Any() })
+            assertEquals(eventId, frameEvent(0) { })
+            endRegionFrame()
         }
     }
 

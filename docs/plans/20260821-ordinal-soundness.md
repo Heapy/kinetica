@@ -257,20 +257,37 @@
 - Modify: `kinetica-runtime/test/FrameKernelTest.kt`
 - Modify: `kinetica-compiler/test/KineticaIrFrameCompileTest.kt`
 
-- [ ] write failing test from the review probe: helper
+- [x] write failing test from the review probe: helper
       `fun ComponentScope.twice(content: @UiComponent ComponentScope.() -> Unit) { content(); content() }`
       — the two invocations must get independent state cells and event ordinals
-- [ ] port the `enterFixedChild` re-entry fork to `enterRegionChild`: composite
+      (compiled probe `contentLambdaInvokedTwiceForksRegionFramesPerInvocation` was red
+      before the fix: both invocations rendered "cell0=0" and shared one event id; plus
+      kernel test `regionReenteredWithinOneRenderForksSiblingFrames`)
+- [x] port the `enterFixedChild` re-entry fork to `enterRegionChild`: composite
       `(table, invocation)` key, per-entry stamps, per-render-reset fork counter;
       thread the `generation` parameter through `beginRegionFrame` in
       `ComponentScope.kt`
-- [ ] verify disposal of forked siblings when a later render invokes the content
+      (note: `beginRegionFrame`'s public plugin↔runtime ABI signature is unchanged —
+      it passes `slotGeneration` internally, like `beginComponentFrame`; the per-entry
+      stamp reuses the primary region frame's existing `enteredGeneration` and the fork
+      counter is an Int on that frame, instead of parent-side stamp maps — same
+      semantics, fewer allocations; invariant documented in `enterRegionChild`)
+- [x] verify disposal of forked siblings when a later render invokes the content
       fewer times: `commitChecks` already deactivates regions with
       `keptGeneration != generation` — write the test, do NOT rebuild the mechanism
-- [ ] write tests for single-entry regions (no fork, no behavior change) — the
+      (`forkedRegionSiblingIsDeactivatedWhenLaterRenderEntersOnce`: transient disposed,
+      state retained, transient recreated on re-fork)
+- [x] write tests for single-entry regions (no fork, no behavior change) — the
       existing runtime suite must stay green
-- [ ] run `./kotlin test -m kinetica-runtime --platform jvm` and
+      (`singleEntryRegionKeepsIdentityAcrossRenders`; full suite 216/216)
+- [x] run `./kotlin test -m kinetica-runtime --platform jvm` and
       `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 4
+      (compiler 92/92 at default checks; runtime 216/216 — but its TEST module only
+      compiles under a temporary, uncommitted `checks: "off"` module.yaml override,
+      because the mavenLocal 0.4.0 plugin hits the pre-existing F1 baseline: 19
+      entry-point-render errors in untouched runtime test files, exactly the plan
+      Overview's "runtime/test 19"; stale-cache masking has ended. Override reverted
+      before commit; see the ➕ item under Task 4)
 
 ### Task 4: Blocker — stop treating render entry points as ordinal consumers (F1)
 
@@ -292,6 +309,12 @@
       repeated entries independent (this is why Task 3 lands first)
 - [ ] verify rules D and F still fire for true consumers inside loops; write negative
       tests: component call inside `forEach` still errors
+- [ ] ➕ publish the fixed compiler to mavenLocal (`./kotlin publish mavenLocal -m
+      kinetica-compiler`) and run `./kotlin test -m kinetica-runtime --platform jvm` at
+      default checks — clears Task 3's deferred gate: the 0.4.0 plugin in mavenLocal
+      rejects the runtime test module's 19 entry-point renders (F1 baseline) until this
+      republish, and Task 9's runtime gate needs a compilable test module long before
+      Task 19
 - [ ] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 5
 
 ### Task 5: Blocker — remove the nullable-handler exemption (F2)
