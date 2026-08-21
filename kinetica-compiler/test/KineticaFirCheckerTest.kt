@@ -1132,6 +1132,108 @@ class KineticaFirCheckerTest {
         messages.assertSingleErrorEquals(multiRunMessage("state", "localSection"))
     }
 
+    @Test
+    fun deferredHandlerLambdasAreMultiRunHosts() {
+        // F4: deferred handlers run at dispatch/post-commit/async time, arbitrarily often,
+        // when currentFrame is no longer the numbering frame — an ordinal consumer inside
+        // one reads another component's cell instead of failing fast.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.ResourceKey
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.action
+                    import io.heapy.kinetica.button
+                    import io.heapy.kinetica.checkbox
+                    import io.heapy.kinetica.derived
+                    import io.heapy.kinetica.event
+                    import io.heapy.kinetica.hostEvent
+                    import io.heapy.kinetica.hostEventBlock
+                    import io.heapy.kinetica.launchEffect
+                    import io.heapy.kinetica.layoutEffect
+                    import io.heapy.kinetica.resource
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.textInput
+                    import io.heapy.kinetica.watch
+
+                    data class RowKey(val id: Int) : ResourceKey
+
+                    @UiComponent
+                    fun ComponentScope.Handlers() {
+                        button(onClick = { state { 0 }.value }) { }
+                        textInput(value = "v", onInput = { state { 1 }.value })
+                        checkbox(checked = false, onToggle = { state { 2 }.value })
+                        event { state { 3 }.value }
+                        hostEvent(onEvent = { state { 4 }.value })
+                        hostEventBlock { state { 5 }.value }
+                        launchEffect { state { 6 }.value }
+                        layoutEffect { state { 7 }.value }
+                        watch(source = { derived { 8 }.value }) { state { 9 }.value }
+                        action<Int, Int> { state { 10 }.value }
+                        resource(RowKey(1)) { state { 11 }.value }
+                    }
+                """,
+            ),
+        )
+
+        messages.assertErrorMessages(
+            multiRunMessage("state", "button"),
+            multiRunMessage("state", "textInput"),
+            multiRunMessage("state", "checkbox"),
+            multiRunMessage("state", "event"),
+            multiRunMessage("state", "hostEvent"),
+            multiRunMessage("state", "hostEventBlock"),
+            multiRunMessage("state", "launchEffect"),
+            multiRunMessage("state", "layoutEffect"),
+            multiRunMessage("derived", "watch"),
+            multiRunMessage("state", "watch"),
+            multiRunMessage("state", "action"),
+            multiRunMessage("state", "resource"),
+        )
+    }
+
+    @Test
+    fun eachAndLazyEachKeySelectorsAreMultiRunHosts() {
+        // F5: key selectors run once per item but are numbered with the ENCLOSING
+        // region's counters, so a slot call inside one returns the first item's cell for
+        // every item (duplicate-key crash at render). They fail FIR like any multi-run
+        // lambda instead of getting unsound ordinals.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.derived
+                    import io.heapy.kinetica.each
+                    import io.heapy.kinetica.lazyEach
+                    import io.heapy.kinetica.lazyItems
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Rows(items: List<String>) {
+                        each(items, key = { item -> state { item }.value }) { item ->
+                            text(item)
+                        }
+                        lazyEach(lazyItems(items), key = { item -> derived { item }.value }) { item ->
+                            text(item)
+                        }
+                    }
+                """,
+            ),
+        )
+
+        messages.assertErrorMessages(
+            multiRunMessage("state", "each"),
+            multiRunMessage("derived", "lazyEach"),
+        )
+    }
+
     /**
      * IR verdict of a drift probe: the frame pass numbered the construct (framed message,
      * no decline-to-transform bail-out) and the slots are real (rendering does not throw
