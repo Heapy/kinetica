@@ -1,74 +1,58 @@
 package io.heapy.kinetica.compiler
 
-import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /**
  * Pins S5: every harness entry point deletes the `kinetica-compile-*` temp tree it
- * created. Asserted as "no NEW entries" against a pre-run snapshot — the shared temp
- * root may hold trees leaked by pre-fix runs or owned by concurrent builds, which this
- * suite must neither sweep nor be failed by.
+ * created. Asserted against the exact roots the harness records in
+ * [KineticaCompilationHarness.createdTempRoots] — never by diffing the SHARED
+ * java.io.tmpdir, which concurrent processes can mutate at any time.
  */
 class KineticaCompilationHarnessTest {
     private val harness = KineticaCompilationHarness()
 
     @Test
     fun compileExpectingErrorsLeavesNoTempTreeBehind() {
-        val before = kineticaCompileTempEntries()
         harness.compileExpectingErrors(
             mapOf("main.kt" to RULE_A_VIOLATION),
         )
-        assertNoNewTempEntries(before)
+        val root = harness.createdTempRoots.single()
+        assertFalse(root.exists(), "expected the harness to delete $root")
     }
 
     @Test
     fun successfulCompileDeletesItsTempTreeOnClose() {
-        val before = kineticaCompileTempEntries()
         harness.compile(
             mapOf("main.kt" to CLEAN_COMPONENT),
             checks = "error",
         ).use { compiled ->
             compiled.loadClass("app.MainKt")
-            assertEquals(
-                1,
-                (kineticaCompileTempEntries() - before).size,
-                "Expected the temp tree to survive while classes still load lazily",
+            val root = harness.createdTempRoots.single()
+            assertTrue(
+                root.exists(),
+                "expected the temp tree to survive while classes still load lazily: $root",
             )
         }
-        assertNoNewTempEntries(before)
+        val root = harness.createdTempRoots.single()
+        assertFalse(root.exists(), "expected close() to delete $root")
     }
 
     @Test
     fun failedCompileDeletesItsTempTreeBeforeReportingFailure() {
-        val before = kineticaCompileTempEntries()
         assertFailsWith<AssertionError> {
             harness.compile(
                 mapOf("main.kt" to RULE_A_VIOLATION),
                 checks = "error",
             )
         }
-        assertNoNewTempEntries(before)
+        assertEquals(1, harness.createdTempRoots.size)
+        val root = harness.createdTempRoots.single()
+        assertFalse(root.exists(), "expected the failure path to delete $root before fail()")
     }
-
-    private fun assertNoNewTempEntries(before: Set<String>) {
-        assertEquals(
-            emptySet(),
-            kineticaCompileTempEntries() - before,
-            "Expected the harness to delete every kinetica-compile-* temp tree it created",
-        )
-    }
-
-    /**
-     * Entry names only. The trailing hyphen keeps the JVM-lifetime
-     * `kinetica-compiler-plugin*.jar` (built lazily by the first compile) out of the diff.
-     */
-    private fun kineticaCompileTempEntries(): Set<String> =
-        File(System.getProperty("java.io.tmpdir"))
-            .list { _, name -> name.startsWith("kinetica-compile-") }
-            ?.toSet()
-            .orEmpty()
 
     private companion object {
         private val CLEAN_COMPONENT = """

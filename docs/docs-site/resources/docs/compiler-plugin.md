@@ -58,9 +58,12 @@ settings:
 
 Further options and their defaults: `sourcePipeline: lightTree` (`psi` turns on source
 generation), `transforms: all` (`off` is the IR kill switch for debugging), and
-`checks: error` (FIR authoring-rule diagnostics; the only other value is `off`, which
-unregisters the checkers — there is no severity downgrade). See `samples/annotated` for the
-working wiring.
+`checks: error` — the severity of the Kinetica *style* diagnostics (currently the
+`@UiComponent` ComponentScope-receiver convention): `error` (the default), `warning`, or
+`off`. The soundness rules (slot DSL outside components, ordinals in loops or multi-run
+lambdas, non-literal content, unstageable receivers, unsupported explicit keys) are always
+compile errors and cannot be disabled: without them the same code crashes or aliases state
+at render. See `samples/annotated` for the working wiring.
 
 In a Gradle build the same options live in the `kinetica { }` block that the
 [`io.heapy.kinetica` plugin](/docs/getting-started) adds — one name per compiler option:
@@ -127,7 +130,16 @@ Consequences for authoring:
   are not supported — use `each(items, key = { … })` or `keyed(key) { … }`, which
   disambiguate iterations by user key;
 - `render { }` content should call components; the lambda itself is wrapped into a frame
-  region by the plugin (its parameter type carries `@UiComponent`).
+  region by the plugin (its parameter type carries `@UiComponent`);
+- a call passing `@UiComponent` content from inside a multi-run or stored lambda within a
+  component body (`items.forEach { section { … } }`, `val row = { section { … } }`) is a
+  compile error — hoist it out, or key the repetition with `each(items, key = { … })` or
+  `keyed(key) { … }`; plain `host`/`column` content in loops is unaffected (those
+  parameters carry no `@UiComponent`);
+- optional handlers (`button(onClick = …)` and friends) in loops or multi-run lambdas are
+  exempt only when the argument is absent or a literal `null` — a nullable-*typed* handler
+  value no longer qualifies, because a non-null value at runtime would register an event
+  ordinal the compiler never assigned.
 
 The annotation-driven **generation output** (previews, server-action dispatchers, manifests)
 remains early-stage and JVM-only via the `sourcePipeline: psi` option; hand-written

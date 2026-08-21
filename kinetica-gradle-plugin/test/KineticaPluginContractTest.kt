@@ -1,12 +1,14 @@
 package io.heapy.kinetica.gradle
 
 import io.heapy.kinetica.compiler.KineticaCompilerContract
+import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.jetbrains.kotlin.gradle.plugin.KotlinCompilerPluginSupportPlugin
 import java.io.File
 import java.util.Properties
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -59,11 +61,30 @@ class KineticaPluginContractTest {
     }
 
     @Test
-    fun checksAllowlistCoversEveryDocumentedCompilerValue() {
-        // The compiler CLI documents `checks` as `<error|warning|off>`; the Gradle-side
-        // allowlist once lagged behind (no `warning`) and silently made the style-only
-        // warning mode unreachable from Gradle builds.
-        assertEquals(setOf("error", "warning", "off"), KineticaGradlePlugin.CHECKS)
+    fun checksAllowlistMatchesTheCompilerContract() {
+        // Real cross-module drift detection: the compiler declares its accepted values
+        // once (KineticaCompilerContract.checksValues — the CLI help text renders from
+        // it), and the Gradle-side duplicate must equal it. The allowlist once lagged
+        // behind (no `warning`) and silently made the documented style-warning mode
+        // unreachable from Gradle builds.
+        assertEquals(KineticaCompilerContract.checksValues, KineticaCoordinates.checksValues)
+    }
+
+    @Test
+    fun optionValidationAcceptsEveryChecksValueAndRejectsUnknownOnes() {
+        for (value in KineticaCoordinates.checksValues) {
+            checkKineticaOptionValue(KineticaCoordinates.optionChecks, value, KineticaCoordinates.checksValues)
+        }
+        // Unset stays valid — the option simply is not passed.
+        checkKineticaOptionValue(KineticaCoordinates.optionChecks, null, KineticaCoordinates.checksValues)
+
+        val failure = assertFailsWith<GradleException> {
+            checkKineticaOptionValue(KineticaCoordinates.optionChecks, "strict", KineticaCoordinates.checksValues)
+        }
+        assertTrue(
+            "checks" in failure.message.orEmpty() && "strict" in failure.message.orEmpty(),
+            "rejection must name the option and the offending value: ${failure.message}",
+        )
     }
 
     @Test

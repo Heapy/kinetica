@@ -29,4 +29,13 @@ public object KineticaCoordinates {
 
     /** The only [optionSourcePipeline] value that is JVM-only. */
     public const val sourcePipelinePsi: String = "psi"
+
+    /**
+     * Every value the compiler's [optionChecks] option accepts. Duplicates
+     * `KineticaCompilerContract.checksValues` (see the class KDoc for why the contract
+     * cannot be a compile dependency); the contract test pins the two sets equal, so
+     * the allowlist can never again lag behind the compiler and make a documented mode
+     * (like `checks=warning` once was) unreachable from Gradle builds.
+     */
+    public val checksValues: Set<String> = setOf("error", "warning", "off")
 }

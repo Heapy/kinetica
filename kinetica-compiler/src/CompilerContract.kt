@@ -10,6 +10,15 @@ public object KineticaCompilerContract {
     public const val optionSourcePipeline: String = "sourcePipeline"
     public const val optionChecks: String = "checks"
 
+    /**
+     * Every value the [optionChecks] option accepts, in the order the CLI help text
+     * documents them. Single source of truth: the command-line processor renders its
+     * value description from this set, and the Gradle plugin's allowlist (a compile-time
+     * duplicate in `KineticaCoordinates` — that module cannot depend on this one) is
+     * pinned against it by `KineticaPluginContractTest`.
+     */
+    public val checksValues: Set<String> = linkedSetOf("error", "warning", "off")
+
     public val responsibilities: List<CompilerResponsibility> = listOf(
         CompilerResponsibility.SlotIdGeneration,
         CompilerResponsibility.UiComponentDesugaring,
