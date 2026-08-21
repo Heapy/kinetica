@@ -493,8 +493,9 @@ class KineticaIrFrameCompileTest {
         // entry-point pass wraps @UiComponent content ungated — a user wrapper nested in
         // entry content, and even a wrapper inside a multi-run forEach within entry
         // content, must render correctly with per-invocation identity (region re-entry
-        // forks) that is stable across renders. Also pins that the entry pass does not
-        // double-wrap nested wrapper content (each Chip keeps one slot).
+        // forks) that is stable across renders. NOTE: this probe alone cannot detect the
+        // entry double-wrap (its leaked stagings stayed in one frame and LIFO hid them);
+        // entryContentWrapperInsideComponentCallArgumentRendersOnce is the real pin.
         harness.compile(
             mapOf(
                 "app/Main.kt" to """
@@ -552,6 +553,438 @@ class KineticaIrFrameCompileTest {
                 "the two forEach invocations must not alias one region frame: $firstLoop",
             )
             assertEquals(firstLoop, secondLoop, "per-invocation forks must be stable across renders")
+        }
+    }
+
+    @Test
+    fun entryContentWrapperInsideComponentCallArgumentRendersOnce() {
+        // Double-wrap regression probe: the entry pass wraps helper's content bottom-up
+        // at visitCall(helper); wrapping the enclosing render content then re-walked the
+        // same subtree and wrapped/staged it AGAIN — two beginRegionFrame and two
+        // ordinal(0) stagings with a single consume. The leaked entry (staged inside the
+        // inner region frame) sat above Outer's own staged ordinal (staged in the entry
+        // region), so Outer's prologue tripped the F10 frame-pairing check at first
+        // render: IllegalStateException "staged in a different frame".
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Badge() {
+                        val id = state { nextId++ }
+                        text("badge:" + id.value)
+                    }
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Outer(label: String) {
+                        text("outer:" + label)
+                    }
+
+                    fun ComponentScope.helper(
+                        content: @UiComponent ComponentScope.() -> Unit,
+                    ) {
+                        content()
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) {
+                            Outer(label = run { helper { Badge() }; "x" })
+                        }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val first = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope)
+                .toDebugString()
+            val second = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope)
+                .toDebugString()
+            assertTrue("badge:0" in first && "outer:x" in first, "wrapper content must render: $first")
+            assertEquals(first, second, "wrapper content slots must be stable across renders")
+        }
+    }
+
+    @Test
+    fun contractSingleRunContentWrapperWrapsContentExactlyOnce() {
+        // The Walker flavor of the double processing: a wrapper whose @UiComponent
+        // content parameter ALSO carries a callsInPlace EXACTLY_ONCE contract.
+        // transformArgumentsSelectively used to descend via the oracle verdict
+        // (numbering the body into the ENCLOSING region) and wrapAnnotatedContentArguments
+        // then wrapped the same literal as a fresh region — every component call inside
+        // staged twice, leaking one entry per invocation and tripping the F10
+        // frame-pairing check when the wrapper ran in another call's argument position.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+                    import kotlin.contracts.ExperimentalContracts
+                    import kotlin.contracts.InvocationKind
+                    import kotlin.contracts.contract
+
+                    @OptIn(ExperimentalContracts::class)
+                    fun ComponentScope.section(content: @UiComponent ComponentScope.() -> Unit) {
+                        contract { callsInPlace(content, InvocationKind.EXACTLY_ONCE) }
+                        content()
+                    }
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Badge() {
+                        val id = state { nextId++ }
+                        text("badge:" + id.value)
+                    }
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Outer(label: String) {
+                        text("outer:" + label)
+                    }
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Fan() {
+                        Outer(label = run { section { Badge() }; "x" })
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Fan() }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val first = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope)
+                .toDebugString()
+            val second = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope)
+                .toDebugString()
+            assertTrue("badge:0" in first && "outer:x" in first, "wrapped content must render: $first")
+            assertEquals(first, second, "wrapper content slots must be stable across renders")
+        }
+    }
+
+    @Test
+    fun constructorContentLambdaInEntryCodeIsFrameWrapped() {
+        // A @UiComponent content literal handed to a CONSTRUCTOR is stored and invoked
+        // later (the BrowserKineticaApp/AppKitKineticaApp shape). The entry pass must
+        // wrap it exactly like a function-call argument — pre-fix it only handled
+        // IrCall, so the stored lambda stayed unwrapped and Badge() threw
+        // MissingKineticaPluginException at first render.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Badge() {
+                        val id = state { nextId++ }
+                        text("badge:" + id.value)
+                    }
+
+                    class Holder(val content: @UiComponent ComponentScope.() -> Unit)
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node {
+                        val holder = Holder({ Badge() })
+                        return runtime.render(scope, holder.content).tree
+                    }
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val first = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope)
+                .toDebugString()
+            val second = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope)
+                .toDebugString()
+            assertTrue("badge:0" in first, "constructor-stored content must render: $first")
+            assertEquals(first, second, "constructor-stored content slots must be stable across renders")
+        }
+    }
+
+    @Test
+    fun constructorContentLambdaInsideComponentBodyWrapsAsFreshRegion() {
+        // Inside a component body the Walker's ungated default recursion used to descend
+        // THROUGH the IrConstructorCall and stage the content's component calls into the
+        // ENCLOSING component's region (cross-frame aliasing, F10 class). The content
+        // literal must instead become its own fresh region: invoking the stored lambda
+        // twice forks per-invocation region frames with independent cells.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Chip() {
+                        val id = state { nextId++ }
+                        text("chip:" + id.value)
+                    }
+
+                    class Holder(val content: @UiComponent ComponentScope.() -> Unit)
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Panel() {
+                        val holder = Holder({ Chip() })
+                        holder.content(this)
+                        holder.content(this)
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Panel() }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val first = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope)
+                .toDebugString()
+            val second = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope)
+                .toDebugString()
+            assertTrue(
+                "chip:0" in first && "chip:1" in first,
+                "the two invocations must not alias one region frame: $first",
+            )
+            assertEquals(first, second, "per-invocation forks must be stable across renders")
+        }
+    }
+
+    @Test
+    fun localComponentBodiesAreNotNumberedIntoTheEnclosingRegion() {
+        // Defense-in-depth behind FIR's LOCAL_COMPONENT_FUNCTION (compiled with the
+        // checkers off via the registrar's test-only property): the Walker leaves local
+        // @UiComponent bodies unnumbered, so their slot calls fail fast at first render
+        // instead of silently sharing one cell between the two call sites (the pre-gate
+        // behavior: both calls rendered "inner:1" from one aliased state cell).
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Rows() {
+                        @UiComponent
+                        fun ComponentScope.Inner() {
+                            var count by state { 0 }
+                            count += 1
+                            text("inner:" + count)
+                        }
+                        Inner()
+                        Inner()
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Rows() }.tree
+                """,
+            ),
+            checks = "error",
+            disableFirCheckersForTesting = true,
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val failure = assertFailsWith<java.lang.reflect.InvocationTargetException> {
+                compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope)
+            }
+            assertTrue(
+                failure.cause is MissingKineticaPluginException,
+                "local component slots must fail fast, not alias: ${failure.cause}",
+            )
+        }
+    }
+
+    @Test
+    fun suspendSubtreeExplicitKeyDeclineIsALocatedIrError() {
+        // The FIR rules fire first in every checks mode, so the IR decline paths are
+        // normally unreachable; compiled with the checkers off (test-only property) to
+        // pin that a regression back to un-located LOGGING cannot go unnoticed — even
+        // without FIR the compile still FAILS, via the located IR ERROR.
+        harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.suspendSubtree
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Profile(id: String) {
+                        suspendSubtree(key = id, fallback = { text("loading") }) {
+                            text("profile " + id)
+                        }
+                    }
+                """,
+            ),
+            disableFirCheckersForTesting = true,
+        ).assertContainsLocatedError("suspendSubtree with an explicit key cannot be")
+    }
+
+    @Test
+    fun persistentStateExplicitKeyDeclineIsALocatedIrError() {
+        harness.compileExpectingErrors(
+            mapOf(
+                "legacy.kt" to KEY_ADDRESSED_STATE_OVERLOAD,
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Draft() {
+                        val note = state(key = "draft", persistent = true) { "" }
+                        text(note.value)
+                    }
+                """,
+            ),
+            disableFirCheckersForTesting = true,
+        ).assertContainsLocatedError("persistent state with an explicit key cannot be")
+    }
+
+    @Test
+    fun nonLiteralRegionContentDeclineIsALocatedIrError() {
+        harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+
+                    @UiComponent
+                    fun ComponentScope.Rows(content: ComponentScope.() -> Unit) {
+                        keyed("k", content)
+                    }
+                """,
+            ),
+            disableFirCheckersForTesting = true,
+        ).assertContainsLocatedError("keyed content is not a lambda literal")
+    }
+
+    @Test
+    fun unstagedComponentCallDeclineIsALocatedIrError() {
+        harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        text("badge")
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Fan(panes: List<ComponentScope>) {
+                        panes.first().Badge()
+                    }
+                """,
+            ),
+            disableFirCheckersForTesting = true,
+        ).assertContainsLocatedError("left unstaged")
+    }
+
+    @Test
+    fun nonScopeReceiverContentLambdaDeclineIsALocatedIrError() {
+        harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    fun host(scope: ComponentScope, content: @UiComponent (ComponentScope) -> Unit) {
+                        content(scope)
+                    }
+
+                    fun entry(scope: ComponentScope) {
+                        host(scope) { s -> s.text("x") }
+                    }
+                """,
+            ),
+            disableFirCheckersForTesting = true,
+        ).assertContainsLocatedError("content lambda has no ComponentScope receiver")
+    }
+
+    @Test
+    fun nonLiteralPersistentStateArgumentWarnsAboutDroppedPersistence() {
+        // state(persistent = <non-literal>) cannot be retargeted to a compiler SlotId;
+        // the requested persistence is silently dropped, so the skip must at least warn.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Draft(persist: Boolean) {
+                        val note = state(persistent = persist) { "n" }
+                        text(note.value)
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Draft(persist = true) }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            compiled.assertTransformFired("state(persistent = <non-literal>) cannot be retargeted")
         }
     }
 
@@ -1146,6 +1579,36 @@ class KineticaIrFrameCompileTest {
             "Expected an error containing '$needle'. Messages:\n" +
                 joinToString("\n") { "${it.severity}: ${it.message}" },
         )
+    }
+
+    /** A decline-to-transform IR ERROR must carry a source location to be actionable. */
+    private fun List<RecordedCompilerMessage>.assertContainsLocatedError(needle: String) {
+        val match = firstOrNull { it.severity.isError && needle in it.message }
+        assertTrue(
+            match != null,
+            "Expected an error containing '$needle'. Messages:\n" +
+                joinToString("\n") { "${it.severity}: ${it.message}" },
+        )
+        assertTrue(match.location != null, "Expected a source location on: ${match.message}")
+    }
+
+    private companion object {
+        /**
+         * Simulates a runtime revision whose persistent state is addressed by string
+         * key — the pinned runtime has no such overload, so this is the only way to
+         * reach the IR decline that defends against exactly this skew (mirrors the
+         * FirCheckerTest fixture of the same name).
+         */
+        private val KEY_ADDRESSED_STATE_OVERLOAD = """
+            package io.heapy.kinetica
+
+            public fun <T> ComponentScope.state(
+                key: String?,
+                persistent: Boolean = false,
+                ordinal: Int = -1,
+                initial: () -> T,
+            ): MutableCell<T> = throw UnsupportedOperationException("simulated legacy overload")
+        """
     }
 
     private fun privateField(instance: Any, name: String): Any? =

@@ -1115,9 +1115,16 @@
       exit-coordination identity, not ordinal state; checks modes — the six Task 15
       checks-mode tests plus the new
       `multiRunComponentTypedHelperFailsCompileWhenChecksAreOff`. The sweep also
-      re-probed the entry-content double-wrap suspicion: green —
-      `entryContentUserWrapperRendersWithStableIdentity` pins nested and looped
-      wrappers in entry content rendering with stable identity)
+      re-probed the entry-content double-wrap suspicion and retired it — WRONGLY, as
+      the post-completion review proved: the double wrap was real (bytecode: 2×
+      beginRegionFrame + 2× ordinal(0) per wrapped nested wrapper), but the green
+      probe's leaked entries stayed in ONE frame so nothing consumed them; a wrapper
+      inside a component-call argument (`Outer(label = run { helper { Badge() }; "x"
+      })`) crashed at first render on the Task 11 frame-pairing check. Fixed after
+      review: wrapFreshRegionOf is idempotent (wrappedContentLambdas) and
+      transformArgumentsSelectively never descends into @UiComponent-typed literals;
+      pinned by `entryContentWrapperInsideComponentCallArgumentRendersOnce` and
+      `contractSingleRunContentWrapperWrapsContentExactlyOnce`)
 - ➕ [x] close the Task 15 ⚠️ gap (in scope of the Overview promise: compile-clean
       code crashed at first render): new FIR soundness rule
       `COMPONENT_CONTENT_IN_MULTI_RUN_LAMBDA` rejects a @UiComponent content lambda

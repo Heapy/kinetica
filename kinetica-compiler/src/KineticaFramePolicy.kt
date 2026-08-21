@@ -37,6 +37,42 @@ internal object KineticaFramePolicy {
 
     val REGION_CONSTRUCT_NAMES: Set<String> = REGION_CONTENT_PARAMETERS.keys
 
+    /** Slot-ordinal DSL call names; value = whether the slot is transient by construction. */
+    val SLOT_DSL_TRANSIENT: Map<String, Boolean> = mapOf(
+        "state" to false,
+        "derived" to false,
+        "event" to false,
+        "frameValue" to false,
+        "launchEffect" to true,
+        "watch" to true,
+        "hostRef" to true,
+        "imperativeHandle" to true,
+        "resource" to true,
+    )
+
+    /** Host-event DSL calls that consume event ordinals. */
+    val EVENT_DSL_NAMES: Set<String> =
+        setOf("button", "textInput", "checkbox", "hostEvent", "hostEventBlock")
+
+    /** Region constructs that disambiguate loop iterations by user key (allowed in loops). */
+    val LOOP_SAFE_REGION_NAMES: Set<String> = setOf("keyed", "suspendKeyed", "each", "lazyEach")
+
+    /** Region constructs whose row content merges into the keyed row frame (no wrap). */
+    val MERGED_EACH_REGION_NAMES: Set<String> = setOf("each", "lazyEach")
+
+    /** Region constructs that consume a slot ordinal for their boundary state. */
+    val REGION_STATE_SLOTS: Set<String> = setOf("errorBoundary", "loadingBoundary", "suspendSubtree")
+
+    /**
+     * The FIR checker's ordinal-consumer name table, derived from the IR tables above so
+     * the two phases cannot drift: every slot DSL call, every host-event registration,
+     * and the non-loop-safe region constructs (whose classification as regions wins in
+     * the checker's rule dispatch — membership here only feeds `isSlotDsl`).
+     */
+    val SLOT_DSL_NAMES: Set<String> =
+        SLOT_DSL_TRANSIENT.keys + EVENT_DSL_NAMES + (REGION_CONSTRUCT_NAMES - LOOP_SAFE_REGION_NAMES)
+
+
     /**
      * Lambda parameters of Kinetica DSL functions that never run inline during the render
      * pass that numbers them. Deferred handlers (event dispatch, post-commit effects,
@@ -71,6 +107,15 @@ internal object KineticaFramePolicy {
         MULTI_RUN_DSL_PARAMETERS[calleeName]?.contains(parameterName) == true
 
     /**
+     * Host-event calls whose handler parameter is optional: absent or literal-null
+     * handlers never register an event at runtime, so their statically filled ordinal
+     * stays unused. Exactly the handler subset of [MULTI_RUN_DSL_PARAMETERS] for the
+     * three host controls, derived rather than re-typed.
+     */
+    val OPTIONAL_EVENT_PARAMETERS: Map<String, Set<String>> =
+        MULTI_RUN_DSL_PARAMETERS.filterKeys { it in setOf("button", "textInput", "checkbox") }
+
+    /**
      * `kotlin` package functions whose lambdas run at most once, in place. This is the
      * shared FALLBACK for callees without a usable `callsInPlace` contract verdict (the
      * contract-derived verdicts travel FIR→IR through `SingleRunOracle` instead).
@@ -89,24 +134,6 @@ internal object KineticaFramePolicy {
      * consumers inside it share the enclosing frame soundly.
      */
     val SINGLE_RUN_TOP_LEVEL_FUNCTIONS: Set<String> = setOf("peek")
-
-    /**
-     * Top-level `io.heapy.kinetica` functions WITHOUT a ComponentScope receiver whose
-     * lambdas are NOT numbering contexts: FIR rejects ordinal consumers inside them
-     * (rule F) and the IR walker never descends into them (F12). This ledger is NOT
-     * consulted by [isKineticaDsl] — absence from [SINGLE_RUN_TOP_LEVEL_FUNCTIONS]
-     * already classifies a top-level lambda as multi-run on both phases. It exists so
-     * the enumeration drift test can force an explicit single-run/multi-run decision
-     * for every top-level lambda-taking helper the runtime publishes; adding a name
-     * here changes nothing behaviorally, it records the decision.
-     *
-     * Why each is multi-run: `derive`'s compute lambda re-runs reactively whenever a
-     * dependency cell changes (`DerivedCell`); `invalidate`'s predicate runs once per
-     * cached resource key at invalidation time, long after the numbering render pass;
-     * `serverActionStub`'s handler runs per server-action dispatch.
-     */
-    val MULTI_RUN_TOP_LEVEL_FUNCTIONS: Set<String> =
-        setOf("derive", "invalidate", "serverActionStub")
 
     /**
      * THE shared Kinetica-lambda classification: whether a callee is Kinetica DSL whose

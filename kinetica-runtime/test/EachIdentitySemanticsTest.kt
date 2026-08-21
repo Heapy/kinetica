@@ -176,10 +176,10 @@ private class BatchedRowsProbe(
 }
 
 @UiComponent(skippable = false)
-private fun ComponentScope.BatchedRowsApp(probe: BatchedRowsProbe) {
+private fun ComponentScope.BatchedRowsApp(probe: BatchedRowsProbe, memoize: Boolean) {
     column {
         for ((index, batch) in probe.batches.withIndex()) {
-            each(batch, key = { item -> item }, memoize = false) { item ->
+            each(batch, key = { item -> item }, memoize = memoize) { item ->
                 var count by state {
                     probe.inits += item
                     0
@@ -554,7 +554,7 @@ class EachIdentitySemanticsTest {
         val scope = ComponentScope(runtime)
         val probe = BatchedRowsProbe(listOf(listOf(1, 2), listOf(3, 4)))
 
-        fun render(): Node = runtime.render(scope) { BatchedRowsApp(probe) }.tree
+        fun render(): Node = runtime.render(scope) { BatchedRowsApp(probe, memoize = false) }.tree
 
         var tree = render()
         assertEquals(4, probe.inits.size)
@@ -576,7 +576,7 @@ class EachIdentitySemanticsTest {
         val scope = ComponentScope(runtime)
         val probe = BatchedRowsProbe(listOf(listOf(1, 2, 3, 4)))
 
-        fun render(): Node = runtime.render(scope) { BatchedRowsApp(probe) }.tree
+        fun render(): Node = runtime.render(scope) { BatchedRowsApp(probe, memoize = false) }.tree
 
         render()
         render()
@@ -591,7 +591,7 @@ class EachIdentitySemanticsTest {
         val scope = ComponentScope(runtime)
         val probe = BatchedRowsProbe(listOf(listOf(1, 2), listOf(1, 2)))
 
-        fun render(): Node = runtime.render(scope) { BatchedRowsApp(probe) }.tree
+        fun render(): Node = runtime.render(scope) { BatchedRowsApp(probe, memoize = false) }.tree
 
         var tree = render()
         assertEquals(4, probe.inits.size)
@@ -604,12 +604,115 @@ class EachIdentitySemanticsTest {
     }
 
     @Test
+    fun eachInsideLoopPreservesRowStateAcrossRendersWithMemoizedRows() {
+        // Same F7 shape as eachInsideLoopPreservesRowStateAcrossRenders but with each's
+        // PRODUCTION default (memoize = true): pass-indexed row identity and deferred
+        // commit-time eviction must also hold when rows take the skip-cache path.
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+        val probe = BatchedRowsProbe(listOf(listOf(1, 2), listOf(3, 4)))
+
+        fun render(): Node = runtime.render(scope) { BatchedRowsApp(probe, memoize = true) }.tree
+
+        var tree = render()
+        assertEquals(4, probe.inits.size)
+        assertEquals(listOf("0:1:0", "0:2:0", "1:3:0", "1:4:0"), tree.rowTexts())
+
+        tree = render()
+        assertEquals(4, probe.inits.size)
+
+        runtime.dispatch(tree.rows()[0].findClickEventId())
+        runtime.dispatch(tree.rows()[3].findClickEventId())
+        tree = render()
+        assertEquals(4, probe.inits.size)
+        assertEquals(listOf("0:1:1", "0:2:0", "1:3:0", "1:4:1"), tree.rowTexts())
+    }
+
+    @Test
+    fun eachInvocationsSharingUserKeysKeepIndependentRowStateWithMemoizedRows() {
+        // The overlap probe with memoization on: two invocations rendering EQUAL items
+        // must not reuse each other's skip caches — row frames (and their caches) are
+        // pass-indexed, so the second invocation's rows stay independent.
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+        val probe = BatchedRowsProbe(listOf(listOf(1, 2), listOf(1, 2)))
+
+        fun render(): Node = runtime.render(scope) { BatchedRowsApp(probe, memoize = true) }.tree
+
+        var tree = render()
+        assertEquals(4, probe.inits.size)
+        assertEquals(listOf("0:1:0", "0:2:0", "1:1:0", "1:2:0"), tree.rowTexts())
+
+        runtime.dispatch(tree.rows()[0].findClickEventId())
+        tree = render()
+        assertEquals(listOf("0:1:1", "0:2:0", "1:1:0", "1:2:0"), tree.rowTexts())
+        assertEquals(4, probe.inits.size)
+    }
+
+    @Test
+    fun keyMigratingBetweenLoopIterationsReinitializesRowState() {
+        // Accepted semantic (Task 9 decision): each-row identity is (pass, key), so a
+        // key that migrates from one loop iteration to another across renders gets a
+        // FRESH row — its state does not travel between passes.
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+        val probe = BatchedRowsProbe(listOf(listOf(1, 2), listOf(3)))
+
+        fun render(): Node = runtime.render(scope) { BatchedRowsApp(probe, memoize = false) }.tree
+
+        var tree = render()
+        assertEquals(3, probe.inits.size)
+        runtime.dispatch(tree.rows()[0].findClickEventId())
+        tree = render()
+        assertEquals(listOf("0:1:1", "0:2:0", "1:3:0"), tree.rowTexts())
+
+        probe.batches = listOf(listOf(2), listOf(1, 3))
+        tree = render()
+        assertEquals(listOf("0:2:0", "1:1:0", "1:3:0"), tree.rowTexts())
+        assertEquals(2, probe.initCount(1), "key 1 must re-initialize in its new pass")
+        assertEquals(1, probe.initCount(2))
+        assertEquals(1, probe.initCount(3))
+    }
+
+    @Test
+    fun emptyBatchInLoopStampsItsPassAndDisposesItsRows() {
+        // Edge probe for beginKeyedEvictionPass + commit-time eviction: an invocation
+        // whose batch is EMPTY still stamps its pass, so the rows that pass owned last
+        // render are disposed at commit — while the sibling invocation's rows stay
+        // untouched and renders remain stable.
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+        val probe = BatchedRowsProbe(listOf(listOf(1, 2), listOf(3, 4)))
+
+        fun render(): Node = runtime.render(scope) { BatchedRowsApp(probe, memoize = false) }.tree
+
+        render()
+        assertEquals(4, probe.inits.size)
+
+        probe.batches = listOf(listOf(1, 2), emptyList())
+        var tree = render()
+        assertEquals(listOf("0:1:0", "0:2:0"), tree.rowTexts())
+
+        tree = render()
+        assertEquals(listOf("0:1:0", "0:2:0"), tree.rowTexts())
+        assertEquals(4, probe.inits.size)
+
+        probe.batches = listOf(listOf(1, 2), listOf(3, 4))
+        tree = render()
+        assertEquals(listOf("0:1:0", "0:2:0", "1:3:0", "1:4:0"), tree.rowTexts())
+        assertEquals(1, probe.initCount(1))
+        assertEquals(1, probe.initCount(2))
+        assertEquals(2, probe.initCount(3), "the empty pass must have disposed its rows")
+        assertEquals(2, probe.initCount(4), "the empty pass must have disposed its rows")
+    }
+
+    @Test
     fun eachInsideLoopStillDisposesRowsWhoseKeysLeave() {
         val runtime = KineticaRuntime()
         val scope = ComponentScope(runtime)
         val probe = BatchedRowsProbe(listOf(listOf(1, 2), listOf(3, 4)))
 
-        fun render(): Node = runtime.render(scope) { BatchedRowsApp(probe) }.tree
+        fun render(): Node = runtime.render(scope) { BatchedRowsApp(probe, memoize = false) }.tree
 
         render()
         assertEquals(4, probe.inits.size)
@@ -633,7 +736,7 @@ class EachIdentitySemanticsTest {
         val scope = ComponentScope(runtime)
         val probe = BatchedRowsProbe(listOf(listOf(1, 2), listOf(3, 4)))
 
-        fun render(): Node = runtime.render(scope) { BatchedRowsApp(probe) }.tree
+        fun render(): Node = runtime.render(scope) { BatchedRowsApp(probe, memoize = false) }.tree
 
         render()
         assertEquals(4, probe.inits.size)

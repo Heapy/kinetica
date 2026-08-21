@@ -60,7 +60,7 @@ issues, surveyed from the checkouts in `projects/`) lives in git history
 | Module | Files | KSND cases | @Test fns | Run |
 |---|---|---|---|---|
 | kinetica-browser (test@js) | 9 | 85 (1 ignored) | 111 | `./kotlin build -v release -m kinetica-browser && node build/artifacts/CompiledWebArtifact/kinetica-browserjsTestrelease/kotlin-output/kinetica-browser_test.mjs` |
-| kinetica-runtime (test) | 2 | 20 | 26 (6 non-KSND, ordinal-soundness F7/keyed-overlap probes) | `./kotlin test -m kinetica-runtime --platform jvm` + JS bundle |
+| kinetica-runtime (test) | 2 | 20 | 30 (10 non-KSND, ordinal-soundness F7/keyed-overlap probes incl. memoized/key-migration/empty-batch review additions) | `./kotlin test -m kinetica-runtime --platform jvm` + JS bundle |
 | kinetica-test (test) | 3 | 30 | 30 | `./kotlin test -m kinetica-test --platform jvm` + JS bundle |
 
 Contracts the suite **certified as intended behavior** (tests were rewritten to assert these;

@@ -51,6 +51,7 @@ import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.coneTypeOrNull
 import org.jetbrains.kotlin.fir.types.customAnnotations
+import org.jetbrains.kotlin.fir.types.receiverType
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
@@ -96,31 +97,20 @@ import java.util.concurrent.ConcurrentHashMap
  *    IR leaves all three unstaged). An unstaged call throws at first render or, in
  *    argument position of another staged call, consumes the enclosing component's
  *    ordinal and renders into the wrong frame (F10).
+ *
+ * Two further soundness rules mirror hard IR limitations: `@UiComponent` functions
+ * declared locally are rejected (LOCAL_COMPONENT_FUNCTION — the framing pass collects
+ * only file- and class-level functions), and content literals bound to a receiver-less
+ * `@UiComponent` function type are rejected (COMPONENT_CONTENT_WITHOUT_SCOPE_RECEIVER —
+ * IR wraps content by its ComponentScope receiver).
  */
-internal val KINETICA_PACKAGE: FqName = KineticaFramePolicy.KINETICA_PACKAGE
-internal val UI_COMPONENT_CLASS_ID: ClassId = ClassId(KINETICA_PACKAGE, Name.identifier("UiComponent"))
+// Every classification table (ordinal-consumer names, region content, loop-safe regions,
+// optional handlers) lives in KineticaFramePolicy, shared with the IR frame pass, so the
+// checker's predictions can never drift from what IR actually numbers; use sites
+// reference the policy object directly instead of phase-local aliases.
+internal val UI_COMPONENT_CLASS_ID: ClassId =
+    ClassId(KineticaFramePolicy.KINETICA_PACKAGE, Name.identifier("UiComponent"))
 internal val COMPONENT_SCOPE_CLASS_ID: ClassId = KineticaFramePolicy.COMPONENT_SCOPE_CLASS_ID
-
-/** Runtime DSL calls that consume slot or event ordinals. */
-private val SLOT_DSL_NAMES = setOf(
-    "state", "derived", "launchEffect", "watch", "event",
-    "hostRef", "imperativeHandle", "resource", "frameValue",
-    "errorBoundary", "loadingBoundary", "suspendSubtree", "exitGroup",
-    "hostEvent", "hostEventBlock", "button", "textInput", "checkbox",
-)
-
-/** Region constructs that disambiguate loop iterations by user key (allowed in loops). */
-private val LOOP_SAFE_REGION_NAMES = setOf("keyed", "suspendKeyed", "each", "lazyEach")
-
-// Region tables and single-run tables live in KineticaFramePolicy, shared with the IR
-// frame pass, so the checker's predictions can never drift from what IR actually numbers.
-private val REGION_CONTENT_PARAMETERS = KineticaFramePolicy.REGION_CONTENT_PARAMETERS
-private val REGION_CONSTRUCT_NAMES = KineticaFramePolicy.REGION_CONSTRUCT_NAMES
-private val OPTIONAL_EVENT_PARAMETERS = mapOf(
-    "button" to setOf("onClick"),
-    "textInput" to setOf("onInput", "onSubmit"),
-    "checkbox" to setOf("onToggle"),
-)
 
 public object KineticaFirErrors : KtDiagnosticsContainer() {
     public val SLOT_CALL_OUTSIDE_COMPONENT: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
@@ -153,6 +143,25 @@ public object KineticaFirErrors : KtDiagnosticsContainer() {
     public val COMPONENT_WITHOUT_SCOPE_RECEIVER_WARNING: KtDiagnosticFactory1<String> by
         warning1<PsiElement, String>()
     public val COMPONENT_RECEIVER_NOT_SIMPLE: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
+
+    /**
+     * A `@UiComponent` function declared locally, inside another function. The IR frame
+     * pass collects only file- and class-level functions, so a local component is never
+     * framed or staged: the enclosing walker numbers its body's slots into the ENCLOSING
+     * component's region — every call site silently shares one set of cells — and each
+     * call leaks a staged child ordinal. Soundness rule, active in every checks mode.
+     */
+    public val LOCAL_COMPONENT_FUNCTION: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
+
+    /**
+     * A content lambda literal bound to a `@UiComponent` parameter whose function type
+     * has no `ComponentScope` receiver (e.g. `@UiComponent (ComponentScope) -> Unit`).
+     * IR wraps content lambdas by their scope receiver, so this shape is declined and
+     * every ordinal consumer inside it crashes at first render. Soundness rule mirroring
+     * IR's `buildFreshRegionTableOf` receiver requirement.
+     */
+    public val COMPONENT_CONTENT_WITHOUT_SCOPE_RECEIVER: KtDiagnosticFactory1<String> by
+        error1<PsiElement, String>()
 
     override fun getRendererFactory(): BaseDiagnosticRendererFactory = KineticaFirErrorRenderers
 }
@@ -188,7 +197,8 @@ public object KineticaFirErrorRenderers : BaseDiagnosticRendererFactory() {
             KineticaFirErrors.COMPONENT_CONTENT_IN_MULTI_RUN_LAMBDA,
             "''{0}'' receives @UiComponent content inside the multi-run ''{1}'' lambda. " +
                 "Within a component body the compiler never descends into ''{1}'', so the " +
-                "content lambda is not frame-wrapped and fails at first render. " +
+                "content lambda is never frame-wrapped: any component call or slot inside " +
+                "it fails at first render. " +
                 "Hoist the call out of the multi-run lambda, or use " +
                 "each(items, key = ...) or keyed(...) for repeated rendering.",
             CommonRenderers.STRING,
@@ -225,6 +235,22 @@ public object KineticaFirErrorRenderers : BaseDiagnosticRendererFactory() {
                 "or a plain local val — so the compiler can stage the child frame ordinal. " +
                 "Call-result, safe-call, and smart-cast receivers are left unstaged and fail at " +
                 "first render. Bind the receiver to a plain local val of the scope type first.",
+            CommonRenderers.STRING,
+        )
+        map.put(
+            KineticaFirErrors.LOCAL_COMPONENT_FUNCTION,
+            "@UiComponent function ''{0}'' is declared locally. The compiler can only frame " +
+                "file-level and class-level components; a local component is never framed, so " +
+                "its calls alias the enclosing component''s state or fail at first render. " +
+                "Move the declaration to file or class level.",
+            CommonRenderers.STRING,
+        )
+        map.put(
+            KineticaFirErrors.COMPONENT_CONTENT_WITHOUT_SCOPE_RECEIVER,
+            "The ''{0}'' parameter''s @UiComponent function type has no " +
+                "io.heapy.kinetica.ComponentScope receiver, so the compiler cannot frame-wrap " +
+                "content passed to it: ordinal consumers inside the lambda fail at first render. " +
+                "Declare the parameter as @UiComponent ComponentScope.() -> Unit.",
             CommonRenderers.STRING,
         )
     }
@@ -278,16 +304,18 @@ internal class KineticaFirCheckersExtension(
     }
 
     override val declarationCheckers: DeclarationCheckers = object : DeclarationCheckers() {
-        override val simpleFunctionCheckers: Set<FirDeclarationChecker<FirNamedFunction>> =
+        override val simpleFunctionCheckers: Set<FirDeclarationChecker<FirNamedFunction>> = buildSet {
+            // Soundness: local @UiComponent functions can never be framed by IR, so the
+            // declaration rule is active in every checks mode.
+            add(KineticaLocalComponentDeclarationChecker())
             when (checksMode) {
-                KineticaChecksMode.ERROR -> setOf(
-                    KineticaComponentDeclarationChecker(KineticaFirErrors.COMPONENT_WITHOUT_SCOPE_RECEIVER),
-                )
-                KineticaChecksMode.WARNING -> setOf(
-                    KineticaComponentDeclarationChecker(KineticaFirErrors.COMPONENT_WITHOUT_SCOPE_RECEIVER_WARNING),
-                )
-                KineticaChecksMode.OFF -> emptySet()
+                KineticaChecksMode.ERROR ->
+                    add(KineticaComponentDeclarationChecker(KineticaFirErrors.COMPONENT_WITHOUT_SCOPE_RECEIVER))
+                KineticaChecksMode.WARNING ->
+                    add(KineticaComponentDeclarationChecker(KineticaFirErrors.COMPONENT_WITHOUT_SCOPE_RECEIVER_WARNING))
+                KineticaChecksMode.OFF -> {}
             }
+        }
     }
 }
 
@@ -301,9 +329,11 @@ private class KineticaCallChecker(
      * is an ordinal consumer": an outer consumer can exit check() early with a different
      * diagnostic (rule A/B/D/H) and would otherwise swallow the only multi-run report
      * (F14). Checkers visit enclosing calls before nested ones, so the outer verdict is
-     * always recorded first. The set is concurrent because FIR checkers may run on
-     * multiple threads; identity-keyed nodes cannot collide across files, and only
-     * erroring calls are retained.
+     * always recorded first — a traversal-order detail this suppression deliberately
+     * leans on: if that order ever changes, suppression degrades to DUPLICATE reports
+     * for one unsafe host, never to a lost report. The set is concurrent because FIR
+     * checkers may run on multiple threads; identity-keyed nodes cannot collide across
+     * files, and only erroring calls are retained (bounded by the error count).
      */
     private val multiRunReportedCalls: MutableSet<FirFunctionCall> = ConcurrentHashMap.newKeySet()
 
@@ -325,7 +355,7 @@ private class KineticaCallChecker(
         // most once, in the later content-argument rules), and only the none-of-the-four
         // call probes here as the guard's final conjunct.
         val contentArguments by lazy(LazyThreadSafetyMode.NONE) {
-            expression.componentContentArguments()
+            expression.componentContentArguments(session)
         }
         if (!isSlotDsl && !isRegionConstruct && !facts.isLoopSafeRegion &&
             !isComponentCall && contentArguments.isEmpty
@@ -446,7 +476,7 @@ private class KineticaCallChecker(
         if (isRegionConstruct) {
             val mapping = (expression.argumentList as? FirResolvedArgumentList)?.mapping ?: return
             for ((argument, parameter) in mapping) {
-                if (parameter.name.asString() !in REGION_CONTENT_PARAMETERS.getValue(name)) continue
+                if (parameter.name.asString() !in KineticaFramePolicy.REGION_CONTENT_PARAMETERS.getValue(name)) continue
                 if (argument.unwrapArgument() !is FirAnonymousFunctionExpression) {
                     reporter.reportOn(
                         argument.source ?: expression.source,
@@ -462,12 +492,24 @@ private class KineticaCallChecker(
         // lambda literals into fresh frame regions (wrapAnnotatedContentArgumentsOf), so
         // content it provably cannot wrap must fail here, not at first render.
         for ((argument, parameter) in contentArguments.unwrappable) {
-            if (isRegionConstruct && parameter.name.asString() in REGION_CONTENT_PARAMETERS[name].orEmpty()) {
+            if (isRegionConstruct && parameter.name.asString() in KineticaFramePolicy.REGION_CONTENT_PARAMETERS[name].orEmpty()) {
                 continue
             }
             reporter.reportOn(
                 argument.source ?: expression.source,
                 KineticaFirErrors.REGION_CONTENT_NOT_LITERAL,
+                parameter.name.asString(),
+                context,
+            )
+        }
+
+        // Content literals bound to a receiver-less @UiComponent function type: IR's
+        // buildFreshRegionTableOf declines to wrap them (it wraps by the ComponentScope
+        // receiver), so ordinal consumers inside would crash at first render.
+        for ((argument, parameter) in contentArguments.nonScopeReceiverLiterals) {
+            reporter.reportOn(
+                argument.source ?: expression.source,
+                KineticaFirErrors.COMPONENT_CONTENT_WITHOUT_SCOPE_RECEIVER,
                 parameter.name.asString(),
                 context,
             )
@@ -561,7 +603,7 @@ private class KineticaCallClassification(
         if (isRegionConstruct) return true
         if (!isSlotDsl) return false
 
-        val optionalEventParameters = OPTIONAL_EVENT_PARAMETERS[name] ?: return true
+        val optionalEventParameters = KineticaFramePolicy.OPTIONAL_EVENT_PARAMETERS[name] ?: return true
         val mapping = (call.argumentList as? FirResolvedArgumentList)?.mapping ?: return false
         return mapping.any { (argument, parameter) ->
             parameter.name.asString() in optionalEventParameters && !argument.isLiteralNull()
@@ -579,9 +621,9 @@ private fun FirFunctionCall.classifyKineticaCall(session: FirSession): KineticaC
         call = this,
         callee = callee,
         name = name,
-        isSlotDsl = isKineticaDsl && name in SLOT_DSL_NAMES,
-        isRegionConstruct = isKineticaDsl && name in REGION_CONSTRUCT_NAMES,
-        isLoopSafeRegion = isKineticaDsl && name in LOOP_SAFE_REGION_NAMES,
+        isSlotDsl = isKineticaDsl && name in KineticaFramePolicy.SLOT_DSL_NAMES,
+        isRegionConstruct = isKineticaDsl && name in KineticaFramePolicy.REGION_CONSTRUCT_NAMES,
+        isLoopSafeRegion = isKineticaDsl && name in KineticaFramePolicy.LOOP_SAFE_REGION_NAMES,
         // The component verdict must never sit behind a callableId bail (F11): a
         // @UiComponent symbol without a callableId is still a component call, and rules
         // D and F must see it as an ordinal consumer, exactly as the rule dispatch does.
@@ -601,23 +643,41 @@ private fun FirFunctionCall.classifyKineticaCall(session: FirSession): KineticaC
  *    to the two-arg overload, `HeadlessTestRoot`'s stored content). Only the local hoist
  *    is provably unwrapped, and it is exactly the F8 escape.
  */
-private fun FirFunctionCall.componentContentArguments(): ComponentContentArguments {
+private fun FirFunctionCall.componentContentArguments(session: FirSession): ComponentContentArguments {
     val mapping = (argumentList as? FirResolvedArgumentList)?.mapping
         ?: return ComponentContentArguments.NONE
     var hasWrappableLiteral = false
     var violations: MutableList<Pair<FirExpression, FirValueParameter>>? = null
+    var nonScopeReceiverLiterals: MutableList<Pair<FirExpression, FirValueParameter>>? = null
     for ((argument, parameter) in mapping) {
         if (!parameter.hasUiComponentFunctionType()) continue
         if (argument.unwrapArgument() is FirAnonymousFunctionExpression) {
-            hasWrappableLiteral = true
+            // IR wraps content lambdas by their ComponentScope receiver; a literal bound
+            // to a receiver-less @UiComponent function type is declined instead — its own
+            // soundness bucket, deliberately NOT a wrappable literal.
+            if (parameter.hasComponentScopeReceiverFunctionType(session)) {
+                hasWrappableLiteral = true
+            } else {
+                (
+                    nonScopeReceiverLiterals
+                        ?: mutableListOf<Pair<FirExpression, FirValueParameter>>()
+                            .also { nonScopeReceiverLiterals = it }
+                    ).add(argument to parameter)
+            }
             continue
         }
         if (argument.isWrappableContentArgument()) continue
         (violations ?: mutableListOf<Pair<FirExpression, FirValueParameter>>().also { violations = it })
             .add(argument to parameter)
     }
-    if (!hasWrappableLiteral && violations == null) return ComponentContentArguments.NONE
-    return ComponentContentArguments(hasWrappableLiteral, violations ?: emptyList())
+    if (!hasWrappableLiteral && violations == null && nonScopeReceiverLiterals == null) {
+        return ComponentContentArguments.NONE
+    }
+    return ComponentContentArguments(
+        hasWrappableLiteral,
+        violations ?: emptyList(),
+        nonScopeReceiverLiterals ?: emptyList(),
+    )
 }
 
 /**
@@ -631,11 +691,23 @@ private fun FirFunctionCall.componentContentArguments(): ComponentContentArgumen
 private class ComponentContentArguments(
     val hasWrappableLiteral: Boolean,
     val unwrappable: List<Pair<FirExpression, FirValueParameter>>,
+    /**
+     * Lambda literals bound to `@UiComponent` parameters whose function type lacks the
+     * `ComponentScope` receiver — IR's `buildFreshRegionTableOf` declines them, so they
+     * report [KineticaFirErrors.COMPONENT_CONTENT_WITHOUT_SCOPE_RECEIVER] instead of
+     * counting as wrappable.
+     */
+    val nonScopeReceiverLiterals: List<Pair<FirExpression, FirValueParameter>>,
 ) {
-    val isEmpty: Boolean get() = !hasWrappableLiteral && unwrappable.isEmpty()
+    val isEmpty: Boolean
+        get() = !hasWrappableLiteral && unwrappable.isEmpty() && nonScopeReceiverLiterals.isEmpty()
 
     companion object {
-        val NONE = ComponentContentArguments(hasWrappableLiteral = false, unwrappable = emptyList())
+        val NONE = ComponentContentArguments(
+            hasWrappableLiteral = false,
+            unwrappable = emptyList(),
+            nonScopeReceiverLiterals = emptyList(),
+        )
     }
 }
 
@@ -676,6 +748,15 @@ private fun FirValueParameter.hasUiComponentFunctionType(): Boolean =
         returnTypeRef.annotations.any { annotation ->
             annotation.annotationTypeRef.coneTypeOrNull?.classId == UI_COMPONENT_CLASS_ID
         }
+
+/**
+ * Whether this parameter's function type is the shape IR can frame-wrap: an extension
+ * function type whose receiver is `io.heapy.kinetica.ComponentScope` (plain or suspend —
+ * `receiverType` resolves both). A lambda literal takes its shape from the declared
+ * parameter type, so this predicts exactly IR's `buildFreshRegionTableOf` receiver gate.
+ */
+private fun FirValueParameter.hasComponentScopeReceiverFunctionType(session: FirSession): Boolean =
+    returnTypeRef.coneTypeOrNull?.receiverType(session)?.classId == COMPONENT_SCOPE_CLASS_ID
 
 private fun FirCallableSymbol<*>.isKineticaDsl(): Boolean {
     val callableId = callableId ?: return false
@@ -748,6 +829,27 @@ private fun FirFunctionCall.literalBooleanArgument(name: String): Boolean? {
         return literal.value as? Boolean
     }
     return null
+}
+
+/**
+ * Rejects `@UiComponent` functions declared inside another function (rule mirrored by
+ * the IR walker's refusal to number local component bodies): IR's framing pass collects
+ * only file- and class-level functions, so a local component provably cannot be framed —
+ * calling it aliases the enclosing component's slots and leaks staged ordinals.
+ */
+private class KineticaLocalComponentDeclarationChecker :
+    FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common) {
+    context(context: CheckerContext, reporter: DiagnosticReporter)
+    override fun check(declaration: FirNamedFunction) {
+        if (!declaration.hasAnnotation(UI_COMPONENT_CLASS_ID, context.session)) return
+        if (context.containingDeclarations.none { it is FirFunctionSymbol<*> }) return
+        reporter.reportOn(
+            declaration.source,
+            KineticaFirErrors.LOCAL_COMPONENT_FUNCTION,
+            declaration.name.asString(),
+            context,
+        )
+    }
 }
 
 private class KineticaComponentDeclarationChecker(
@@ -838,7 +940,7 @@ private data class LambdaHost(
 
     fun isRegionContent(): Boolean {
         if (!callee.isKineticaDsl()) return false
-        val parameters = REGION_CONTENT_PARAMETERS[name] ?: return false
+        val parameters = KineticaFramePolicy.REGION_CONTENT_PARAMETERS[name] ?: return false
         return parameter.name.asString() in parameters
     }
 

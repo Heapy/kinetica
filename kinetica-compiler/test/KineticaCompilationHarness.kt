@@ -20,12 +20,20 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 internal class KineticaCompilationHarness {
+    /**
+     * Every `kinetica-compile-*` temp root this harness instance created, in creation
+     * order. The S5 cleanup tests assert on exactly these paths instead of diffing the
+     * SHARED java.io.tmpdir, which concurrent processes can mutate at any time.
+     */
+    val createdTempRoots: MutableList<File> = mutableListOf()
+
     fun compile(
         sources: Map<String, String>,
         moduleName: String = "test",
         transforms: String = "on",
         checks: String = "off",
         irTransformOrder: String = "template-first",
+        disableFirCheckersForTesting: Boolean = false,
     ): CompiledKineticaModule {
         val previousTransformOrder = System.getProperty(KINETICA_IR_TRANSFORM_ORDER_PROPERTY)
         val result = try {
@@ -34,7 +42,7 @@ internal class KineticaCompilationHarness {
             } else {
                 System.setProperty(KINETICA_IR_TRANSFORM_ORDER_PROPERTY, irTransformOrder)
             }
-            compileInternal(sources, moduleName, transforms, checks)
+            compileInternal(sources, moduleName, transforms, checks, disableFirCheckersForTesting)
         } finally {
             restoreSystemProperty(KINETICA_IR_TRANSFORM_ORDER_PROPERTY, previousTransformOrder)
         }
@@ -60,13 +68,25 @@ internal class KineticaCompilationHarness {
         )
     }
 
-    /** Compiles sources expected to violate the Kinetica FIR rules; returns all messages. */
+    /**
+     * Compiles sources expected to violate the Kinetica rules; returns all messages.
+     * [disableFirCheckersForTesting] unregisters the FIR checkers (via the registrar's
+     * test-only system property) so the IR frame pass's located decline ERRORs — the
+     * defense-in-depth layer normally shadowed by the FIR rules — become reachable.
+     */
     fun compileExpectingErrors(
         sources: Map<String, String>,
         moduleName: String = "test",
         checks: String = "error",
+        disableFirCheckersForTesting: Boolean = false,
     ): List<RecordedCompilerMessage> {
-        val result = compileInternal(sources, moduleName, transforms = "on", checks = checks)
+        val result = compileInternal(
+            sources,
+            moduleName,
+            transforms = "on",
+            checks = checks,
+            disableFirCheckersForTesting = disableFirCheckersForTesting,
+        )
         try {
             assertTrue(
                 !result.success || result.messages.any { it.severity.isError },
@@ -96,8 +116,29 @@ internal class KineticaCompilationHarness {
         moduleName: String,
         transforms: String,
         checks: String,
+        disableFirCheckersForTesting: Boolean = false,
+    ): InternalCompilationResult {
+        val previousDisable = System.getProperty(KINETICA_DISABLE_FIR_CHECKERS_PROPERTY)
+        if (disableFirCheckersForTesting) {
+            System.setProperty(KINETICA_DISABLE_FIR_CHECKERS_PROPERTY, "true")
+        }
+        try {
+            return compileWithCli(sources, moduleName, transforms, checks)
+        } finally {
+            if (disableFirCheckersForTesting) {
+                restoreSystemProperty(KINETICA_DISABLE_FIR_CHECKERS_PROPERTY, previousDisable)
+            }
+        }
+    }
+
+    private fun compileWithCli(
+        sources: Map<String, String>,
+        moduleName: String,
+        transforms: String,
+        checks: String,
     ): InternalCompilationResult {
         val root = createTempDirectory(prefix = "kinetica-compile-")
+        createdTempRoots += root.toFile()
         try {
             val sourceRoot = root.resolve("src").createDirectories()
             val outputDir = root.resolve("out").createDirectories()

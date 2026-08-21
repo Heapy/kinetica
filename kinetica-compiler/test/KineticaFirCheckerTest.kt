@@ -429,6 +429,178 @@ class KineticaFirCheckerTest {
     }
 
     @Test
+    fun localComponentFunctionDeclarationIsReported() {
+        // A local @UiComponent function can never be framed — IR's framing pass collects
+        // only file- and class-level functions — so two direct calls silently share ONE
+        // state cell numbered into the ENCLOSING component's region (probe-verified:
+        // "inner:1" twice) while each call leaks a staged ordinal. The declaration
+        // itself is the soundness violation, reported regardless of call shape.
+        harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Rows() {
+                        @UiComponent
+                        fun ComponentScope.Inner() {
+                            val id = state { 0 }
+                            text("inner:" + id.value)
+                        }
+                        Inner()
+                        Inner()
+                    }
+                """,
+            ),
+        ).assertContainsError("@UiComponent function 'Inner' is declared locally")
+    }
+
+    @Test
+    fun componentContentWithoutScopeReceiverIsReported() {
+        // IR wraps content lambdas by their ComponentScope extension receiver; a literal
+        // bound to a receiver-less @UiComponent function type is declined (probe-verified
+        // pre-fix: compiles clean at checks=error, throws MissingKineticaPluginException
+        // at first render), so the shape must fail here instead.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    fun host(scope: ComponentScope, content: @UiComponent (ComponentScope) -> Unit) {
+                        content(scope)
+                    }
+
+                    fun bare(content: @UiComponent () -> Unit) {
+                        content()
+                    }
+
+                    fun entry(scope: ComponentScope) {
+                        host(scope) { s -> s.text("x") }
+                        bare { }
+                    }
+                """,
+            ),
+        )
+        messages.assertContainsError(
+            "The 'content' parameter's @UiComponent function type has no " +
+                "io.heapy.kinetica.ComponentScope receiver",
+        )
+    }
+
+    @Test
+    fun componentContentWithScopeReceiverFormsCompiles() {
+        // The two shapes IR provably wraps: the plain ComponentScope receiver and the
+        // suspend receiver form (`renderSuspend`'s parameter type) — the new rule must
+        // not reject either.
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    fun plain(content: @UiComponent ComponentScope.() -> Unit) {
+                    }
+
+                    fun suspending(content: @UiComponent (suspend ComponentScope.() -> Unit)) {
+                    }
+
+                    fun entry() {
+                        plain { text("p") }
+                        suspending { text("s") }
+                    }
+                """,
+            ),
+            checks = "error",
+        ).close()
+    }
+
+    @Test
+    fun ruleC_functionReferenceContentArgumentIsReported() {
+        // isWrappableContentArgument rejects callable references: IR can only wrap
+        // lambda LITERALS, and a reference has no literal site anywhere.
+        harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.text
+
+                    fun body(scope: ComponentScope) {
+                        scope.text("ref")
+                    }
+
+                    fun entry(runtime: KineticaRuntime, scope: ComponentScope) {
+                        runtime.render(scope, ::body)
+                    }
+                """,
+            ),
+        ).assertContainsError("must be a lambda literal")
+    }
+
+    @Test
+    fun ruleC_callResultContentArgumentIsReported() {
+        // isWrappableContentArgument rejects call results: the returned lambda's literal
+        // site (if any) is in another function's body where IR wrapped nothing for THIS
+        // parameter, so the value is not provably frame-wrapped.
+        harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.text
+
+                    fun makeContent(): ComponentScope.() -> Unit = { text("made") }
+
+                    fun entry(runtime: KineticaRuntime, scope: ComponentScope) {
+                        runtime.render(scope, makeContent())
+                    }
+                """,
+            ),
+        ).assertContainsError("must be a lambda literal")
+    }
+
+    @Test
+    fun ruleC_hoistedConstructorContentArgumentIsReported() {
+        // Constructor calls are FirFunctionCalls, so rule C's local-hoist rejection
+        // applies to @UiComponent constructor parameters exactly like function calls —
+        // pinned because IR now frame-wraps constructor content literals and rule C is
+        // what keeps the unwrappable non-literal shapes out.
+        harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+
+                    class Holder(val content: @UiComponent ComponentScope.() -> Unit)
+
+                    fun entry() {
+                        val hoisted: ComponentScope.() -> Unit = { }
+                        Holder(hoisted)
+                    }
+                """,
+            ),
+        ).assertContainsError("must be a lambda literal")
+    }
+
+    @Test
     fun ruleE_componentWithoutScopeReceiverIsReported() {
         harness.compileExpectingErrors(
             mapOf(
@@ -568,6 +740,44 @@ class KineticaFirCheckerTest {
             "'state' can only be called inside a @UiComponent function. " +
                 "Move the call into a @UiComponent, or annotate the enclosing function.",
             multiRunMessage("Badge", "forEach"),
+        )
+    }
+
+    @Test
+    fun multiRunReportSurvivesOuterConsumerRuleHEarlyExit() {
+        // F14, rule-H flavor: the outer Badge call exits check() at rule H (non-simple
+        // receiver) without ever reporting CALL_IN_MULTI_RUN_LAMBDA — it must not
+        // suppress the nested consumer's rule-F report inside its own argument.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Badge(label: String) {
+                        text(label)
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Fan(panes: List<ComponentScope>, items: List<Int>) {
+                        panes.first().Badge(
+                            label = items.map { state { it }.value.toString() }.joinToString(),
+                        )
+                    }
+                """,
+            ),
+        )
+        messages.assertErrorMessages(
+            "@UiComponent call 'Badge' must be invoked on a simple receiver — 'this', a parameter, " +
+                "or a plain local val — so the compiler can stage the child frame ordinal. " +
+                "Call-result, safe-call, and smart-cast receivers are left unstaged and fail at " +
+                "first render. Bind the receiver to a plain local val of the scope type first.",
+            multiRunMessage("state", "map"),
         )
     }
 
@@ -1078,6 +1288,26 @@ class KineticaFirCheckerTest {
     }
 
     @Test
+    fun checksUnknownValueFallsBackToErrorMode() {
+        // KineticaChecksMode.from maps unrecognized values to ERROR: a typo in the
+        // option must never silently downgrade or disable the style rule.
+        harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.UiComponent
+
+                    @UiComponent
+                    fun Standalone() {
+                    }
+                """,
+            ),
+            checks = "strict",
+        ).assertContainsError("must be an extension of io.heapy.kinetica.ComponentScope")
+    }
+
+    @Test
     fun checksWarningDowngradesStyleDiagnosticsToWarnings() {
         harness.compile(
             mapOf(
@@ -1455,6 +1685,148 @@ class KineticaFirCheckerTest {
         }
     }
 
+    @Test
+    fun firAndIrAgreeOnBoundaryRegionContent() {
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.errorBoundary
+                    import io.heapy.kinetica.loadingBoundary
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Panel() {
+                        errorBoundary(
+                            fallback = { _, _, _ ->
+                                val id = state { -1 }
+                                text("error=" + id.value)
+                            },
+                        ) {
+                            val a = state { nextId++ }
+                            text("eb=" + a.value)
+                        }
+                        loadingBoundary(
+                            fallback = {
+                                val id = state { -2 }
+                                text("loading=" + id.value)
+                            },
+                        ) {
+                            val b = state { nextId++ }
+                            text("lb=" + b.value)
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Panel() }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            // The fallback lambdas execute only on error/pending; their IR verdict is
+            // the absence of a decline message, asserted for the whole probe below.
+            compiled.assertIrNumberedAndRendersStably("eb=0", "lb=1")
+        }
+    }
+
+    @Test
+    fun firAndIrAgreeOnExitGroupAndSuspendKeyedContent() {
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.exitGroup
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.suspendSubtree
+                    import io.heapy.kinetica.text
+                    import kotlinx.coroutines.awaitCancellation
+
+                    var nextId: Int = 0
+                    var runSuspendKeyed: Boolean = false
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Panel() {
+                        exitGroup(key = "g", visible = true) {
+                            val a = state { nextId++ }
+                            text("xg=" + a.value)
+                        }
+                        suspendSubtree(fallback = { text("pending") }) {
+                            if (runSuspendKeyed) {
+                                suspendKeyed("tab") {
+                                    val b = state { nextId++ }
+                                    text("sk=" + b.value)
+                                }
+                            }
+                            // Keeps the subtree pending so renders stay deterministic;
+                            // suspendKeyed's verdict is the clean checks=error compile
+                            // (FIR) plus the absence of a decline message (IR), the
+                            // same precedent as the lazyEach placeholder probe.
+                            awaitCancellation()
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Panel() }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            compiled.assertIrNumberedAndRendersStably("xg=0", "pending")
+        }
+    }
+
+    @Test
+    fun userAtLeastOnceContractHostStaysMultiRun() {
+        // contractSingleRunParameterNames accepts only EXACTLY_ONCE / AT_MOST_ONCE: an
+        // AT_LEAST_ONCE block can run twice, so ordinal consumers inside it stay rule F
+        // errors — and the oracle records no verdict, so IR never numbers there either.
+        harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+                    import kotlin.contracts.ExperimentalContracts
+                    import kotlin.contracts.InvocationKind
+                    import kotlin.contracts.contract
+
+                    @OptIn(ExperimentalContracts::class)
+                    inline fun <R> twiceIsh(block: () -> R): R {
+                        contract { callsInPlace(block, InvocationKind.AT_LEAST_ONCE) }
+                        block()
+                        return block()
+                    }
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Fan() {
+                        twiceIsh {
+                            val id = state { nextId++ }
+                            text("x" + id.value)
+                        }
+                    }
+                """,
+            ),
+        ).assertSingleErrorEquals(multiRunMessage("state", "twiceIsh"))
+    }
+
     // F12 remainder: top-level io.heapy.kinetica helpers WITHOUT a ComponentScope
     // receiver, classified per function in KineticaFramePolicy. peek is a single-run
     // numbering context (pinned end to end by firAndIrAgreeOnSingleRunLambdaHosts
@@ -1592,8 +1964,22 @@ class KineticaFirCheckerTest {
         // they need no classification. Extend this list consciously when adding one.
         val internalOnly = setOf("synchronizedOn")
 
+        // Multi-run ledger, test-side by design: absence from SINGLE_RUN_TOP_LEVEL_FUNCTIONS
+        // already classifies a top-level lambda host as multi-run on BOTH compiler phases
+        // (the shared predicate is the only production reader), so this list exists purely
+        // to force an explicit single-run/multi-run decision for every top-level helper
+        // the runtime publishes. Why each entry is multi-run: `derive`'s compute lambda
+        // re-runs reactively whenever a dependency cell changes (`DerivedCell`);
+        // `invalidate`'s predicate runs once per cached resource key at invalidation time,
+        // long after the numbering render pass; `serverActionStub`'s handler runs per
+        // server-action dispatch.
+        val multiRun = setOf("derive", "invalidate", "serverActionStub")
+
+        // The predicate verdict for a receiver-less top-level name IS ledger membership
+        // (`isKineticaDsl(KINETICA_PACKAGE, false, name)` reduces to
+        // `name in SINGLE_RUN_TOP_LEVEL_FUNCTIONS`), so re-asserting it per name would be
+        // tautological; the enumeration below is the whole check.
         val singleRun = KineticaFramePolicy.SINGLE_RUN_TOP_LEVEL_FUNCTIONS
-        val multiRun = KineticaFramePolicy.MULTI_RUN_TOP_LEVEL_FUNCTIONS
         assertEquals(
             emptySet(),
             singleRun intersect multiRun,
@@ -1603,40 +1989,15 @@ class KineticaFirCheckerTest {
             emptySet(),
             scanned - singleRun - multiRun - internalOnly,
             "unclassified top-level io.heapy.kinetica lambda-taking functions — record each " +
-                "in KineticaFramePolicy (SINGLE_RUN_TOP_LEVEL_FUNCTIONS or " +
-                "MULTI_RUN_TOP_LEVEL_FUNCTIONS) before shipping it",
+                "in KineticaFramePolicy.SINGLE_RUN_TOP_LEVEL_FUNCTIONS or in this test's " +
+                "multi-run ledger before shipping it",
         )
         assertEquals(
             emptySet(),
             (singleRun + multiRun) - scanned,
-            "stale KineticaFramePolicy ledger entries — these names no longer exist as " +
+            "stale ledger entries — these names no longer exist as " +
                 "top-level io.heapy.kinetica lambda-taking functions",
         )
-
-        // FIR/IR agreement per function: KineticaFirExtension.isKineticaDsl and the IR
-        // walker's inKinetica both call exactly this predicate, so its verdict IS the
-        // shared one — single-run means FIR allows ordinal consumers and IR descends;
-        // multi-run means FIR rejects (rule F) and IR skips.
-        singleRun.forEach { name ->
-            assertTrue(
-                KineticaFramePolicy.isKineticaDsl(
-                    containerFqName = KineticaFramePolicy.KINETICA_PACKAGE,
-                    hasComponentScopeExtensionReceiver = false,
-                    name = name,
-                ),
-                "$name must classify as a single-run numbering context on both phases",
-            )
-        }
-        multiRun.forEach { name ->
-            assertTrue(
-                !KineticaFramePolicy.isKineticaDsl(
-                    containerFqName = KineticaFramePolicy.KINETICA_PACKAGE,
-                    hasComponentScopeExtensionReceiver = false,
-                    name = name,
-                ),
-                "$name must stay a multi-run host on both phases",
-            )
-        }
     }
 
     // Contract-based single-run hosts (F13): single-run detection derives from Kotlin
@@ -2401,6 +2762,65 @@ class KineticaFirCheckerTest {
     }
 
     @Test
+    fun ruleH_localVarReceiverCompiles() {
+        // isSimpleStagingReceiver accepts a plain local var: IR re-reads it as a bare
+        // IrGetValue exactly like a val, so staging works.
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        text("badge")
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Fan(first: ComponentScope, second: ComponentScope) {
+                        var pane = first
+                        pane.Badge()
+                        pane = second
+                        pane.Badge()
+                    }
+                """,
+            ),
+            checks = "error",
+        ).close()
+    }
+
+    @Test
+    fun ruleH_delegatedLocalValReceiverIsReported() {
+        // A delegated local read lowers to a getValue CALL, not a variable read, so IR
+        // cannot stage it — rule H must reject it like any other non-simple receiver.
+        harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        text("badge")
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Fan(other: ComponentScope) {
+                        val pane by lazy { other }
+                        pane.Badge()
+                    }
+                """,
+            ),
+        ).assertContainsError("must be invoked on a simple receiver")
+    }
+
+    @Test
     fun componentCallNonTrivialReceiverFailsCompileWhenChecksAreOff() {
         // F10 + S1: rule H is a soundness rule, so `checks=off` keeps it active and the
         // compile stops at the FIR error before IR runs (the IR "left unstaged" located
@@ -2468,7 +2888,8 @@ class KineticaFirCheckerTest {
     private fun componentContentInMultiRunMessage(call: String, host: String): String =
         "'$call' receives @UiComponent content inside the multi-run '$host' lambda. " +
             "Within a component body the compiler never descends into '$host', so the " +
-            "content lambda is not frame-wrapped and fails at first render. " +
+            "content lambda is never frame-wrapped: any component call or slot inside " +
+            "it fails at first render. " +
             "Hoist the call out of the multi-run lambda, or use " +
             "each(items, key = ...) or keyed(...) for repeated rendering."
 

@@ -117,18 +117,9 @@ public class KineticaGradlePlugin : KotlinCompilerPluginSupportPlugin {
 
     /** The compiler stores unknown option values without complaining, so a typo would be silent. */
     private fun validateOptions() {
-        checkOption(KineticaCoordinates.optionSourcePipeline, extension.sourcePipeline.orNull, SOURCE_PIPELINES)
-        checkOption(KineticaCoordinates.optionTransforms, extension.transforms.orNull, TRANSFORMS)
-        checkOption(KineticaCoordinates.optionChecks, extension.checks.orNull, CHECKS)
-    }
-
-    private fun checkOption(name: String, value: String?, allowed: Set<String>) {
-        if (value != null && value !in allowed) {
-            throw GradleException(
-                "kinetica { $name = \"$value\" } is not a value the Kinetica compiler plugin " +
-                    "accepts. Allowed: ${allowed.joinToString()}.",
-            )
-        }
+        checkKineticaOptionValue(KineticaCoordinates.optionSourcePipeline, extension.sourcePipeline.orNull, SOURCE_PIPELINES)
+        checkKineticaOptionValue(KineticaCoordinates.optionTransforms, extension.transforms.orNull, TRANSFORMS)
+        checkKineticaOptionValue(KineticaCoordinates.optionChecks, extension.checks.orNull, KineticaCoordinates.checksValues)
     }
 
     private fun warnOnKotlinVersionMismatch(project: Project, kotlinVersion: String) {
@@ -208,7 +199,7 @@ public class KineticaGradlePlugin : KotlinCompilerPluginSupportPlugin {
     private fun KotlinPlatformType.isJvmLike(): Boolean =
         this == KotlinPlatformType.jvm || this == KotlinPlatformType.androidJvm
 
-    internal companion object {
+    private companion object {
         const val KOTLIN_EXTENSION_NAME = "kotlin"
         const val KOTLIN_JVM_PLUGIN_ID = "org.jetbrains.kotlin.jvm"
         const val KOTLIN_ANDROID_PLUGIN_ID = "org.jetbrains.kotlin.android"
@@ -219,9 +210,21 @@ public class KineticaGradlePlugin : KotlinCompilerPluginSupportPlugin {
 
         val SOURCE_PIPELINES = setOf("psi", "lightTree")
         val TRANSFORMS = setOf("all", "off")
-        // Must accept every value the compiler's `checks` option documents
-        // (`<error|warning|off>`) — this list once lagged behind and made
-        // `checks=warning` unreachable from Gradle builds.
-        val CHECKS = setOf("error", "warning", "off")
+        // The checks allowlist lives in KineticaCoordinates.checksValues, pinned against
+        // the compiler contract by KineticaPluginContractTest.
+    }
+}
+
+/**
+ * Rejects an option value the compiler plugin does not accept. Top-level and internal so
+ * the contract test can exercise the validation without a Gradle runtime: the compiler
+ * stores unknown option values without complaining, so a typo would otherwise be silent.
+ */
+internal fun checkKineticaOptionValue(name: String, value: String?, allowed: Set<String>) {
+    if (value != null && value !in allowed) {
+        throw GradleException(
+            "kinetica { $name = \"$value\" } is not a value the Kinetica compiler plugin " +
+                "accepts. Allowed: ${allowed.joinToString()}.",
+        )
     }
 }

@@ -81,6 +81,18 @@ aliased at runtime:
   `componentContentWrapperInEntryContentCompiles`,
   `entryContentUserWrapperRendersWithStableIdentity`,
   `multiRunCallWithComponentTypedLambdaArgumentCompiles`.
+- **Correction (post-completion review):** the Task 20 sweep's "entry-content
+  double-wrap suspicion retired — green" verdict was WRONG. The double wrap was real:
+  `transformEntryPoints` wrapped a nested wrapper's content at its own call
+  (bottom-up) and the enclosing content's fresh-region walk wrapped/staged the same
+  literal again (2× `beginRegionFrame`, 2× `ordinal(0)`, one consume). The retiring
+  probe stayed green only because its leaked entries never crossed a frame; the
+  review's probe `runtime.render { Outer(label = run { helper { Badge() }; "x" }) }`
+  crashed at first render on the Task 11 frame-pairing check. Fixed after review
+  (idempotent `wrapFreshRegionOf` + `transformArgumentsSelectively` skipping
+  `@UiComponent`-typed literals), pinned by
+  `entryContentWrapperInsideComponentCallArgumentRendersOnce` and
+  `contractSingleRunContentWrapperWrapsContentExactlyOnce`.
 - **`lazyEach` in a loop** shared the F7 hazard shape (flagged at Task 9): rows now
   carry the render-pass index like `each` rows (`Frame.beginKeyedPass`), and the
   VisibleOnly/PersistentSlots retention sweeps are scoped to their own invocation's

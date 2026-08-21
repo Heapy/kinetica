@@ -31,6 +31,7 @@ import org.jetbrains.kotlin.ir.expressions.IrCall
 import org.jetbrains.kotlin.ir.expressions.IrConst
 import org.jetbrains.kotlin.ir.expressions.IrConstKind
 import org.jetbrains.kotlin.ir.expressions.IrExpression
+import org.jetbrains.kotlin.ir.expressions.IrFunctionAccessExpression
 import org.jetbrains.kotlin.ir.expressions.IrFunctionExpression
 import org.jetbrains.kotlin.ir.expressions.IrGetValue
 import org.jetbrains.kotlin.ir.expressions.impl.IrBlockImpl
@@ -76,9 +77,10 @@ import org.jetbrains.kotlin.name.Name
  * Plain lambdas (host content, `let`/branches) share the enclosing region's counters —
  * they run at most once per render in the same frame. Fresh counters start only at region
  * boundaries. Anything the pass cannot prove (non-trivial staging receiver, explicit
- * suspendSubtree key) is left on the legacy string-keyed path and reported — declines
- * whose legacy path crashes at render, aliases frames, or silently loses persistence are
- * located compile ERRORS (F9, F10), the rest LOGGING.
+ * suspendSubtree key, unwrappable content lambda shapes) is left on the legacy
+ * string-keyed path and reported — every decline whose legacy path crashes at render,
+ * aliases frames, or silently loses persistence is a located compile ERROR (F9, F10);
+ * purely informational skips stay LOGGING.
  */
 internal class KineticaFrameSymbols private constructor(
     val frameTableConstructor: IrConstructorSymbol,
@@ -154,34 +156,11 @@ internal class KineticaFrameSymbols private constructor(
     }
 }
 
-/** Slot-ordinal DSL call names; value = whether the slot is transient by construction. */
-private val SLOT_DSL_TRANSIENT = mapOf(
-    "state" to false,
-    "derived" to false,
-    "event" to false,
-    "frameValue" to false,
-    "launchEffect" to true,
-    "watch" to true,
-    "hostRef" to true,
-    "imperativeHandle" to true,
-    "resource" to true,
-)
-
-private val EVENT_DSL_NAMES = setOf("button", "textInput", "checkbox", "hostEvent", "hostEventBlock")
-
-// The region table and the Kinetica/single-run lambda classification live in
-// KineticaFramePolicy, shared with the FIR checker, so the two phases cannot drift.
-private val REGION_CONTENT_PARAMS = KineticaFramePolicy.REGION_CONTENT_PARAMETERS
-
-private val MERGED_EACH_REGION_NAMES = setOf("each", "lazyEach")
-
-/** Region constructs that consume a slot ordinal for their boundary state. */
-private val REGION_STATE_SLOTS = setOf("errorBoundary", "loadingBoundary", "suspendSubtree")
-
+// Every classification table (slot DSL, event DSL, region content, single-run lambdas)
+// lives in KineticaFramePolicy, shared with the FIR checker, so the two phases cannot
+// drift; use sites reference the policy object directly instead of phase-local aliases.
 private val UI_COMPONENT_FQ = FqName("io.heapy.kinetica.UiComponent")
-private val COMPONENT_SCOPE_FQ = KineticaFramePolicy.COMPONENT_SCOPE_FQ
 private val EVENT_SCOPE_FQ = FqName("io.heapy.kinetica.EventScope")
-private val KINETICA_PKG = KineticaFramePolicy.KINETICA_PACKAGE
 
 internal class KineticaFrameTransformer(
     private val file: IrFile,
@@ -194,6 +173,16 @@ internal class KineticaFrameTransformer(
     var componentsFramed: Int = 0
         private set
     private var tableFieldCount = 0
+
+    /**
+     * Every content lambda this transformer already wrapped into a fresh region.
+     * Wrapping must be idempotent: the entry pass wraps a nested wrapper's content
+     * bottom-up at its own call, and the ENCLOSING content's fresh-region walk then
+     * revisits the same call — without this guard the literal was wrapped and staged
+     * twice, leaking one staged ordinal per invocation and tripping the runtime's
+     * frame-pairing check (F10) whenever the leak crossed a frame boundary.
+     */
+    private val wrappedContentLambdas = HashSet<IrFunctionExpression>()
 
     private fun log(message: String) {
         report(message, CompilerMessageSeverity.LOGGING, null)
@@ -236,7 +225,7 @@ internal class KineticaFrameTransformer(
     fun transform(function: IrSimpleFunction) {
         val receiver = function.parameters.firstOrNull { it.kind == IrParameterKind.ExtensionReceiver }
             ?: return
-        if (receiver.type.classOrNull?.owner?.kotlinFqName != COMPONENT_SCOPE_FQ) return
+        if (receiver.type.classOrNull?.owner?.kotlinFqName != KineticaFramePolicy.COMPONENT_SCOPE_FQ) return
         val body = function.body as? IrBlockBody ?: return
         val fqName = function.fqNameWhenAvailable?.asString() ?: return
 
@@ -286,6 +275,35 @@ internal class KineticaFrameTransformer(
             }
         }
 
+        override fun visitSimpleFunction(declaration: IrSimpleFunction): IrStatement {
+            // A local @UiComponent function can never be framed — the framing pass
+            // collects only file- and class-level functions — so its body must not be
+            // numbered into the ENCLOSING region: every call site would share one set
+            // of slots (silent state aliasing) while each staged child ordinal leaks.
+            // Leave the body untouched so its consumers fail fast at render; FIR
+            // rejects the declaration itself (LOCAL_COMPONENT_FUNCTION).
+            if (declaration.isUiComponent()) return declaration
+            return super.visitSimpleFunction(declaration)
+        }
+
+        override fun visitFunctionAccess(expression: IrFunctionAccessExpression): IrExpression {
+            // Constructor calls (plain calls dispatch to visitCall): a constructor
+            // STORES its lambda arguments, so no single-run verdict can exist — lambda
+            // literals are never descended into and never numbered with the enclosing
+            // region's counters (the same gate stored lambdas get, F6); FIR rule F
+            // rejects ordinal consumers inside them. A @UiComponent-typed content
+            // literal instead becomes its own fresh region below, mirroring FIR's
+            // wrapped-boundary classification of constructor content arguments.
+            val callee = expression.symbol.owner
+            for (parameter in callee.parameters) {
+                val argument = expression.arguments[parameter.indexInParameters] ?: continue
+                if (argument is IrFunctionExpression) continue
+                expression.arguments[parameter.indexInParameters] = argument.transform(this, null)
+            }
+            wrapAnnotatedContentArgumentsOf(expression, shared)
+            return expression
+        }
+
         override fun visitCall(expression: IrCall): IrExpression {
             val callee = expression.symbol.owner
             val calleeFqName = callee.kotlinFqName
@@ -297,7 +315,7 @@ internal class KineticaFrameTransformer(
                 name = name,
             )
 
-            if (inKinetica && name in REGION_CONTENT_PARAMS) {
+            if (inKinetica && name in KineticaFramePolicy.REGION_CONTENT_PARAMETERS) {
                 return transformRegion(expression, name)
             }
 
@@ -307,10 +325,10 @@ internal class KineticaFrameTransformer(
 
             transformArgumentsSelectively(expression, inKinetica, parent)
 
-            if (inKinetica && name in SLOT_DSL_TRANSIENT) {
+            if (inKinetica && name in KineticaFramePolicy.SLOT_DSL_TRANSIENT) {
                 return transformSlotCall(expression, name)
             }
-            if (inKinetica && name in EVENT_DSL_NAMES) {
+            if (inKinetica && name in KineticaFramePolicy.EVENT_DSL_NAMES) {
                 fillOrdinal(expression, numbering.events++)
                 return expression
             }
@@ -353,7 +371,7 @@ internal class KineticaFrameTransformer(
 
         private fun transformSlotCall(expression: IrCall, name: String): IrExpression {
             val ordinal = numbering.slots++
-            var transient = SLOT_DSL_TRANSIENT.getValue(name)
+            var transient = KineticaFramePolicy.SLOT_DSL_TRANSIENT.getValue(name)
             if (name == "state") {
                 if (expression.constBooleanArgument("transient") == true) {
                     transient = true
@@ -384,7 +402,24 @@ internal class KineticaFrameTransformer(
                 it.kind == IrParameterKind.Regular && it.name.asString() == "slotId"
             }
             if (hasSlotId) return expression
-            if (expression.constBooleanArgument("persistent") != true) return expression
+            if (expression.constBooleanArgument("persistent") != true) {
+                // A non-literal `persistent` argument cannot be retargeted: the compiler
+                // cannot prove persistence was requested, so the slot silently stays
+                // non-persistent. Never silent — surface it (FIR rule G mirrors the
+                // literal-true gate and is equally unable to see through the value).
+                val persistentArgument = expression.argumentByName("persistent")
+                if (persistentArgument != null && persistentArgument !is IrConst) {
+                    report(
+                        "${shared.functionFqName}: state(persistent = <non-literal>) cannot be " +
+                            "retargeted to a compiler SlotId — the slot is treated as " +
+                            "non-persistent. Pass a literal `persistent = true` (or use the " +
+                            "state(slotId = ...) overload) to persist it.",
+                        CompilerMessageSeverity.WARNING,
+                        sourceLocation(expression),
+                    )
+                }
+                return expression
+            }
             // A literal null key is provably absent — same sound proxy as FIR rule G,
             // so the two phases agree on exactly which calls stay on the compiler path.
             val keyArgument = expression.argumentByName("key")
@@ -421,7 +456,7 @@ internal class KineticaFrameTransformer(
         }
 
         private fun transformRegion(expression: IrCall, name: String): IrExpression {
-            val contentParams = REGION_CONTENT_PARAMS.getValue(name)
+            val contentParams = KineticaFramePolicy.REGION_CONTENT_PARAMETERS.getValue(name)
             val target = symbols.regionTargets.getValue(name)
 
             if (name == "suspendSubtree") {
@@ -457,7 +492,7 @@ internal class KineticaFrameTransformer(
 
             val extraArguments = mutableMapOf<String, IrExpression>()
             val builder = DeclarationIrBuilder(pluginContext, enclosingFunction.symbol)
-            if (name in REGION_STATE_SLOTS) {
+            if (name in KineticaFramePolicy.REGION_STATE_SLOTS) {
                 val stateOrdinal = numbering.slots++
                 extraArguments["stateOrdinal"] = builder.irInt(stateOrdinal)
                 if (name == "suspendSubtree") {
@@ -489,7 +524,7 @@ internal class KineticaFrameTransformer(
                     expression.transformChildrenVoid(this)
                     return expression
                 }
-                if (name in MERGED_EACH_REGION_NAMES && parameterName == "content") {
+                if (name in KineticaFramePolicy.MERGED_EACH_REGION_NAMES && parameterName == "content") {
                     val table = buildFreshRegionTable(lambda) ?: run {
                         expression.transformChildrenVoid(this)
                         return expression
@@ -509,7 +544,7 @@ internal class KineticaFrameTransformer(
             val receiverParameter = callee.parameters
                 .firstOrNull { it.kind == IrParameterKind.ExtensionReceiver }
                 ?: return expression
-            if (receiverParameter.type.classOrNull?.owner?.kotlinFqName != COMPONENT_SCOPE_FQ) {
+            if (receiverParameter.type.classOrNull?.owner?.kotlinFqName != KineticaFramePolicy.COMPONENT_SCOPE_FQ) {
                 return expression
             }
             val receiverArgument = expression.arguments[receiverParameter.indexInParameters]
@@ -570,6 +605,13 @@ internal class KineticaFrameTransformer(
             for (parameter in callee.parameters) {
                 val argument = expression.arguments[parameter.indexInParameters] ?: continue
                 if (argument is IrFunctionExpression) {
+                    // @UiComponent-typed content is owned by wrapAnnotatedContentArguments:
+                    // it becomes its own fresh region even when a callsInPlace contract
+                    // proves the parameter single-run. Descending here as well numbered
+                    // the same body twice — once into this region and once into the fresh
+                    // one — staging every component call inside it twice (a leaked ordinal
+                    // per invocation and an F10 frame-pairing throw across frames).
+                    if (parameter.hasUiComponentContentType()) continue
                     val parameterName = parameter.name.asString()
                     val singleRun = when {
                         inKinetica -> !KineticaFramePolicy.isMultiRunDslParameter(name, parameterName)
@@ -601,7 +643,11 @@ internal class KineticaFrameTransformer(
         val fqName = function.fqNameWhenAvailable?.asString() ?: return
         val shared = FunctionShared(fqName)
         body.transformChildrenVoid(object : IrElementTransformerVoid() {
-            override fun visitCall(expression: IrCall): IrExpression {
+            // visitFunctionAccess (not visitCall) so constructor calls wrap too:
+            // a @UiComponent content literal handed to a constructor is stored and
+            // invoked later, exactly like BrowserKineticaApp's content — left
+            // unwrapped it throws MissingKineticaPluginException at first render.
+            override fun visitFunctionAccess(expression: IrFunctionAccessExpression): IrExpression {
                 expression.transformChildrenVoid(this)
                 wrapAnnotatedContentArgumentsOf(expression, shared)
                 return expression
@@ -610,14 +656,11 @@ internal class KineticaFrameTransformer(
         function.patchDeclarationParents(function.parent)
     }
 
-    private fun wrapAnnotatedContentArgumentsOf(expression: IrCall, shared: FunctionShared) {
+    private fun wrapAnnotatedContentArgumentsOf(expression: IrFunctionAccessExpression, shared: FunctionShared) {
         val callee = expression.symbol.owner
         for (parameter in callee.parameters) {
             if (parameter.kind != IrParameterKind.Regular) continue
-            val annotated = parameter.type.annotations.any {
-                it.type.classOrNull?.owner?.kotlinFqName == UI_COMPONENT_FQ
-            }
-            if (!annotated) continue
+            if (!parameter.hasUiComponentContentType()) continue
             val argument = expression.arguments[parameter.indexInParameters] as? IrFunctionExpression
                 ?: continue
             wrapFreshRegionOf(argument, shared)
@@ -625,11 +668,12 @@ internal class KineticaFrameTransformer(
     }
 
     private fun wrapFreshRegionOf(lambdaExpression: IrFunctionExpression, shared: FunctionShared) {
+        if (!wrappedContentLambdas.add(lambdaExpression)) return
         val table = buildFreshRegionTableOf(lambdaExpression, shared) ?: return
         val lambda = lambdaExpression.function
         val receiver = lambda.parameters.first {
             it.kind == IrParameterKind.ExtensionReceiver &&
-                it.type.classOrNull?.owner?.kotlinFqName == COMPONENT_SCOPE_FQ
+                it.type.classOrNull?.owner?.kotlinFqName == KineticaFramePolicy.COMPONENT_SCOPE_FQ
         }
         wrapBodyInFrame(lambda, receiver, table, component = false)
     }
@@ -640,12 +684,26 @@ internal class KineticaFrameTransformer(
     ): IrField? {
         val lambda = lambdaExpression.function
         val receiver = lambda.parameters.firstOrNull { it.kind == IrParameterKind.ExtensionReceiver }
-        if (receiver == null || receiver.type.classOrNull?.owner?.kotlinFqName != COMPONENT_SCOPE_FQ) {
-            log("${shared.functionFqName}: content lambda without ComponentScope receiver; left unwrapped.")
+        if (receiver == null || receiver.type.classOrNull?.owner?.kotlinFqName != KineticaFramePolicy.COMPONENT_SCOPE_FQ) {
+            // Paired with FIR's COMPONENT_CONTENT_WITHOUT_SCOPE_RECEIVER: a lambda the
+            // pass cannot wrap crashes at first render if anything inside consumes an
+            // ordinal, so the decline is a located ERROR, never a silent LOGGING line.
+            reportDecline(
+                "${shared.functionFqName}: @UiComponent content lambda has no ComponentScope " +
+                    "receiver; left unwrapped — ordinal consumers inside it throw " +
+                    "MissingKineticaPluginException at first render. Type the content " +
+                    "parameter as @UiComponent ComponentScope.() -> Unit.",
+                lambdaExpression,
+            )
             return null
         }
         if (lambda.body !is IrBlockBody) {
-            log("${shared.functionFqName}: content lambda without a block body; left unwrapped.")
+            reportDecline(
+                "${shared.functionFqName}: @UiComponent content lambda has no block body; " +
+                    "left unwrapped — ordinal consumers inside it throw " +
+                    "MissingKineticaPluginException at first render.",
+                lambdaExpression,
+            )
             return null
         }
         val regionNumbering = RegionNumbering()
@@ -799,9 +857,13 @@ internal class KineticaFrameTransformer(
 private fun IrSimpleFunction.isUiComponent(): Boolean =
     annotations.any { it.type.classOrNull?.owner?.kotlinFqName == UI_COMPONENT_FQ }
 
+/** Whether this parameter's declared function type carries `@UiComponent` (content). */
+private fun IrValueParameter.hasUiComponentContentType(): Boolean =
+    type.annotations.any { it.type.classOrNull?.owner?.kotlinFqName == UI_COMPONENT_FQ }
+
 private fun IrSimpleFunction.hasComponentScopeExtensionReceiver(): Boolean =
     parameters.firstOrNull { it.kind == IrParameterKind.ExtensionReceiver }
-        ?.type?.classOrNull?.owner?.kotlinFqName == COMPONENT_SCOPE_FQ
+        ?.type?.classOrNull?.owner?.kotlinFqName == KineticaFramePolicy.COMPONENT_SCOPE_FQ
 
 /**
  * The [CallableId] this function is recorded under in the SingleRunOracle, or null for
@@ -830,7 +892,7 @@ private fun IrCall.constBooleanArgument(name: String): Boolean? =
 private fun IrCall.inlineUnitEventLambda(): IrFunctionExpression? {
     val callee = symbol.owner
     val calleeFqName = callee.kotlinFqName
-    if (calleeFqName.parentOrNull() != KINETICA_PKG || calleeFqName.shortName().asString() != "event") {
+    if (calleeFqName.parentOrNull() != KineticaFramePolicy.KINETICA_PACKAGE || calleeFqName.shortName().asString() != "event") {
         return null
     }
     val lambda = argumentByName("block") as? IrFunctionExpression ?: return null

@@ -76,7 +76,8 @@ public class KineticaCommandLineProcessor : CommandLineProcessor {
         ),
         CliOption(
             optionName = KineticaCompilerContract.optionChecks,
-            valueDescription = "<error|warning|off>",
+            valueDescription = KineticaCompilerContract.checksValues
+                .joinToString(separator = "|", prefix = "<", postfix = ">"),
             description = "Severity of Kinetica style diagnostics (currently the @UiComponent " +
                 "ComponentScope-receiver convention): error (default), warning, or off. Soundness rules " +
                 "(slot DSL outside components, ordinals in loops or multi-run lambdas, non-literal " +

@@ -107,6 +107,28 @@ class FrameKernelTest {
     }
 
     @Test
+    fun beginRenderDropsLeakedStagedOrdinalsInsteadOfConsumingThem() {
+        // A staged entry can legitimately linger when a throw unwinds between staging
+        // and the staged call (an error boundary catching mid-argument-evaluation).
+        // beginRender must DROP such leaks: the next render's first component prologue
+        // finds an empty stack (MissingKineticaPluginException), never last render's
+        // stale entry — which would render into an arbitrary wrong child frame.
+        val scope = scope()
+        scope.render {
+            beginRegionFrame(table)
+            ordinal(1)
+            endRegionFrame()
+        }
+        scope.render {
+            assertFailsWith<MissingKineticaPluginException>(
+                "the leaked entry from the previous render must have been dropped",
+            ) {
+                beginComponentFrame(table)
+            }
+        }
+    }
+
+    @Test
     fun argumentPositionStagingKeepsLifoDiscipline() {
         // A component call in argument position of another component call pops its own
         // ordinal before the outer one resolves — both staged in the same frame, in LIFO

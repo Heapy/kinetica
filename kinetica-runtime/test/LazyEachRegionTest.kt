@@ -151,6 +151,40 @@ class LazyEachRegionTest {
     }
 
     @Test
+    fun lazyEachVanishedLoopPassRetainsItsRowsUnderRetentionPolicies() {
+        // Pins the ACCEPTED semantic recorded at Task 20 (mirroring Task 9's
+        // vanished-pass note): a loop pass that vanishes between renders
+        // deactivate-RETAINS its rows under VisibleOnly/PersistentSlots — no per-call
+        // sweep owns them anymore — so their state survives the pass's return.
+        for (retain in listOf(RetainPolicy.VisibleOnly, RetainPolicy.PersistentSlots)) {
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val probe = LazyLoopProbe(
+                batches = listOf(listOf("a", "b"), listOf("c", "d")),
+                retain = retain,
+            )
+
+            fun render(): Node = runtime.render(scope) { LazyLoopApp(probe) }.tree
+
+            render()
+            assertEquals(4, probe.inits.size, "policy $retain")
+
+            probe.batches = listOf(listOf("a", "b"))
+            var tree = render()
+            assertEquals(listOf("0:a:0", "0:b:0"), tree.rowTexts(), "policy $retain")
+
+            probe.batches = listOf(listOf("a", "b"), listOf("c", "d"))
+            tree = render()
+            assertEquals(listOf("0:a:0", "0:b:0", "1:c:0", "1:d:0"), tree.rowTexts(), "policy $retain")
+            assertEquals(
+                4,
+                probe.inits.size,
+                "policy $retain: the vanished pass's rows must be retained, not disposed: ${probe.inits}",
+            )
+        }
+    }
+
+    @Test
     fun lazyEachVisibleOnlySingleInvocationStillDisposesHiddenRows() {
         // Pass 0 keeps bare row keys, so the single-invocation VisibleOnly contract is
         // unchanged: rows scrolled out of the window are still disposed by their own
