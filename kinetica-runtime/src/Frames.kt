@@ -79,6 +79,12 @@ internal class Frame(
     private var childForks: IntArray? = null
     private var childRegionOrdinals: IntArray? = null
 
+    // Per child ordinal: the render generation whose commit must EVICT (dispose and
+    // remove) keyed children the render did not keep. Stamped by beginKeyedEvictionPass,
+    // consulted by commitChecks; ordinals never stamped (keyed {}, boundaries) keep the
+    // retain-on-deactivate semantics instead.
+    private var keyedEvictionStamp: IntArray? = null
+
     // Region frames created by compiler-wrapped content lambdas, keyed by the identity of
     // their FrameTable static — one table per wrapped lambda literal, so table identity is
     // call-site identity. The first entry per render owns the bare-table key; re-entries
@@ -232,6 +238,34 @@ internal class Frame(
         return map.getOrPut(key) { Frame(table, this) }
     }
 
+    /**
+     * Marks the start of one `each` construct pass over child [ordinal] within the render
+     * of [generation] and returns the 0-based pass index: 0 for the first invocation this
+     * render, 1, 2, ... for re-invocations from an enclosing loop. Callers namespace row
+     * keys per pass (see [keyedPassChildKey]) so loop iterations sharing a user key cannot
+     * alias state. Stamping also defers the ordinal's keyed eviction to [commitChecks]:
+     * rows not kept by this render are DISPOSED there (state must not resurrect when a key
+     * returns), and no single pass can evict rows a sibling pass of the same render owns.
+     *
+     * Reuses childEnterStamp/childForks: a static child ordinal belongs to exactly one
+     * construct kind, so fixed-child re-entry forking and keyed pass counting never share
+     * an ordinal. Must run before the pass enters any row (row entries re-stamp
+     * childEnterStamp with the same generation).
+     */
+    internal fun beginKeyedEvictionPass(ordinal: Int, generation: Int): Int {
+        ensureChildCapacity(ordinal)
+        val evict = keyedEvictionStamp ?: IntArray(children!!.size).also { keyedEvictionStamp = it }
+        evict[ordinal] = generation
+        val stamps = childEnterStamp!!
+        if (stamps[ordinal] != generation) {
+            stamps[ordinal] = generation
+            childForks?.set(ordinal, 0)
+            return 0
+        }
+        val forks = childForks ?: IntArray(children!!.size).also { childForks = it }
+        return ++forks[ordinal]
+    }
+
     internal fun enterRegionChild(table: FrameTable, generation: Int): Frame {
         val map = regions ?: HashMap<Any, Frame>(4).also { regions = it }
         val primary = map.getOrPut(table) { Frame(table, this) }
@@ -296,12 +330,15 @@ internal class Frame(
                     is Frame -> entry.removeKeyedDescendants(key, keepPersistentSlots, runtime)
                     is HashMap<*, *> -> {
                         val map = childMap(entry)
-                        val match = map[key]
-                        if (match != null) {
+                        // Pass-indexed rows (KeyedPassKey) carry the same user key; match them too.
+                        val matches = map.keys.filter { candidate ->
+                            candidate == key || (candidate is KeyedPassKey && candidate.key == key)
+                        }
+                        for (matchKey in matches) {
                             if (keepPersistentSlots) {
-                                match.stripForPersistentRetention(runtime)
+                                map[matchKey]?.stripForPersistentRetention(runtime)
                             } else {
-                                map.remove(key)?.dispose(runtime)
+                                map.remove(matchKey)?.dispose(runtime)
                             }
                         }
                         map.values.forEach { it.removeKeyedDescendants(key, keepPersistentSlots, runtime) }
@@ -363,11 +400,31 @@ internal class Frame(
             }
         }
         children?.let { entries ->
-            for (entry in entries) {
-                when (entry) {
+            val evict = keyedEvictionStamp
+            for (ordinal in entries.indices) {
+                when (val entry = entries[ordinal]) {
                     is Frame -> if (entry.keptGeneration != generation) entry.deactivate(runtime)
-                    is HashMap<*, *> -> childMap(entry).values.forEach { child ->
-                        if (child.keptGeneration != generation) child.deactivate(runtime)
+                    is HashMap<*, *> -> {
+                        val map = childMap(entry)
+                        if (evict != null && evict[ordinal] == generation) {
+                            // An each pass ran this render: rows whose keys left the list
+                            // are disposed, not retained — state must not resurrect when a
+                            // key returns. Deferring the eviction here scopes it per render
+                            // pass; no single each invocation can evict rows a sibling
+                            // invocation of the same ordinal entered this render.
+                            val rows = map.values.iterator()
+                            while (rows.hasNext()) {
+                                val row = rows.next()
+                                if (row.keptGeneration != generation) {
+                                    rows.remove()
+                                    row.dispose(runtime)
+                                }
+                            }
+                        } else {
+                            map.values.forEach { child ->
+                                if (child.keptGeneration != generation) child.deactivate(runtime)
+                            }
+                        }
                     }
                     else -> {}
                 }
@@ -486,6 +543,7 @@ internal class Frame(
         children = existing.copyOf(capacity)
         childEnterStamp = childEnterStamp!!.copyOf(capacity)
         childForks = childForks?.copyOf(capacity)
+        keyedEvictionStamp = keyedEvictionStamp?.copyOf(capacity)
     }
 
     private fun ensureChildRegionOrdinalCapacity(ordinal: Int) {
@@ -522,6 +580,18 @@ internal class Frame(
  * equality, so fork keys compare tables the same way the bare-table region keys do.
  */
 private data class RegionForkKey(val table: FrameTable, val invocation: Int)
+
+/**
+ * Identity of a keyed child entered by the [pass]-th re-invocation (1-based) of an `each`
+ * construct within one render. Pass 0 keeps the bare user key, so single-invocation
+ * identity — and every existing frame stored under it — is unchanged. State follows
+ * (pass, key): a key that migrates to a different loop iteration across renders
+ * re-initializes rather than aliasing the other iteration's row.
+ */
+internal data class KeyedPassKey(val pass: Int, val key: Any)
+
+internal fun keyedPassChildKey(pass: Int, key: Any): Any =
+    if (pass == 0) key else KeyedPassKey(pass, key)
 
 internal const val EVENT_ROLE_PRIMARY: Int = 0
 internal const val EVENT_ROLE_SECONDARY: Int = 1

@@ -708,15 +708,25 @@ public class ComponentScope public constructor(
         // capture cannot cache across this construct; rows still memoize independently.
         markEachCapturesUnsafe()
         val snapshot = keyedLastWins(items, key)
+        // Pass index namespaces row identity when this static ordinal is invoked again
+        // within one render (each in a for loop): iterations sharing a user key get
+        // independent rows instead of aliasing one frame. Stamping also defers keyed
+        // eviction to Frame.commitChecks, where it is scoped per render pass — one
+        // invocation can no longer evict rows a sibling invocation entered this render,
+        // and rows of a pass that vanished entirely are still disposed at commit.
+        val pass = currentFrame.beginKeyedEvictionPass(ordinal, slotGeneration)
         val outFrame = nodeStack.last()
         val frameStart = outFrame.size
-        val seen = HashSet<Any>(snapshot.size)
         var allCertified = true
         var reused = 0
         for (keyed in snapshot) {
-            seen += keyed.key
             val rowKey = keyed.key.toString()
-            val rowFrame = currentFrame.enterKeyedChild(ordinal, keyed.key, table = rowTable, generation = slotGeneration)
+            val rowFrame = currentFrame.enterKeyedChild(
+                ordinal,
+                keyedPassChildKey(pass, keyed.key),
+                table = rowTable,
+                generation = slotGeneration,
+            )
             val hit = if (memoize) frameSkipHit(rowFrame, listOf(keyed.item)) else null
             val rowCertified: Boolean
             if (hit != null) {
@@ -753,11 +763,6 @@ public class ComponentScope public constructor(
         }
         recordChildRegion(ordinal, frameStart, outFrame.size)
         recordKeyedEmission(outFrame, frameStart, allCertified && snapshot.isNotEmpty())
-        currentFrame.keyedChildKeys(ordinal).forEach { existingKey ->
-            if (existingKey !in seen) {
-                currentFrame.removeKeyedChild(ordinal, existingKey, runtime)
-            }
-        }
         if (reused > 0) {
             runtime.record(
                 JournalKind.Skipped,
@@ -961,8 +966,9 @@ public fun <T> ComponentScope.each(
 /**
  * Frame-native `each`; called by compiler-generated code with a static child [ordinal].
  * Every row renders into its own keyed frame with a per-row memoization cache; rows whose
- * keys left the list are disposed at the end of the pass (state does not resurrect when a
- * key returns).
+ * keys left the list are disposed at render commit (state does not resurrect when a key
+ * returns). Eviction is scoped per render pass, so an `each` invoked repeatedly from an
+ * enclosing loop never evicts rows a sibling invocation of the same render owns.
  */
 public fun <T> ComponentScope.eachRegion(
     ordinal: Int,
