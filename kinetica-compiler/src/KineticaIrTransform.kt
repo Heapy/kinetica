@@ -8,6 +8,7 @@ import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSourceLocation
 import org.jetbrains.kotlin.cli.common.messages.MessageCollector
 import org.jetbrains.kotlin.descriptors.DescriptorVisibilities
+import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.backend.common.lower.DeclarationIrBuilder
 import org.jetbrains.kotlin.ir.builders.declarations.buildFun
@@ -16,10 +17,20 @@ import org.jetbrains.kotlin.ir.builders.irCall
 import org.jetbrains.kotlin.ir.builders.irGet
 import org.jetbrains.kotlin.ir.builders.irString
 import org.jetbrains.kotlin.ir.builders.irVararg
+import org.jetbrains.kotlin.ir.declarations.IrAnonymousInitializer
 import org.jetbrains.kotlin.ir.declarations.IrClass
+import org.jetbrains.kotlin.ir.declarations.IrConstructor
+import org.jetbrains.kotlin.ir.declarations.IrDeclaration
+import org.jetbrains.kotlin.ir.declarations.IrDeclarationContainer
 import org.jetbrains.kotlin.ir.declarations.IrDeclarationOrigin
+import org.jetbrains.kotlin.ir.declarations.IrDeclarationWithName
+import org.jetbrains.kotlin.ir.declarations.IrEnumEntry
+import org.jetbrains.kotlin.ir.declarations.IrField
+import org.jetbrains.kotlin.ir.declarations.IrFunction
 import org.jetbrains.kotlin.ir.declarations.IrModuleFragment
+import org.jetbrains.kotlin.ir.declarations.IrPackageFragment
 import org.jetbrains.kotlin.ir.declarations.IrParameterKind
+import org.jetbrains.kotlin.ir.declarations.IrProperty
 import org.jetbrains.kotlin.ir.declarations.IrSimpleFunction
 import org.jetbrains.kotlin.ir.declarations.IrValueParameter
 import org.jetbrains.kotlin.ir.expressions.IrConst
@@ -112,9 +123,9 @@ public class KineticaIrGenerationExtension internal constructor(
             // snapshot: hoisting appends file-level fields while we iterate declarations.
             // Class members are included: test methods and object members hold render {}
             // entry lambdas that need region wrapping just like top-level functions.
-            val functions = mutableListOf<IrSimpleFunction>()
-            collectSimpleFunctions(file, functions)
-            functions.forEach { function ->
+            val targets = FramingTargets()
+            collectFramingTargetsIn(file, targets)
+            targets.functions.forEach { function ->
                 if (function.isUiComponentWithScopeReceiver()) {
                     if (System.getProperty(KINETICA_IR_TRANSFORM_ORDER_PROPERTY) == "hoist-first") {
                         hoister?.transform(function)
@@ -132,6 +143,14 @@ public class KineticaIrGenerationExtension internal constructor(
                     framer?.transformEntryPoints(function)
                 }
             }
+            targets.entryBodies.forEach { entry ->
+                framer?.transformEntryPointBody(
+                    entry.body,
+                    entry.fqName,
+                    entry.owner,
+                    entry.descendIntoNestedClasses,
+                )
+            }
             if (templater != null && templater.templatesEmitted > 0) {
                 report("${file.fileEntry.name}: emitted ${templater.templatesEmitted} template definitions.")
             }
@@ -144,17 +163,112 @@ public class KineticaIrGenerationExtension internal constructor(
         }
     }
 
-    private fun collectSimpleFunctions(
-        container: org.jetbrains.kotlin.ir.declarations.IrDeclarationContainer,
-        out: MutableList<IrSimpleFunction>,
+    /**
+     * Everything one file offers the frame pass, collected by ONE rule: a declaration is
+     * reachable exactly when its containment chain from the file crosses no function
+     * body. That rule is the exact complement of the FIR checker's
+     * `LOCAL_COMPONENT_FUNCTION` gate ("some `FirFunctionSymbol` is on the containment
+     * path"), so every `@UiComponent` declaration is either framed here or rejected
+     * there — never silently neither.
+     */
+    private class FramingTargets {
+        val functions: MutableList<IrSimpleFunction> = mutableListOf()
+        val entryBodies: MutableList<EntryBody> = mutableListOf()
+    }
+
+    /**
+     * A body that carries entry-point content (`runtime.render { … }`) but is not an
+     * [IrSimpleFunction]: a constructor body, a property/field initializer, an `init { }`
+     * block, an enum-entry initializer. Left uncollected, content lambdas in these
+     * positions were never frame-wrapped and threw at first render.
+     */
+    private class EntryBody(
+        val owner: IrDeclaration,
+        val body: IrElement,
+        val fqName: String,
+        /**
+         * Whether the entry pass must descend into classes declared inside this body.
+         * True for a constructor body — a function body, whose nested classes the
+         * collection deliberately does not reach; false for initializer expressions,
+         * whose nested classes ARE collected and would otherwise be processed twice.
+         */
+        val descendIntoNestedClasses: Boolean,
+    )
+
+    private fun collectFramingTargetsIn(
+        container: IrDeclarationContainer,
+        out: FramingTargets,
     ) {
-        container.declarations.forEach { declaration ->
-            when (declaration) {
-                is IrSimpleFunction -> out += declaration
-                is IrClass -> collectSimpleFunctions(declaration, out)
-                else -> {}
+        container.declarations.forEach { declaration -> collectFramingTargets(declaration, out) }
+    }
+
+    private fun collectFramingTargets(
+        declaration: IrDeclaration,
+        out: FramingTargets,
+    ) {
+        when (declaration) {
+            is IrSimpleFunction -> out.functions += declaration
+            is IrConstructor ->
+                declaration.body?.let {
+                    out.entryBodies += EntryBody(declaration, it, declaration.targetName(), descendIntoNestedClasses = true)
+                }
+            is IrClass -> collectFramingTargetsIn(declaration, out)
+            is IrProperty -> {
+                declaration.getter?.let { out.functions += it }
+                declaration.setter?.let { out.functions += it }
+                declaration.backingField?.let { collectFramingTargets(it, out) }
             }
+            is IrField ->
+                declaration.initializer?.let { initializer ->
+                    out.entryBodies += EntryBody(declaration, initializer, declaration.targetName(), descendIntoNestedClasses = false)
+                    collectNestedClasses(initializer, out)
+                }
+            is IrAnonymousInitializer -> {
+                out.entryBodies += EntryBody(declaration, declaration.body, declaration.targetName(), descendIntoNestedClasses = false)
+                collectNestedClasses(declaration.body, out)
+            }
+            is IrEnumEntry -> {
+                declaration.correspondingClass?.let { collectFramingTargetsIn(it, out) }
+                declaration.initializerExpression?.let { initializer ->
+                    out.entryBodies += EntryBody(declaration, initializer, declaration.targetName(), descendIntoNestedClasses = false)
+                    collectNestedClasses(initializer, out)
+                }
+            }
+            else -> {}
         }
+    }
+
+    /**
+     * Anonymous-object classes declared inside an initializer expression (`val panel =
+     * object : Panel() { @UiComponent override fun ComponentScope.Render() { … } }`).
+     * The walk stops at every function boundary: a class declared inside a lambda or a
+     * local function is unreachable for framing, and FIR rejects `@UiComponent`
+     * declarations there instead — that stop is what keeps the two rules complementary.
+     */
+    private fun collectNestedClasses(element: IrElement, out: FramingTargets) {
+        element.acceptChildrenVoid(object : IrVisitorVoid() {
+            override fun visitElement(element: IrElement) {
+                element.acceptChildrenVoid(this)
+            }
+
+            override fun visitFunction(declaration: IrFunction) = Unit
+
+            override fun visitClass(declaration: IrClass) {
+                collectFramingTargetsIn(declaration, out)
+            }
+        })
+    }
+
+    /** A label for compiler messages and frame-table names; never a resolvable symbol. */
+    private fun IrDeclaration.targetName(): String {
+        val parentName = (parent as? IrDeclarationWithName)
+            ?.fqNameWhenAvailable?.asString()
+            ?: (parent as? IrPackageFragment)?.packageFqName?.asString()
+            ?: "<file>"
+        val ownName = (this as? IrDeclarationWithName)
+            ?.name?.asString()
+            ?: "<init>"
+        return if (parentName.isEmpty()) ownName else "$parentName.$ownName"
     }
 
     private fun IrSimpleFunction.isUiComponentWithScopeReceiver(): Boolean =
@@ -328,7 +442,7 @@ private fun org.jetbrains.kotlin.ir.expressions.IrBody.containsReturnTargeting(
 ): Boolean {
     var found = false
     acceptVoid(object : IrVisitorVoid() {
-        override fun visitElement(element: org.jetbrains.kotlin.ir.IrElement) {
+        override fun visitElement(element: IrElement) {
             if (!found) element.acceptChildrenVoid(this)
         }
 

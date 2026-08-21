@@ -18,6 +18,7 @@ import org.jetbrains.kotlin.ir.builders.irNull
 import org.jetbrains.kotlin.ir.builders.irString
 import org.jetbrains.kotlin.ir.builders.irVararg
 import org.jetbrains.kotlin.ir.declarations.IrClass
+import org.jetbrains.kotlin.ir.declarations.IrDeclaration
 import org.jetbrains.kotlin.ir.declarations.IrField
 import org.jetbrains.kotlin.ir.declarations.IrFile
 import org.jetbrains.kotlin.ir.declarations.IrLocalDelegatedProperty
@@ -276,10 +277,11 @@ internal class KineticaFrameTransformer(
         }
 
         override fun visitSimpleFunction(declaration: IrSimpleFunction): IrStatement {
-            // A local @UiComponent function can never be framed — the framing pass
-            // collects only file- and class-level functions — so its body must not be
-            // numbered into the ENCLOSING region: every call site would share one set
-            // of slots (silent state aliasing) while each staged child ordinal leaks.
+            // A @UiComponent function declared inside this body can never be framed —
+            // the framing pass reaches only declarations whose path from the file
+            // crosses no function body — so its own body must not be numbered into the
+            // ENCLOSING region: every call site would share one set of slots (silent
+            // state aliasing) while each staged child ordinal leaks.
             // Leave the body untouched so its consumers fail fast at render; FIR
             // rejects the declaration itself (LOCAL_COMPONENT_FUNCTION).
             if (declaration.isUiComponent()) return declaration
@@ -315,6 +317,25 @@ internal class KineticaFrameTransformer(
                 name = name,
             )
 
+            // INVARIANT, and it must hold on EVERY branch below: a @UiComponent-typed
+            // lambda literal argument is ALWAYS wrapped into its own fresh region and
+            // NEVER descended into with this region's counters. Wrapping used to sit on
+            // the fall-through branches only, so the same literal was wrapped after a
+            // component call, numbered inline by a region's non-content loop, and
+            // silently dropped by the slot/event/hostEvent branches — three behaviors
+            // for one shape, the third of them a crash at first render. A region
+            // construct's own content parameters are excluded: transformRegion owns
+            // those (each/lazyEach row content merges into the keyed row frame instead
+            // of getting its own region wrapper).
+            wrapAnnotatedContentArguments(
+                expression,
+                skipParameters = if (inKinetica) {
+                    KineticaFramePolicy.REGION_CONTENT_PARAMETERS[name].orEmpty()
+                } else {
+                    emptySet()
+                },
+            )
+
             if (inKinetica && name in KineticaFramePolicy.REGION_CONTENT_PARAMETERS) {
                 return transformRegion(expression, name)
             }
@@ -333,12 +354,8 @@ internal class KineticaFrameTransformer(
                 return expression
             }
             if (callee.isUiComponent()) {
-                // Component calls can carry @UiComponent-typed content parameters; their
-                // lambda literals must become regions here too, not only in entry points.
-                wrapAnnotatedContentArguments(expression)
                 return stageComponentCall(expression)
             }
-            wrapAnnotatedContentArguments(expression)
             return expression
         }
 
@@ -347,6 +364,15 @@ internal class KineticaFrameTransformer(
             val eventLambda = eventCall.inlineUnitEventLambda() ?: return null
 
             val callee = expression.symbol.owner
+            // The fusion retargets to hostEventBlock(ordinal, block): any OTHER regular
+            // parameter of the source call has nowhere to go and would be dropped
+            // silently. Decline instead — the normal event-DSL path below numbers the
+            // call and keeps every argument (no-silent-bail-outs).
+            val fusableParameters = callee.parameters.none { parameter ->
+                parameter.kind == IrParameterKind.Regular &&
+                    parameter.name.asString() !in FUSED_HOST_EVENT_PARAMETERS
+            }
+            if (!fusableParameters) return null
             for (parameter in callee.parameters) {
                 val parameterName = parameter.name.asString()
                 if (parameter.kind == IrParameterKind.Regular &&
@@ -355,6 +381,7 @@ internal class KineticaFrameTransformer(
                     continue
                 }
                 val argument = expression.arguments[parameter.indexInParameters] ?: continue
+                if (argument is IrFunctionExpression && parameter.hasUiComponentContentType()) continue
                 expression.arguments[parameter.indexInParameters] = argument.transform(this, null)
             }
 
@@ -487,6 +514,9 @@ internal class KineticaFrameTransformer(
                 ) {
                     continue
                 }
+                // Already wrapped into its own region by visitCall's invariant; descending
+                // here as well would re-fill its ordinals from THIS region's counters.
+                if (argument is IrFunctionExpression && parameter.hasUiComponentContentType()) continue
                 expression.arguments[parameter.indexInParameters] = argument.transform(this, null)
             }
 
@@ -577,8 +607,8 @@ internal class KineticaFrameTransformer(
             )
         }
 
-        private fun wrapAnnotatedContentArguments(expression: IrCall) {
-            wrapAnnotatedContentArgumentsOf(expression, shared)
+        private fun wrapAnnotatedContentArguments(expression: IrCall, skipParameters: Set<String> = emptySet()) {
+            wrapAnnotatedContentArgumentsOf(expression, shared, skipParameters)
         }
 
         /**
@@ -641,8 +671,51 @@ internal class KineticaFrameTransformer(
     fun transformEntryPoints(function: IrSimpleFunction) {
         val body = function.body ?: return
         val fqName = function.fqNameWhenAvailable?.asString() ?: return
+        transformEntryPointsIn(body, fqName, descendIntoNestedClasses = true)
+        function.patchDeclarationParents(function.parent)
+    }
+
+    /**
+     * Entry-point pass for the bodies the framing collection reaches that are not
+     * [IrSimpleFunction]s: constructor bodies, property/field initializers, `init { }`
+     * blocks and enum-entry initializers all hold `runtime.render { … }` content exactly
+     * like a function body. [descendIntoNestedClasses] is false for initializer
+     * expressions, whose nested classes the collection reaches on its own — descending
+     * here as well would number one body into two regions.
+     */
+    fun transformEntryPointBody(
+        body: IrElement,
+        fqName: String,
+        owner: IrDeclaration,
+        descendIntoNestedClasses: Boolean,
+    ) {
+        transformEntryPointsIn(body, fqName, descendIntoNestedClasses)
+        owner.patchDeclarationParents(owner.parent)
+    }
+
+    private fun transformEntryPointsIn(
+        body: IrElement,
+        fqName: String,
+        descendIntoNestedClasses: Boolean,
+    ) {
         val shared = FunctionShared(fqName)
         body.transformChildrenVoid(object : IrElementTransformerVoid() {
+            // A nested receiver-style @UiComponent function is framed by the collection
+            // pass when it is reachable and rejected by FIR (LOCAL_COMPONENT_FUNCTION)
+            // when it is not; either way its content must not be wrapped with THIS
+            // body's region. The predicate mirrors the collection loop's
+            // isUiComponentWithScopeReceiver exactly, so scope-free components — which
+            // that loop hands to THIS pass — keep getting their entry content wrapped.
+            override fun visitSimpleFunction(declaration: IrSimpleFunction): IrStatement =
+                if (declaration.isUiComponent() && declaration.hasComponentScopeExtensionReceiver()) {
+                    declaration
+                } else {
+                    super.visitSimpleFunction(declaration)
+                }
+
+            override fun visitClass(declaration: IrClass): IrStatement =
+                if (descendIntoNestedClasses) super.visitClass(declaration) else declaration
+
             // visitFunctionAccess (not visitCall) so constructor calls wrap too:
             // a @UiComponent content literal handed to a constructor is stored and
             // invoked later, exactly like BrowserKineticaApp's content — left
@@ -653,13 +726,17 @@ internal class KineticaFrameTransformer(
                 return expression
             }
         })
-        function.patchDeclarationParents(function.parent)
     }
 
-    private fun wrapAnnotatedContentArgumentsOf(expression: IrFunctionAccessExpression, shared: FunctionShared) {
+    private fun wrapAnnotatedContentArgumentsOf(
+        expression: IrFunctionAccessExpression,
+        shared: FunctionShared,
+        skipParameters: Set<String> = emptySet(),
+    ) {
         val callee = expression.symbol.owner
         for (parameter in callee.parameters) {
             if (parameter.kind != IrParameterKind.Regular) continue
+            if (parameter.name.asString() in skipParameters) continue
             if (!parameter.hasUiComponentContentType()) continue
             val argument = expression.arguments[parameter.indexInParameters] as? IrFunctionExpression
                 ?: continue
@@ -851,6 +928,9 @@ internal class KineticaFrameTransformer(
     private companion object {
         private const val EXTENSION_RECEIVER = "<extension>"
         private const val DISPATCH_RECEIVER = "<dispatch>"
+
+        /** The only source parameters `hostEventBlock(ordinal, block)` can carry over. */
+        private val FUSED_HOST_EVENT_PARAMETERS = setOf("ordinal", "onEvent")
     }
 }
 

@@ -461,6 +461,52 @@ class KineticaFirCheckerTest {
     }
 
     @Test
+    fun componentInObjectLiteralInsideAccessorOrLambdaIsReported() {
+        // LOCAL_COMPONENT_FUNCTION must be the exact complement of what the IR framing
+        // pass collects: everything reachable from the file WITHOUT crossing a function
+        // body. A property getter and a lambda are function bodies, so an @UiComponent
+        // declared in an object literal there is unreachable for framing and must be
+        // rejected — where the same literal in a plain property initializer, an
+        // `init { }` block or an enum-entry body is framed and stays legal
+        // (componentsInInitBlockAndDelegateInitializerAreFramed and friends pin that
+        // half in KineticaIrFrameCompileTest).
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    class Screen {
+                        val fromGetter: Any get() = object {
+                            @UiComponent
+                            fun ComponentScope.InGetter() {
+                                val id = state { 0 }
+                                text("getter:" + id.value)
+                            }
+                        }
+                    }
+
+                    val fromLambda: Any = run {
+                        object {
+                            @UiComponent
+                            fun ComponentScope.InLambda() {
+                                val id = state { 0 }
+                                text("lambda:" + id.value)
+                            }
+                        }
+                    }
+                """,
+            ),
+        )
+        messages.assertContainsError("@UiComponent function 'InGetter' is declared locally")
+        messages.assertContainsError("@UiComponent function 'InLambda' is declared locally")
+    }
+
+    @Test
     fun componentContentWithoutScopeReceiverIsReported() {
         // IR wraps content lambdas by their ComponentScope extension receiver; a literal
         // bound to a receiver-less @UiComponent function type is declined (probe-verified

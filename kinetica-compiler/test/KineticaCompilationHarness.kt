@@ -72,7 +72,10 @@ internal class KineticaCompilationHarness {
      * Compiles sources expected to violate the Kinetica rules; returns all messages.
      * [disableFirCheckersForTesting] unregisters the FIR checkers (via the registrar's
      * test-only system property) so the IR frame pass's located decline ERRORs — the
-     * defense-in-depth layer normally shadowed by the FIR rules — become reachable.
+     * defense-in-depth layer normally shadowed by the FIR rules — become reachable. It
+     * covers only the declines the frame pass reports: most soundness rules have no IR
+     * counterpart, so with the checkers off their shapes compile clean (see the
+     * property's KDoc), and the compilation also carries a STRONG_WARNING saying so.
      */
     fun compileExpectingErrors(
         sources: Map<String, String>,
@@ -120,7 +123,7 @@ internal class KineticaCompilationHarness {
     ): InternalCompilationResult {
         val previousDisable = System.getProperty(KINETICA_DISABLE_FIR_CHECKERS_PROPERTY)
         if (disableFirCheckersForTesting) {
-            System.setProperty(KINETICA_DISABLE_FIR_CHECKERS_PROPERTY, "true")
+            System.setProperty(KINETICA_DISABLE_FIR_CHECKERS_PROPERTY, KINETICA_DISABLE_FIR_CHECKERS_TOKEN)
         }
         try {
             return compileWithCli(sources, moduleName, transforms, checks)
