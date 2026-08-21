@@ -34,9 +34,12 @@ public fun CompilerPluginRegistrar.ExtensionStorage.registerKineticaCompilerExte
     // pass (reader): FIR's callsInPlace verdicts tell IR exactly which lambdas to number.
     // Never a global — one JVM (compile daemon, test suite) runs many compilations.
     val singleRunOracle = SingleRunOracle()
-    if (pluginConfiguration.checks != "off") {
-        FirExtensionRegistrarAdapter.registerExtension(KineticaFirExtensionRegistrar(singleRunOracle))
-    }
+    // Always registered: the FIR soundness rules must survive every `checks` value —
+    // removing them converts compile errors into runtime crashes or silent state
+    // aliasing (S1). The mode only selects the style-rule severity (error/warning/off).
+    FirExtensionRegistrarAdapter.registerExtension(
+        KineticaFirExtensionRegistrar(singleRunOracle, KineticaChecksMode.from(pluginConfiguration.checks)),
+    )
     if (pluginConfiguration.transforms) {
         IrGenerationExtension.registerExtension(
             KineticaIrGenerationExtension(

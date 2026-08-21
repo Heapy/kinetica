@@ -362,12 +362,13 @@ class KineticaIrFrameCompileTest {
     }
 
     @Test
-    fun emptyOracleFallsBackToNameListsForScopeFunctionLambdas() {
-        // checks=off keeps the FIR extension unregistered, so the per-compilation
-        // SingleRunOracle stays empty and IR must number scope-function lambdas from the
-        // shared KineticaFramePolicy name lists alone. NOTE for Task 15: once checks=off
-        // starts registering the FIR soundness rules, the oracle will no longer be empty
-        // here — the assertion stays valid but weakens; keep the name lists covered.
+    fun nameListFallbackNumbersScopeFunctionLambdas() {
+        // Since Task 15 the FIR extension is registered at checks=off too, so the
+        // per-compilation SingleRunOracle is no longer empty here (contract verdicts
+        // are recorded eagerly). The name-list branch is still what this pins: for
+        // kotlin scope functions the IR walker consults KineticaFramePolicy BEFORE the
+        // oracle, so numbering `run { state {} }` proves the shared name lists alone
+        // classify it single-run.
         harness.compile(
             mapOf(
                 "app/Main.kt" to """
@@ -406,8 +407,11 @@ class KineticaIrFrameCompileTest {
     }
 
     @Test
-    fun multiRunLambdaSlotCallsFailFastWhenChecksAreOff() {
-        harness.compile(
+    fun multiRunLambdaSlotCallsFailCompileWhenChecksAreOff() {
+        // S1: rule F is a soundness rule, so checks=off no longer removes it — a slot
+        // call in a multi-run lambda fails the compile in every mode. (The IR walker
+        // still refuses to number such lambdas, as defense-in-depth.)
+        val messages = harness.compileExpectingErrors(
             mapOf(
                 "app/Main.kt" to """
                     package app
@@ -433,28 +437,20 @@ class KineticaIrFrameCompileTest {
                 """,
             ),
             checks = "off",
-        ).use { compiled ->
-            val runtime = KineticaRuntime()
-            val scope = ComponentScope(runtime)
-            val failure = assertFailsWith<java.lang.reflect.InvocationTargetException> {
-                compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope)
-            }
-            val cause = failure.cause
-            assertTrue(
-                cause is MissingKineticaPluginException,
-                "slot calls in multi-run lambdas must fail fast, got: $cause",
-            )
-            assertTrue(
-                cause.message.orEmpty().startsWith(
-                    "A Kinetica derived ran without a compiler-assigned ordinal.",
-                ),
-                "the fail-fast message must identify the untransformed construct: ${cause.message}",
-            )
-        }
+        )
+
+        messages.assertContainsError(
+            "Kinetica call 'derived' cannot use a compiler-assigned ordinal inside the multi-run 'List' lambda",
+        )
     }
 
     @Test
     fun multiRunComponentTypedHelperFailsFastWhenChecksAreOff() {
+        // Still COMPILES at every checks mode, S1 included: the rule-F walk ends at the
+        // component-typed lambda boundary and post-F1 the wrapper call itself consumes
+        // no ordinal, so FIR has nothing to reject — while IR never descends into the
+        // multi-run forEach lambda to wrap the content. The runtime fail-fast below is
+        // the only guard for this shape today (known gap, see the ⚠️ note on Task 15).
         harness.compile(
             mapOf(
                 "app/Main.kt" to """
@@ -510,6 +506,10 @@ class KineticaIrFrameCompileTest {
         // F3 probe: a helper that invokes its @UiComponent content twice gets ONE static
         // FrameTable for the lambda literal; the runtime must fork the region frame on
         // re-entry so the two invocations cannot alias state cells or event ordinals.
+        // The cells live in a child component (slot calls directly inside the content
+        // lambda are a rule A error in every checks mode since S1): each fork stages
+        // child ordinal 0 in its own region frame, so without the fork the invocations
+        // would resolve the same child frame and alias.
         harness.compile(
             mapOf(
                 "app/Main.kt" to """
@@ -532,13 +532,18 @@ class KineticaIrFrameCompileTest {
                     }
 
                     @UiComponent(skippable = false)
+                    fun ComponentScope.Cell() {
+                        val id = state { nextId++ }
+                        val clicks = state { 0 }
+                        val click = hostEvent(onEvent = { clicks.value = clicks.value + 1 })
+                        host("button", props = mapOf("event:onClick" to click))
+                        text("cell" + id.value + "=" + clicks.value)
+                    }
+
+                    @UiComponent(skippable = false)
                     fun ComponentScope.Fan() {
                         twice {
-                            val id = state { nextId++ }
-                            val clicks = state { 0 }
-                            val click = hostEvent(onEvent = { clicks.value = clicks.value + 1 })
-                            host("button", props = mapOf("event:onClick" to click))
-                            text("cell" + id.value + "=" + clicks.value)
+                            Cell()
                         }
                     }
 
@@ -574,6 +579,10 @@ class KineticaIrFrameCompileTest {
 
     @Test
     fun componentContentParametersWrapInsideComponentBodies() {
+        // The content lambda calls a child component rather than the slot DSL directly:
+        // slot calls inside component-typed lambdas are a rule A error in every checks
+        // mode since S1. The wrap is still what this pins — an unwrapped content lambda
+        // would leave Inner() unstaged and crash instead of rendering "inner-state".
         harness.compile(
             mapOf(
                 "app/Main.kt" to """
@@ -593,10 +602,15 @@ class KineticaIrFrameCompileTest {
                     }
 
                     @UiComponent(skippable = false)
+                    fun ComponentScope.Inner() {
+                        val inner = state { "inner-state" }
+                        text(inner.value)
+                    }
+
+                    @UiComponent(skippable = false)
                     fun ComponentScope.Outer() {
                         Shell {
-                            val inner = state { "inner-state" }
-                            text(inner.value)
+                            Inner()
                         }
                     }
 
@@ -616,14 +630,17 @@ class KineticaIrFrameCompileTest {
     }
 
     @Test
-    fun unstagedComponentCallThrowsMissingPlugin() {
-        harness.compile(
+    fun rawComponentCallOutsideComponentsFailsCompileWhenChecksAreOff() {
+        // Rule B is a soundness rule — an unstaged raw call crashes at first render —
+        // so since S1 the shape fails the compile in every checks mode. The runtime
+        // missing-plugin backstop still exists, but only bytecode compiled WITHOUT the
+        // plugin can reach it now.
+        val messages = harness.compileExpectingErrors(
             mapOf(
                 "app/Main.kt" to """
                     package app
 
                     import io.heapy.kinetica.ComponentScope
-                    import io.heapy.kinetica.KineticaRuntime
                     import io.heapy.kinetica.UiComponent
                     import io.heapy.kinetica.text
 
@@ -637,17 +654,12 @@ class KineticaIrFrameCompileTest {
                     }
                 """,
             ),
-        ).use { compiled ->
-            val callRaw = compiled.loadClass("app.MainKt").getDeclaredMethod("callRaw", ComponentScope::class.java)
-            val scope = ComponentScope(KineticaRuntime())
-            val failure = assertFailsWith<java.lang.reflect.InvocationTargetException> {
-                callRaw.invoke(null, scope)
-            }
-            assertTrue(
-                failure.cause is MissingKineticaPluginException,
-                "raw component calls must hit the missing-plugin backstop, got: ${failure.cause}",
-            )
-        }
+            checks = "off",
+        )
+
+        messages.assertContainsError(
+            "@UiComponent function 'Badge' can only be called from a @UiComponent function",
+        )
     }
 
     @Test
@@ -772,11 +784,11 @@ class KineticaIrFrameCompileTest {
     }
 
     @Test
-    fun deferredHandlerSlotCallsFailFastWhenChecksAreOff() {
-        // F4 IR alignment: the walker no longer numbers slot calls inside deferred
-        // handler lambdas, so at checks=off the handler fails fast at dispatch time
-        // instead of silently sharing one root-frame ordinal across components.
-        harness.compile(
+    fun deferredHandlerSlotCallsFailCompileWhenChecksAreOff() {
+        // F4 + S1: deferred handler lambdas are multi-run, and checks=off keeps rule F
+        // active — the handler's slot call fails the compile instead of failing fast at
+        // dispatch time.
+        val messages = harness.compileExpectingErrors(
             mapOf(
                 "app/Main.kt" to """
                     package app
@@ -799,27 +811,19 @@ class KineticaIrFrameCompileTest {
                 """,
             ),
             checks = "off",
-        ).use { compiled ->
-            val runtime = KineticaRuntime()
-            val scope = ComponentScope(runtime)
-            val tree = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope)
-            val eventId = tree.collectHostEventIds().single()
-            val failure = assertFailsWith<MissingKineticaPluginException> {
-                runtime.dispatch(eventId)
-            }
-            assertTrue(
-                failure.message.orEmpty().startsWith("A Kinetica state ran without a compiler-assigned ordinal."),
-                "the fail-fast message must identify the untransformed construct: ${failure.message}",
-            )
-        }
+        )
+
+        messages.assertContainsError(
+            "Kinetica call 'state' cannot use a compiler-assigned ordinal inside the multi-run 'button' lambda",
+        )
     }
 
     @Test
-    fun eachKeySelectorSlotCallsFailFastWhenChecksAreOff() {
-        // F5 IR alignment: key selectors are not numbered, so at checks=off the selector
-        // fails fast instead of borrowing the enclosing region's counters and collapsing
-        // every item onto the first item's key (duplicate-key crash).
-        harness.compile(
+    fun eachKeySelectorSlotCallsFailCompileWhenChecksAreOff() {
+        // F5 + S1: key selectors are multi-run, and checks=off keeps rule F active —
+        // the selector's slot call fails the compile instead of collapsing every item
+        // onto one key at runtime.
+        val messages = harness.compileExpectingErrors(
             mapOf(
                 "app/Main.kt" to """
                     package app
@@ -844,27 +848,19 @@ class KineticaIrFrameCompileTest {
                 """,
             ),
             checks = "off",
-        ).use { compiled ->
-            val runtime = KineticaRuntime()
-            val scope = ComponentScope(runtime)
-            val failure = assertFailsWith<java.lang.reflect.InvocationTargetException> {
-                compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope)
-            }
-            val cause = failure.cause
-            assertTrue(
-                cause is MissingKineticaPluginException,
-                "slot calls in key selectors must fail fast, got: $cause",
-            )
-        }
+        )
+
+        messages.assertContainsError(
+            "multi-run 'each' lambda",
+        )
     }
 
     @Test
-    fun valStoredLambdaSlotCallsFailFastWhenChecksAreOff() {
-        // F6 IR alignment: the walker no longer descends into lambda literals stored in
-        // variables (they are not call arguments, so no single-run verdict can exist),
-        // so at checks=off the stored row lambda fails fast on its state call instead of
-        // aliasing slot 0 of the enclosing region across every invocation.
-        harness.compile(
+    fun valStoredLambdaSlotCallsFailCompileWhenChecksAreOff() {
+        // F6 + S1: a val-stored lambda is an unknown-run host, and checks=off keeps
+        // rule F active — the stored row lambda's slot call fails the compile instead
+        // of failing fast at render.
+        val messages = harness.compileExpectingErrors(
             mapOf(
                 "app/Main.kt" to """
                     package app
@@ -890,28 +886,11 @@ class KineticaIrFrameCompileTest {
                 """,
             ),
             checks = "off",
-        ).use { compiled ->
-            val runtime = KineticaRuntime()
-            val scope = ComponentScope(runtime)
-            val failure = assertFailsWith<java.lang.reflect.InvocationTargetException> {
-                compiled.invokeRender(
-                    "app.MainKt",
-                    "render",
-                    List::class.java to listOf(10, 20, 30),
-                    runtime = runtime,
-                    scope = scope,
-                )
-            }
-            val cause = failure.cause
-            assertTrue(
-                cause is MissingKineticaPluginException,
-                "slot calls in stored lambdas must fail fast, got: $cause",
-            )
-            assertTrue(
-                cause.message.orEmpty().startsWith("A Kinetica state ran without a compiler-assigned ordinal."),
-                "the fail-fast message must identify the untransformed construct: ${cause.message}",
-            )
-        }
+        )
+
+        messages.assertContainsError(
+            "multi-run 'row' lambda",
+        )
     }
 
     @Test
@@ -973,8 +952,10 @@ class KineticaIrFrameCompileTest {
     // (checks=error rejections) live in KineticaFirCheckerTest.
 
     @Test
-    fun deriveComputeSlotCallsFailFastWhenChecksAreOff() {
-        harness.compile(
+    fun deriveComputeSlotCallsFailCompileWhenChecksAreOff() {
+        // F12 + S1: derive's compute lambda re-runs reactively, and checks=off keeps
+        // rule F active — the review probe is a compile error in every mode.
+        val messages = harness.compileExpectingErrors(
             mapOf(
                 "app/Main.kt" to """
                     package app
@@ -1001,32 +982,18 @@ class KineticaIrFrameCompileTest {
                 """,
             ),
             checks = "off",
-        ).use { compiled ->
-            // IR verdict: nothing inside the compute lambda was numbered (Fan itself has
-            // no direct slots), matching FIR's multi-run rejection at checks=error.
-            compiled.assertTransformFired("app.Fan: framed (slots=0,")
-            val runtime = KineticaRuntime()
-            val scope = ComponentScope(runtime)
-            val failure = assertFailsWith<java.lang.reflect.InvocationTargetException> {
-                compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope)
-            }
-            val cause = failure.cause
-            assertTrue(
-                cause is MissingKineticaPluginException,
-                "slot calls in derive's compute lambda must fail fast, got: $cause",
-            )
-            assertTrue(
-                cause.message.orEmpty().startsWith(
-                    "A Kinetica state ran without a compiler-assigned ordinal.",
-                ),
-                "the fail-fast message must identify the untransformed construct: ${cause.message}",
-            )
-        }
+        )
+
+        messages.assertContainsError(
+            "multi-run 'derive' lambda",
+        )
     }
 
     @Test
-    fun invalidatePredicateStaysUnnumberedWhenChecksAreOff() {
-        harness.compile(
+    fun invalidatePredicateOrdinalConsumersFailCompileWhenChecksAreOff() {
+        // F12 + S1: invalidate's predicate runs per cached key at invalidation time,
+        // and checks=off keeps rule F active — its slot call fails the compile.
+        val messages = harness.compileExpectingErrors(
             mapOf(
                 "app/Main.kt" to """
                     package app
@@ -1057,20 +1024,18 @@ class KineticaIrFrameCompileTest {
                 """,
             ),
             checks = "off",
-        ).use { compiled ->
-            // Only Fan's own state is numbered; slots=2 would mean IR descended into the
-            // invalidate predicate the FIR checker rejects at checks=error.
-            compiled.assertTransformFired("app.Fan: framed (slots=1,")
-            val runtime = KineticaRuntime()
-            val scope = ComponentScope(runtime)
-            val tree = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toString()
-            assertTrue("count=0" in tree, "the numbered state outside the predicate must render: $tree")
-        }
+        )
+
+        messages.assertContainsError(
+            "multi-run 'invalidate' lambda",
+        )
     }
 
     @Test
-    fun serverActionStubHandlerStaysUnnumberedWhenChecksAreOff() {
-        harness.compile(
+    fun serverActionStubHandlerOrdinalConsumersFailCompileWhenChecksAreOff() {
+        // F12 + S1: serverActionStub's handler runs per server-action dispatch, and
+        // checks=off keeps rule F active — its slot call fails the compile.
+        val messages = harness.compileExpectingErrors(
             mapOf(
                 "app/Main.kt" to """
                     package app
@@ -1106,16 +1071,11 @@ class KineticaIrFrameCompileTest {
                 """,
             ),
             checks = "off",
-        ).use { compiled ->
-            // Only Fan's own state is numbered; slots=2 would mean IR descended into the
-            // dispatch handler the FIR checker rejects at checks=error.
-            compiled.assertTransformFired("app.Fan: framed (slots=1,")
-            val runtime = KineticaRuntime()
-            val scope = ComponentScope(runtime)
-            val tree = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toString()
-            assertTrue("count=0" in tree, "the numbered state outside the handler must render: $tree")
-            assertTrue("action=bump" in tree, "the stub value itself must stay usable: $tree")
-        }
+        )
+
+        messages.assertContainsError(
+            "multi-run 'serverActionStub' lambda",
+        )
     }
 
     private fun Node.toDebugString(): String = toString()
@@ -1124,6 +1084,14 @@ class KineticaIrFrameCompileTest {
         is FragmentNode -> children.flatMap { it.collectHostEventIds() }
         is HostNode -> listOfNotNull(props["event:onClick"]) + children.flatMap { it.collectHostEventIds() }
         else -> emptyList()
+    }
+
+    private fun List<RecordedCompilerMessage>.assertContainsError(needle: String) {
+        assertTrue(
+            any { it.severity.isError && needle in it.message },
+            "Expected an error containing '$needle'. Messages:\n" +
+                joinToString("\n") { "${it.severity}: ${it.message}" },
+        )
     }
 
     private fun privateField(instance: Any, name: String): Any? =
