@@ -432,17 +432,40 @@
 - Modify: `kinetica-compiler/test/KineticaFirCheckerTest.kt`
 - Modify: `kinetica-compiler/test/KineticaIrFrameCompileTest.kt`
 
-- [ ] write failing test from the review probe: `val row: (Int) -> Unit = { i -> state { i } ... }`
+- [x] write failing test from the review probe: `val row: (Int) -> Unit = { i -> state { i } ... }`
       invoked from `forEach` — currently compiles clean and aliases slot 0 across
       invocations; must become a FIR error at `checks=error`
-- [ ] FIR: treat a lambda that is not a resolved call argument (local `val`, property,
+      (probe ported verbatim as `valStoredLambdaWithOrdinalConsumersIsReported`, red
+      before the fix; the checks=off IR probe
+      `valStoredLambdaSlotCallsFailFastWhenChecksAreOff` reproduced the review's
+      aliased "state=10 on every row" rendering verbatim pre-fix and now fails fast
+      with MissingKineticaPluginException — the only possible coverage for the IR
+      gate, since at checks=error FIR blocks compilation)
+- [x] FIR: treat a lambda that is not a resolved call argument (local `val`, property,
       vararg element) as an unknown-run host — ordinal consumers inside it are errors;
       make `findLambdaHost` returning null flag instead of `continue`, and unwrap
       `FirVarargArgumentsExpression`
-- [ ] IR: gate `visitVariable` descent the same way `transformArgumentsSelectively`
+      (note: reports through the existing CALL_IN_MULTI_RUN_LAMBDA factory — no new
+      factory, advice wording is Task 16 territory; the host label is the storing
+      property's name via nearest-outward `FirProperty`, generic "stored" fallback.
+      The vararg unwrap lives inside `findLambdaHost`, so all four callers — rule-F
+      walk, loop boundary, region-content and component-typed classification — see
+      vararg elements identically; pinned by the vararg probe asserting host
+      'fanOut', which the stored-lambda fallback alone would not produce)
+- [x] IR: gate `visitVariable` descent the same way `transformArgumentsSelectively`
       gates call arguments — never assign ordinals inside non-argument lambdas
-- [ ] write positive test: a `val` lambda with no ordinal consumers still compiles
-- [ ] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 8
+      (note: gates on `IrFunctionExpression` initializers, the narrow mechanism the
+      plan names; rarer non-argument positions — var reassignment, return-position
+      or branch lambdas — stay FIR-rejected only, until Task 15 makes soundness
+      rules non-disableable at checks=off)
+- [x] write positive test: a `val` lambda with no ordinal consumers still compiles
+      (`valStoredLambdaWithoutOrdinalConsumersCompiles` — the stored lambda contains
+      emit-only Kinetica DSL (`text`), pinning that the rule keys on ordinal
+      consumers, not on any Kinetica call in a stored lambda)
+- [x] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 8
+      (109/109 green: 105 prior + 4 new; consumer scan over val/var-stored lambda
+      literals in runtime/persist/test/browser/bench/samples found none containing
+      ordinal consumers, so no new Task 19 fallout expected)
 
 ### Task 8: Reject non-literal @UiComponent content arguments (F8, extends rule C)
 

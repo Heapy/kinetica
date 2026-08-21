@@ -858,6 +858,62 @@ class KineticaIrFrameCompileTest {
         }
     }
 
+    @Test
+    fun valStoredLambdaSlotCallsFailFastWhenChecksAreOff() {
+        // F6 IR alignment: the walker no longer descends into lambda literals stored in
+        // variables (they are not call arguments, so no single-run verdict can exist),
+        // so at checks=off the stored row lambda fails fast on its state call instead of
+        // aliasing slot 0 of the enclosing region across every invocation.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.ValLambdaFan(items: List<Int>) {
+                        val row: (Int) -> Unit = { i ->
+                            val s = state { i }
+                            text("row=" + i + " state=" + s.value)
+                        }
+                        items.forEach { row(it) }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope, items: List<Int>): Node =
+                        runtime.render(scope) { ValLambdaFan(items) }.tree
+                """,
+            ),
+            checks = "off",
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val failure = assertFailsWith<java.lang.reflect.InvocationTargetException> {
+                compiled.invokeRender(
+                    "app.MainKt",
+                    "render",
+                    List::class.java to listOf(10, 20, 30),
+                    runtime = runtime,
+                    scope = scope,
+                )
+            }
+            val cause = failure.cause
+            assertTrue(
+                cause is MissingKineticaPluginException,
+                "slot calls in stored lambdas must fail fast, got: $cause",
+            )
+            assertTrue(
+                cause.message.orEmpty().startsWith("A Kinetica state ran without a compiler-assigned ordinal."),
+                "the fail-fast message must identify the untransformed construct: ${cause.message}",
+            )
+        }
+    }
+
     private fun Node.toDebugString(): String = toString()
 
     private fun Node.collectHostEventIds(): List<String> = when (this) {

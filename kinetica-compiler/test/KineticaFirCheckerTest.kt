@@ -1234,6 +1234,94 @@ class KineticaFirCheckerTest {
         )
     }
 
+    @Test
+    fun valStoredLambdaWithOrdinalConsumersIsReported() {
+        // F6 probe: a lambda stored in a local val is not a resolved call argument, so
+        // no run-count contract can exist for it — the IR walker never numbers inside
+        // it, while every invocation would otherwise alias the enclosing region's slot 0
+        // (review: rendered "state=10" for all three rows).
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.ValLambdaFan(items: List<Int>) {
+                        val row: (Int) -> Unit = { i ->
+                            val s = state { i }
+                            text("row=" + i + " state=" + s.value)
+                        }
+                        items.forEach { row(it) }
+                    }
+                """,
+            ),
+        )
+
+        messages.assertSingleErrorEquals(multiRunMessage("state", "row"))
+    }
+
+    @Test
+    fun varargLambdaElementWithOrdinalConsumersIsReported() {
+        // F6: vararg lambda elements hide behind FirVarargArgumentsExpression; the host
+        // walk must unwrap them so the lambda still resolves to its callee. The exact
+        // host name pins the unwrap — without it the lambda would report the generic
+        // stored-lambda label instead of 'fanOut'.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+
+                    fun fanOut(vararg blocks: (Int) -> Unit) {
+                        blocks.forEach { it(0) }
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Fan() {
+                        fanOut({ i -> state { i }.value })
+                    }
+                """,
+            ),
+        )
+
+        messages.assertSingleErrorEquals(multiRunMessage("state", "fanOut"))
+    }
+
+    @Test
+    fun valStoredLambdaWithoutOrdinalConsumersCompiles() {
+        // Positive side of F6: storing a lambda stays legal while nothing inside it
+        // consumes a compiler-assigned ordinal — including emit-only Kinetica DSL such
+        // as text, which needs no numbering.
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Rows(items: List<Int>) {
+                        val row: (Int) -> Unit = { i ->
+                            text("row=" + i)
+                        }
+                        items.forEach { row(it) }
+                    }
+                """,
+            ),
+            checks = "error",
+        ).close()
+    }
+
     /**
      * IR verdict of a drift probe: the frame pass numbered the construct (framed message,
      * no decline-to-transform bail-out) and the slots are real (rendering does not throw
