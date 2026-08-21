@@ -59,9 +59,9 @@ import org.jetbrains.kotlin.name.Name
  * F. Ordinal-consuming calls cannot sit in arbitrary multi-run lambdas. Kinetica DSL
  *    content and Kotlin's single-run scope functions share the enclosing frame safely.
  */
-internal val KINETICA_PACKAGE: FqName = FqName("io.heapy.kinetica")
+internal val KINETICA_PACKAGE: FqName = KineticaFramePolicy.KINETICA_PACKAGE
 internal val UI_COMPONENT_CLASS_ID: ClassId = ClassId(KINETICA_PACKAGE, Name.identifier("UiComponent"))
-internal val COMPONENT_SCOPE_CLASS_ID: ClassId = ClassId(KINETICA_PACKAGE, Name.identifier("ComponentScope"))
+internal val COMPONENT_SCOPE_CLASS_ID: ClassId = KineticaFramePolicy.COMPONENT_SCOPE_CLASS_ID
 
 /** Runtime DSL calls that consume slot or event ordinals. */
 private val SLOT_DSL_NAMES = setOf(
@@ -74,22 +74,10 @@ private val SLOT_DSL_NAMES = setOf(
 /** Region constructs that disambiguate loop iterations by user key (allowed in loops). */
 private val LOOP_SAFE_REGION_NAMES = setOf("keyed", "suspendKeyed", "each", "lazyEach")
 
-/** Region constructs whose function-typed content arguments must be literal lambdas. */
-private val REGION_CONTENT_PARAMETERS = mapOf(
-    "keyed" to setOf("content"),
-    "suspendKeyed" to setOf("content"),
-    "each" to setOf("content"),
-    "lazyEach" to setOf("content", "placeholder"),
-    "errorBoundary" to setOf("content", "fallback"),
-    "loadingBoundary" to setOf("content", "fallback"),
-    "suspendSubtree" to setOf("content", "fallback"),
-    "exitGroup" to setOf("content"),
-)
-
-private val REGION_CONSTRUCT_NAMES = REGION_CONTENT_PARAMETERS.keys
-private val KOTLIN_PACKAGE: FqName = FqName("kotlin")
-private val SINGLE_RUN_SCOPE_FUNCTIONS = setOf("let", "run", "with", "apply", "also")
-private val SINGLE_RUN_KINETICA_FUNCTIONS = setOf("peek")
+// Region tables and single-run tables live in KineticaFramePolicy, shared with the IR
+// frame pass, so the checker's predictions can never drift from what IR actually numbers.
+private val REGION_CONTENT_PARAMETERS = KineticaFramePolicy.REGION_CONTENT_PARAMETERS
+private val REGION_CONSTRUCT_NAMES = KineticaFramePolicy.REGION_CONSTRUCT_NAMES
 private val OPTIONAL_EVENT_PARAMETERS = mapOf(
     "button" to setOf("onClick"),
     "textInput" to setOf("onInput", "onSubmit"),
@@ -279,10 +267,12 @@ private fun FirValueParameter.hasUiComponentFunctionType(): Boolean =
 
 private fun FirCallableSymbol<*>.isKineticaDsl(): Boolean {
     val callableId = callableId ?: return false
-    return callableId.packageName == KINETICA_PACKAGE &&
-        (callableId.classId == COMPONENT_SCOPE_CLASS_ID ||
-            (callableId.classId == null &&
-                resolvedReceiverTypeRef?.coneType?.classId == COMPONENT_SCOPE_CLASS_ID))
+    return KineticaFramePolicy.isKineticaDsl(
+        containerFqName = callableId.classId?.asSingleFqName() ?: callableId.packageName,
+        hasComponentScopeExtensionReceiver = callableId.classId == null &&
+            resolvedReceiverTypeRef?.coneType?.classId == COMPONENT_SCOPE_CLASS_ID,
+        name = callableId.callableName.asString(),
+    )
 }
 
 private fun FirExpression.isDefinitelyNonNull(session: FirSession): Boolean =
@@ -373,8 +363,10 @@ private data class LambdaHost(
     fun isKnownSingleRun(): Boolean {
         if (callee.isKineticaDsl()) return true
         val callableId = callee.callableId ?: return false
-        return callableId.packageName == KOTLIN_PACKAGE && name in SINGLE_RUN_SCOPE_FUNCTIONS ||
-            callableId.packageName == KINETICA_PACKAGE && name in SINGLE_RUN_KINETICA_FUNCTIONS
+        return KineticaFramePolicy.isSingleRunScopeFunction(
+            containerFqName = callableId.classId?.asSingleFqName() ?: callableId.packageName,
+            name = name,
+        )
     }
 }
 

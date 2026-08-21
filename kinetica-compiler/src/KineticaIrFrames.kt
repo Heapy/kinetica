@@ -160,17 +160,9 @@ private val SLOT_DSL_TRANSIENT = mapOf(
 
 private val EVENT_DSL_NAMES = setOf("button", "textInput", "checkbox", "hostEvent", "hostEventBlock")
 
-/** Region constructs and the parameter names of their fresh-region content lambdas. */
-private val REGION_CONTENT_PARAMS = mapOf(
-    "keyed" to setOf("content"),
-    "suspendKeyed" to setOf("content"),
-    "each" to setOf("content"),
-    "lazyEach" to setOf("content", "placeholder"),
-    "errorBoundary" to setOf("content", "fallback"),
-    "loadingBoundary" to setOf("content", "fallback"),
-    "suspendSubtree" to setOf("content", "fallback"),
-    "exitGroup" to setOf("content"),
-)
+// The region table and the Kinetica/single-run lambda classification live in
+// KineticaFramePolicy, shared with the FIR checker, so the two phases cannot drift.
+private val REGION_CONTENT_PARAMS = KineticaFramePolicy.REGION_CONTENT_PARAMETERS
 
 private val MERGED_EACH_REGION_NAMES = setOf("each", "lazyEach")
 
@@ -178,11 +170,9 @@ private val MERGED_EACH_REGION_NAMES = setOf("each", "lazyEach")
 private val REGION_STATE_SLOTS = setOf("errorBoundary", "loadingBoundary", "suspendSubtree")
 
 private val UI_COMPONENT_FQ = FqName("io.heapy.kinetica.UiComponent")
-private val KOTLIN_PKG = FqName("kotlin")
-private val SINGLE_RUN_SCOPE_FUNCTIONS = setOf("let", "run", "with", "apply", "also")
-private val COMPONENT_SCOPE_FQ = FqName("io.heapy.kinetica.ComponentScope")
+private val COMPONENT_SCOPE_FQ = KineticaFramePolicy.COMPONENT_SCOPE_FQ
 private val EVENT_SCOPE_FQ = FqName("io.heapy.kinetica.EventScope")
-private val KINETICA_PKG = FqName("io.heapy.kinetica")
+private val KINETICA_PKG = KineticaFramePolicy.KINETICA_PACKAGE
 
 internal class KineticaFrameTransformer(
     private val file: IrFile,
@@ -256,8 +246,12 @@ internal class KineticaFrameTransformer(
             val callee = expression.symbol.owner
             val calleeFqName = callee.kotlinFqName
             val parent = calleeFqName.parentOrNull()
-            val inKinetica = parent == KINETICA_PKG || parent == COMPONENT_SCOPE_FQ
             val name = calleeFqName.shortName().asString()
+            val inKinetica = KineticaFramePolicy.isKineticaDsl(
+                containerFqName = parent,
+                hasComponentScopeExtensionReceiver = callee.hasComponentScopeExtensionReceiver(),
+                name = name,
+            )
 
             if (inKinetica && name in REGION_CONTENT_PARAMS) {
                 return transformRegion(expression, name)
@@ -481,8 +475,10 @@ internal class KineticaFrameTransformer(
          * else keeps the legacy positional path (its cursors advance per invocation).
          */
         private fun transformArgumentsSelectively(expression: IrCall, inKinetica: Boolean, parent: FqName?) {
-            val descendIntoLambdas = inKinetica || parent == KOTLIN_PKG &&
-                expression.symbol.owner.name.asString() in SINGLE_RUN_SCOPE_FUNCTIONS
+            val descendIntoLambdas = inKinetica || KineticaFramePolicy.isSingleRunScopeFunction(
+                containerFqName = parent,
+                name = expression.symbol.owner.name.asString(),
+            )
             val callee = expression.symbol.owner
             for (parameter in callee.parameters) {
                 val argument = expression.arguments[parameter.indexInParameters] ?: continue
@@ -709,6 +705,10 @@ internal class KineticaFrameTransformer(
 
 private fun IrSimpleFunction.isUiComponent(): Boolean =
     annotations.any { it.type.classOrNull?.owner?.kotlinFqName == UI_COMPONENT_FQ }
+
+private fun IrSimpleFunction.hasComponentScopeExtensionReceiver(): Boolean =
+    parameters.firstOrNull { it.kind == IrParameterKind.ExtensionReceiver }
+        ?.type?.classOrNull?.owner?.kotlinFqName == COMPONENT_SCOPE_FQ
 
 private fun FqName.parentOrNull(): FqName? = if (isRoot) null else parent()
 
