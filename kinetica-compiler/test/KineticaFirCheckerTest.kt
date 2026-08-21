@@ -208,6 +208,33 @@ class KineticaFirCheckerTest {
     }
 
     @Test
+    fun ruleD_componentCallInLoopIsReported() {
+        harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.TextNode
+                    import io.heapy.kinetica.UiComponent
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        emit(TextNode(value = "badge"))
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Rows() {
+                        for (index in 0..1) {
+                            Badge()
+                        }
+                    }
+                """,
+            ),
+        ).assertContainsError("'Badge' must not be called directly inside a loop")
+    }
+
+    @Test
     fun ruleE_componentWithoutScopeReceiverIsReported() {
         harness.compileExpectingErrors(
             mapOf(
@@ -368,8 +395,12 @@ class KineticaFirCheckerTest {
     }
 
     @Test
-    fun multiRunCallWithComponentTypedLambdaArgumentIsReported() {
-        val messages = harness.compileExpectingErrors(
+    fun multiRunCallWithComponentTypedLambdaArgumentCompiles() {
+        // F1: a content-wrapper helper is not an ordinal consumer. IR wraps its
+        // @UiComponent-typed lambda literal into one static FrameTable and numbers
+        // nothing on the call itself; region re-entry forking keeps repeated
+        // invocations independent at runtime.
+        harness.compile(
             mapOf(
                 "main.kt" to """
                     package app
@@ -396,9 +427,69 @@ class KineticaFirCheckerTest {
                     }
                 """,
             ),
-        )
+            checks = "error",
+        ).close()
+    }
 
-        messages.assertSingleErrorEquals(multiRunMessage("helper", "forEach"))
+    @Test
+    fun renderEntryPointInsideRepeatCompilesAndRuns() {
+        // F1 probe (review: RuntimeSmokeSlotsTest repeat host): an entry point such as
+        // KineticaRuntime.render merely receives @UiComponent content — IR numbers zero
+        // ordinals for the call, so a multi-run host around it is sound.
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.text
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node {
+                        var tree: Node? = null
+                        repeat(2) {
+                            tree = runtime.render(scope) { text("x") }.tree
+                        }
+                        return tree!!
+                    }
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val tree = compiled.invokeRender("app.MainKt", "render").toString()
+            assertTrue("x" in tree, "Expected rendered text in: $tree")
+        }
+    }
+
+    @Test
+    fun renderEntryPointInsideAssertFailsWithCompiles() {
+        // F1 probe. Emulates the downstream assertFailsWith { KineticaTest.render { } }
+        // idiom with KineticaRuntime.render (kinetica-test is not on this harness
+        // classpath); the F1 shape is identical: an entry point receiving @UiComponent
+        // content inside a lambda with no single-run verdict.
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.text
+                    import kotlin.test.assertFailsWith
+
+                    fun probe(runtime: KineticaRuntime, scope: ComponentScope) {
+                        assertFailsWith<IllegalStateException> {
+                            runtime.render(scope) {
+                                text("boom")
+                                error("boom")
+                            }
+                        }
+                    }
+                """,
+            ),
+            checks = "error",
+        ).close()
     }
 
     @Test
