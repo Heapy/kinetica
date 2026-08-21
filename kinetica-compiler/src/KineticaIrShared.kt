@@ -60,9 +60,25 @@ internal fun constPropsOf(
     return values.chunked(2).map { (name, value) -> name to value }
 }
 
+/**
+ * Where the next generated file-level static goes in `file.declarations`. Generated
+ * statics must precede every user declaration: appending them left a top-level property
+ * whose initializer renders (or reaches a render through a helper) running FIRST in the
+ * file's `<clinit>`, reading a still-null frame table. Claiming a rising index instead of
+ * always inserting at 0 keeps generated statics in generation order among themselves —
+ * load-bearing, because a hoisted host node's initializer reads the props field generated
+ * just before it. One cursor per file, shared by every transformer writing to that file.
+ */
+internal class FileStaticsCursor {
+    private var nextIndex = 0
+
+    fun claim(): Int = nextIndex++
+}
+
 internal fun addStaticFileField(
     file: IrFile,
     pluginContext: IrPluginContext,
+    statics: FileStaticsCursor,
     name: Name,
     type: IrType,
     initializer: (DeclarationIrBuilder) -> IrExpression,
@@ -96,7 +112,7 @@ internal fun addStaticFileField(
         initializer(fieldBuilder),
     )
     if (eagerInitialization == null) {
-        file.declarations += field
+        file.declarations.add(statics.claim(), field)
         return field
     }
     val property = pluginContext.irFactory.buildProperty {
@@ -113,7 +129,7 @@ internal fun addStaticFileField(
         eagerInitialization.owner.defaultType,
         eagerInitialization.constructors.first(),
     )
-    file.declarations += property
+    file.declarations.add(statics.claim(), property)
     return field
 }
 

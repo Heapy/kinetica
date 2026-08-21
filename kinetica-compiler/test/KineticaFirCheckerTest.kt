@@ -1096,6 +1096,165 @@ class KineticaFirCheckerTest {
     }
 
     @Test
+    fun componentContentWrapperInMultiRunLambdaNestedInContentIsReported() {
+        // One more content lambda around the Task-15 shape re-opened the gap verbatim:
+        // containment classified the site COMPONENT_TYPED_LAMBDA, not COMPONENT_BODY, yet
+        // the content is numbered by the GATED walker (buildFreshRegionTableOf), which
+        // never descends into forEach. What decides is the numbering ROOT, not the
+        // innermost boundary.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.TextNode
+                    import io.heapy.kinetica.UiComponent
+
+                    fun ComponentScope.helper(
+                        content: @UiComponent ComponentScope.() -> Unit,
+                    ) {
+                        content()
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        emit(TextNode(value = "badge"))
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Fan() {
+                        helper { listOf(1, 2).forEach { helper { Badge() } } }
+                    }
+                """,
+            ),
+        )
+
+        messages.assertSingleErrorEquals(componentContentInMultiRunMessage("helper", "forEach"))
+    }
+
+    @Test
+    fun componentContentWrapperInMultiRunLambdaInsideLocalFunctionIsReported() {
+        // A local function inside a component body is walked by the same gated walker,
+        // so the gap survives there too — while containment reports OUTSIDE (the nearest
+        // named function is the local one).
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.TextNode
+                    import io.heapy.kinetica.UiComponent
+
+                    fun ComponentScope.helper(
+                        content: @UiComponent ComponentScope.() -> Unit,
+                    ) {
+                        content()
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        emit(TextNode(value = "badge"))
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Fan() {
+                        fun ComponentScope.rows() {
+                            listOf(1, 2).forEach { helper { Badge() } }
+                        }
+                        rows()
+                    }
+                """,
+            ),
+        )
+
+        messages.assertSingleErrorEquals(componentContentInMultiRunMessage("helper", "forEach"))
+    }
+
+    @Test
+    fun componentContentWrapperInMultiRunNestedInEntryContentCompilesAndRenders() {
+        // The same doubly-nested shape rooted OUTSIDE a component: the ungated entry pass
+        // wraps content bottom-up before the gated walk of the entry lambda ever runs, so
+        // this must stay legal — and actually render.
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    fun ComponentScope.helper(
+                        content: @UiComponent ComponentScope.() -> Unit,
+                    ) {
+                        content()
+                    }
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Badge(label: String) {
+                        text("badge:" + label)
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) {
+                            helper { listOf("a", "b").forEach { helper { Badge(it) } } }
+                        }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val tree = compiled.invokeRender("app.MainKt", "render").toString()
+            assertTrue("badge:a" in tree && "badge:b" in tree, "entry content must render both rows: $tree")
+        }
+    }
+
+    @Test
+    fun nestedComponentContentWrappersInComponentBodyCompileAndRender() {
+        // Without a multi-run lambda in between, the gated walker wraps each nested
+        // content in turn: nesting alone must not trip the widened rule.
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    fun ComponentScope.helper(
+                        content: @UiComponent ComponentScope.() -> Unit,
+                    ) {
+                        content()
+                    }
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Badge() {
+                        text("badge")
+                    }
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Fan() {
+                        helper { helper { Badge() } }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Fan() }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val tree = compiled.invokeRender("app.MainKt", "render").toString()
+            assertTrue("badge" in tree, "nested content wrappers must render: $tree")
+        }
+    }
+
+    @Test
     fun componentContentWrapperInEntryContentCompiles() {
         // Outside component bodies the entry-point pass wraps content arguments
         // ungated (it descends into loops and multi-run lambdas alike), so the same
@@ -2965,6 +3124,350 @@ class KineticaFirCheckerTest {
         }
         assertEquals(first, second, "slots must be reused, not re-initialized, across renders")
     }
+
+    @Test
+    fun annotatedOverrideOfUnannotatedBaseIsReported() {
+        // IR frames by the annotation on the declaration itself, while the call site
+        // stages by the annotation on the declaration it RESOLVES to. An annotated
+        // override of an unannotated base is therefore framed but never staged:
+        // compile-clean, MissingKineticaPluginException at first render.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    abstract class Panel {
+                        abstract fun ComponentScope.Render()
+                    }
+
+                    class Screen : Panel() {
+                        @UiComponent
+                        override fun ComponentScope.Render() {
+                            text("screen")
+                        }
+                    }
+                """,
+            ),
+        )
+
+        messages.assertSingleErrorEquals(
+            overrideMismatchMessage(
+                "Render",
+                "is annotated @UiComponent while the declaration it overrides in 'app.Panel' is not",
+            ),
+        )
+    }
+
+    @Test
+    fun unannotatedOverrideOfAnnotatedBaseIsReported() {
+        // The mirror image: the call stages a child ordinal the unannotated override's
+        // body never consumes, leaving a stale entry on the ordinal stack.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    abstract class Panel {
+                        @UiComponent
+                        abstract fun ComponentScope.Render()
+                    }
+
+                    class Screen : Panel() {
+                        override fun ComponentScope.Render() {
+                            text("screen")
+                        }
+                    }
+                """,
+            ),
+        )
+
+        messages.assertSingleErrorEquals(
+            overrideMismatchMessage(
+                "Render",
+                "overrides the @UiComponent declaration in 'app.Panel' without being annotated itself",
+            ),
+        )
+    }
+
+    @Test
+    fun annotatedOverrideOfUnannotatedInterfaceMemberIsReported() {
+        // Interface members with a default implementation share the identical root cause:
+        // the annotation lives on the resolved symbol, not on the override chain.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    interface Panel {
+                        fun ComponentScope.Render() {
+                            text("base")
+                        }
+                    }
+
+                    class Screen : Panel {
+                        @UiComponent
+                        override fun ComponentScope.Render() {
+                            text("screen")
+                        }
+                    }
+                """,
+            ),
+        )
+
+        messages.assertSingleErrorEquals(
+            overrideMismatchMessage(
+                "Render",
+                "is annotated @UiComponent while the declaration it overrides in 'app.Panel' is not",
+            ),
+        )
+    }
+
+    @Test
+    fun overrideChainAnnotatedOnEveryLevelCompilesAndRenders() {
+        // The sanctioned shape: annotate every declaration in the chain. Both the frame
+        // prologue and the staging site then agree, so the component renders.
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    abstract class Panel {
+                        @UiComponent(skippable = false)
+                        abstract fun ComponentScope.Render()
+                    }
+
+                    class Screen : Panel() {
+                        @UiComponent(skippable = false)
+                        override fun ComponentScope.Render() {
+                            text("screen")
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node {
+                        val panel: Panel = Screen()
+                        return runtime.render(scope) { with(panel) { Render() } }.tree
+                    }
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val tree = compiled.invokeRender("app.MainKt", "render").toString()
+            assertTrue("screen" in tree, "agreeing override chain must render: $tree")
+        }
+    }
+
+    @Test
+    fun slotCallInComponentDefaultArgumentIsReported() {
+        // Neither IR pass walks IrValueParameter.defaultValue, and a default is evaluated
+        // in the $default stub BEFORE beginComponentFrame runs — no frame exists to number
+        // it into. The ordinal stays -1 and 'state' throws from Card$default.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.MutableCell
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Card(counter: MutableCell<Int> = state { 0 }) {
+                        text("card:" + counter.value)
+                    }
+                """,
+            ),
+        )
+
+        messages.assertSingleErrorEquals(defaultArgumentMessage("state"))
+    }
+
+    @Test
+    fun componentCallInComponentDefaultArgumentIsReported() {
+        // Same hole through rule B's door: a component call in a default is never staged,
+        // and containment classifies the default expression as the component's own body.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        text("badge")
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Card(marker: Unit = Badge()) {
+                        text("card")
+                    }
+                """,
+            ),
+        )
+
+        messages.assertSingleErrorEquals(defaultArgumentMessage("Badge"))
+    }
+
+    @Test
+    fun entryContentInComponentDefaultArgumentStaysLegal() {
+        // A default that only opens its own render root consumes no ordinal of the
+        // enclosing component: the content lambda is frame-wrapped at its literal site,
+        // so the rule must stop at the component-typed lambda boundary.
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        text("badge")
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Card(
+                        runtime: KineticaRuntime,
+                        preview: Node = runtime.render(ComponentScope(runtime)) { Badge() }.tree,
+                    ) {
+                        text("card:" + preview)
+                    }
+                """,
+            ),
+            checks = "error",
+        ).close()
+    }
+
+    @Test
+    fun callableReferenceToComponentIsReported() {
+        // IR stages a child frame ordinal only from visitCall, never from
+        // IrFunctionReference, and the reference binds to a plain (unannotated) function
+        // type — so the later invoke is not a component call and Badge's framed body finds
+        // an empty ordinal stack. Nobody checked FirCallableReferenceAccess before.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        text("badge")
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Fan() {
+                        val reference: ComponentScope.() -> Unit = ComponentScope::Badge
+                        this.reference()
+                    }
+                """,
+            ),
+        )
+
+        messages.assertContainsError(componentReferenceMessage("Badge"))
+    }
+
+    @Test
+    fun callableReferenceToComponentOutsideComponentIsReported() {
+        // The reference is unsound wherever it is taken: no call site means no staging,
+        // whoever invokes the resulting function value later.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        text("badge")
+                    }
+
+                    val hoisted: ComponentScope.() -> Unit = ComponentScope::Badge
+                """,
+            ),
+        )
+
+        messages.assertSingleErrorEquals(componentReferenceMessage("Badge"))
+    }
+
+    @Test
+    fun callableReferenceToPlainFunctionStaysLegal() {
+        // Only @UiComponent targets are rejected: plain function references carry no
+        // staging obligation.
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    fun ComponentScope.plain() {
+                        text("plain")
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Fan() {
+                        val reference: ComponentScope.() -> Unit = ComponentScope::plain
+                        this.reference()
+                    }
+                """,
+            ),
+            checks = "error",
+        ).close()
+    }
+
+    private fun componentReferenceMessage(name: String): String =
+        "@UiComponent function '$name' cannot be used as a callable reference: the compiler " +
+            "stages a component's child frame ordinal at the call site, and a reference has no " +
+            "call site to stage. Call it directly, or pass a @UiComponent-typed lambda literal " +
+            "({ $name() }) instead."
+
+    private fun defaultArgumentMessage(call: String): String =
+        "Kinetica call '$call' cannot use a compiler-assigned ordinal in a default argument " +
+            "value: the default is evaluated before the component's frame is entered, so the " +
+            "compiler never numbers it. Move the call into the component body (for example " +
+            "make the parameter nullable and compute the fallback there)."
+
+    private fun overrideMismatchMessage(name: String, detail: String): String =
+        "@UiComponent must agree across an override chain: '$name' $detail. " +
+            "The compiler frames a component by the annotation on its own declaration and " +
+            "stages the child ordinal by the annotation on the declaration the call resolves " +
+            "to, so a mismatch throws MissingKineticaPluginException at first render or " +
+            "leaves a staged ordinal unconsumed. Annotate every declaration in the chain, or none."
 
     private fun multiRunMessage(call: String, host: String): String =
         "Kinetica call '$call' cannot use a compiler-assigned ordinal inside the multi-run '$host' lambda. " +
