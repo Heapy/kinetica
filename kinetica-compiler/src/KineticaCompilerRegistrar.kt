@@ -30,14 +30,19 @@ public fun CompilerPluginRegistrar.ExtensionStorage.registerKineticaCompilerExte
             KineticaProcessSourcesExtension(pluginConfiguration),
         )
     }
+    // One oracle per compilation, shared by the FIR checker (writer) and the IR frame
+    // pass (reader): FIR's callsInPlace verdicts tell IR exactly which lambdas to number.
+    // Never a global — one JVM (compile daemon, test suite) runs many compilations.
+    val singleRunOracle = SingleRunOracle()
     if (pluginConfiguration.checks != "off") {
-        FirExtensionRegistrarAdapter.registerExtension(KineticaFirExtensionRegistrar())
+        FirExtensionRegistrarAdapter.registerExtension(KineticaFirExtensionRegistrar(singleRunOracle))
     }
     if (pluginConfiguration.transforms) {
         IrGenerationExtension.registerExtension(
             KineticaIrGenerationExtension(
                 configuration.get(CommonConfigurationKeys.MESSAGE_COLLECTOR_KEY, MessageCollector.NONE),
                 pluginConfiguration,
+                singleRunOracle,
             ),
         )
     }

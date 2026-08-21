@@ -206,29 +206,48 @@
 - Modify: `kinetica-compiler/src/KineticaCompilerRegistrar.kt`
 - Modify: `kinetica-compiler/src/KineticaFirExtension.kt`
 - Modify: `kinetica-compiler/src/KineticaIrFrames.kt`
+- Modify: `kinetica-compiler/src/KineticaIrTransform.kt` (oracle threaded through
+  `KineticaIrGenerationExtension` into the frame transformer)
+- Modify: `kinetica-compiler/src/KineticaFramePolicy.kt` (`runCatching` joined the
+  shared single-run name list — see note below)
 - Modify: `kinetica-compiler/test/KineticaFirCheckerTest.kt`
 - Modify: `kinetica-compiler/test/KineticaIrFrameCompileTest.kt`
 
-- [ ] write failing tests from the review probes: `runCatching { state { 2 } }`,
+- [x] write failing tests from the review probes: `runCatching { state { 2 } }`,
       `flag.takeIf { state { 3 }.value > 0 }`, and a user-defined
       `inline fun <R> mySection(block: () -> R): R` with a
       `callsInPlace(block, EXACTLY_ONCE)` contract — all must compile clean at
       `checks=error` AND render correctly (IR must number them)
-- [ ] implement contract resolution in FIR: `EXACTLY_ONCE`/`AT_MOST_ONCE` → single-run
+      (note: stdlib 2.4.10 declares NO contract on `runCatching`, so it compiles clean
+      through the shared name-list fallback in `KineticaFramePolicy` — semantically a
+      `try` block — not through contract resolution; `takeIf` and the user contracts
+      go through the oracle; an `AT_MOST_ONCE` user-contract probe was added too)
+- [x] implement contract resolution in FIR: `EXACTLY_ONCE`/`AT_MOST_ONCE` → single-run
       verdict recorded in the oracle; `AT_LEAST_ONCE`/`UNKNOWN`/no contract → record
       nothing, so the callee falls through to `KineticaFramePolicy` name lists on BOTH
       sides (`let`/`run`/`with`/`apply`/`also` must never regress to errors if
       contract resolution fails)
-- [ ] add `SingleRunOracle`: constructed per compilation inside
+      (note: verdicts are recorded eagerly in `check()` for every call carrying a
+      lambda literal — NOT inside the rule-F walk — so oracle coverage never depends
+      on `consumesCompilerOrdinal`, which Task 4 narrows; `isKnownSingleRun` re-derives
+      the contract verdict purely and never reads the oracle, so checker traversal
+      order cannot matter. stdlib fact: `repeat` declares `callsInPlace(action)` with
+      UNKNOWN kind, not AT_LEAST_ONCE — same no-entry bucket, no behavior change)
+- [x] add `SingleRunOracle`: constructed per compilation inside
       `registerExtensions`, passed to both extensions, concurrent map, keyed by
       `CallableId`; callees with a null `callableId` get no entry — assert in a test
       that both sides then agree via the name-list fallback
-- [ ] keep behavior for no-contract hosts (`forEach`, `map`, `repeat`) unchanged —
+      (note: the key also includes the regular-value-parameter count so overloads
+      sharing a `CallableId` cannot collide on a common parameter name like `block`;
+      the null-`callableId` agreement is pinned by the local-function-host test —
+      local functions are unaddressable on the IR side and stay FIR errors)
+- [x] keep behavior for no-contract hosts (`forEach`, `map`, `repeat`) unchanged —
       add regression tests asserting they are still multi-run
-- [ ] write the fallback test at the oracle level (not tied to `checks` mode, which
+- [x] write the fallback test at the oracle level (not tied to `checks` mode, which
       Task 15 changes): an empty oracle must make IR use the name lists —
       `run { state { } }` still numbers correctly
-- [ ] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 3
+- [x] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 3
+      (91/91 green: 84 prior + 7 new)
 
 ### Task 3: Runtime — fork region frames on re-entry within one render (F3)
 

@@ -13,9 +13,11 @@ import org.jetbrains.kotlin.ir.builders.irInt
 import org.jetbrains.kotlin.ir.builders.irNull
 import org.jetbrains.kotlin.ir.builders.irString
 import org.jetbrains.kotlin.ir.builders.irVararg
+import org.jetbrains.kotlin.ir.declarations.IrClass
 import org.jetbrains.kotlin.ir.declarations.IrField
 import org.jetbrains.kotlin.ir.declarations.IrFile
 import org.jetbrains.kotlin.ir.declarations.IrLocalDelegatedProperty
+import org.jetbrains.kotlin.ir.declarations.IrPackageFragment
 import org.jetbrains.kotlin.ir.declarations.IrParameterKind
 import org.jetbrains.kotlin.ir.declarations.IrSimpleFunction
 import org.jetbrains.kotlin.ir.declarations.IrValueParameter
@@ -34,6 +36,7 @@ import org.jetbrains.kotlin.ir.symbols.IrSimpleFunctionSymbol
 import org.jetbrains.kotlin.ir.types.IrType
 import org.jetbrains.kotlin.ir.types.classOrNull
 import org.jetbrains.kotlin.ir.types.makeNullable
+import org.jetbrains.kotlin.ir.util.classId
 import org.jetbrains.kotlin.ir.util.constructors
 import org.jetbrains.kotlin.ir.util.defaultType
 import org.jetbrains.kotlin.ir.util.fqNameWhenAvailable
@@ -180,6 +183,7 @@ internal class KineticaFrameTransformer(
     private val symbols: KineticaFrameSymbols,
     private val moduleId: String,
     private val report: (String) -> Unit,
+    private val singleRunOracle: SingleRunOracle,
 ) {
     var componentsFramed: Int = 0
         private set
@@ -471,18 +475,24 @@ internal class KineticaFrameTransformer(
          * Static ordinals are only sound for code that runs at most once per render of its
          * frame. Lambdas passed to arbitrary functions (List(n) { … }, repeat, map) can run
          * any number of times, so the walker descends only into lambdas whose single-run
-         * contract is known: Kinetica DSL content and the kotlin scope functions. Everything
-         * else keeps the legacy positional path (its cursors advance per invocation).
+         * contract is known: Kinetica DSL content, the shared name-list scope functions,
+         * and parameters whose `callsInPlace(…, EXACTLY_ONCE / AT_MOST_ONCE)` contract the
+         * FIR checker recorded in the per-compilation [SingleRunOracle]. Everything else
+         * keeps the legacy positional path (its cursors advance per invocation).
          */
         private fun transformArgumentsSelectively(expression: IrCall, inKinetica: Boolean, parent: FqName?) {
-            val descendIntoLambdas = inKinetica || KineticaFramePolicy.isSingleRunScopeFunction(
-                containerFqName = parent,
-                name = expression.symbol.owner.name.asString(),
-            )
             val callee = expression.symbol.owner
+            val singleRunByName = inKinetica || KineticaFramePolicy.isSingleRunScopeFunction(
+                containerFqName = parent,
+                name = callee.name.asString(),
+            )
+            val oracleKey = if (singleRunByName) null else callee.callableIdOrNull()
+            val regularParameterCount = callee.parameters.count { it.kind == IrParameterKind.Regular }
             for (parameter in callee.parameters) {
                 val argument = expression.arguments[parameter.indexInParameters] ?: continue
-                if (argument is IrFunctionExpression && !descendIntoLambdas) {
+                if (argument is IrFunctionExpression && !singleRunByName &&
+                    !singleRunOracle.isSingleRun(oracleKey, regularParameterCount, parameter.name.asString())
+                ) {
                     continue
                 }
                 expression.arguments[parameter.indexInParameters] = argument.transform(this, null)
@@ -709,6 +719,18 @@ private fun IrSimpleFunction.isUiComponent(): Boolean =
 private fun IrSimpleFunction.hasComponentScopeExtensionReceiver(): Boolean =
     parameters.firstOrNull { it.kind == IrParameterKind.ExtensionReceiver }
         ?.type?.classOrNull?.owner?.kotlinFqName == COMPONENT_SCOPE_FQ
+
+/**
+ * The [CallableId] this function is recorded under in the SingleRunOracle, or null for
+ * local (and otherwise unaddressable) functions — which therefore never get oracle
+ * entries and are covered by the name-list fallback on both compiler phases.
+ */
+private fun IrSimpleFunction.callableIdOrNull(): CallableId? =
+    when (val parent = parent) {
+        is IrClass -> parent.classId?.let { CallableId(it, name) }
+        is IrPackageFragment -> CallableId(parent.packageFqName, name)
+        else -> null
+    }
 
 private fun FqName.parentOrNull(): FqName? = if (isRoot) null else parent()
 

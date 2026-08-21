@@ -706,6 +706,239 @@ class KineticaFirCheckerTest {
         }
     }
 
+    // Contract-based single-run hosts (F13): single-run detection derives from Kotlin
+    // contracts (callsInPlace EXACTLY_ONCE / AT_MOST_ONCE) resolved in FIR and carried
+    // to the IR pass through the per-compilation SingleRunOracle. Callees without a
+    // usable contract fall through to the shared KineticaFramePolicy name lists.
+
+    @Test
+    fun runCatchingLambdaHostCompilesAndNumbersOrdinals() {
+        // stdlib 2.4.10 declares NO contract on runCatching; it is single-run through the
+        // shared name-list fallback (semantically a try block) — on BOTH compiler phases.
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Catcher() {
+                        runCatching {
+                            val id = state { nextId++ }
+                            text("caught=" + id.value)
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Catcher() }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            compiled.assertIrNumberedAndRendersStably("caught=0")
+        }
+    }
+
+    @Test
+    fun takeIfContractLambdaHostCompilesAndNumbersOrdinals() {
+        // takeIf declares callsInPlace(predicate, EXACTLY_ONCE): FIR resolves the contract
+        // and the oracle makes IR descend into the predicate lambda.
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Gate(flag: Boolean) {
+                        flag.takeIf {
+                            val id = state { nextId++ }
+                            text("gate=" + id.value)
+                            it
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Gate(true) }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            compiled.assertIrNumberedAndRendersStably("gate=0")
+        }
+    }
+
+    @Test
+    fun userExactlyOnceContractHostCompilesAndNumbersOrdinals() {
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+                    import kotlin.contracts.ExperimentalContracts
+                    import kotlin.contracts.InvocationKind
+                    import kotlin.contracts.contract
+
+                    @OptIn(ExperimentalContracts::class)
+                    inline fun <R> mySection(block: () -> R): R {
+                        contract { callsInPlace(block, InvocationKind.EXACTLY_ONCE) }
+                        return block()
+                    }
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Sectioned() {
+                        mySection {
+                            val id = state { nextId++ }
+                            text("section=" + id.value)
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Sectioned() }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            compiled.assertIrNumberedAndRendersStably("section=0")
+        }
+    }
+
+    @Test
+    fun userAtMostOnceContractHostCompilesAndNumbersOrdinals() {
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+                    import kotlin.contracts.ExperimentalContracts
+                    import kotlin.contracts.InvocationKind
+                    import kotlin.contracts.contract
+
+                    @OptIn(ExperimentalContracts::class)
+                    inline fun <R> guarded(enabled: Boolean, block: () -> R): R? {
+                        contract { callsInPlace(block, InvocationKind.AT_MOST_ONCE) }
+                        return if (enabled) block() else null
+                    }
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Guarded() {
+                        guarded(true) {
+                            val id = state { nextId++ }
+                            text("guarded=" + id.value)
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Guarded() }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            compiled.assertIrNumberedAndRendersStably("guarded=0")
+        }
+    }
+
+    @Test
+    fun noContractHostsRemainMultiRun() {
+        // forEach and map declare nothing; repeat declares callsInPlace(action) with an
+        // UNKNOWN occurrence range. None yields an oracle entry, so all three fall through
+        // to the name lists and stay multi-run errors.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+
+                    @UiComponent
+                    fun ComponentScope.Fan() {
+                        listOf(1).forEach { item ->
+                            val a = state { item }
+                            a.value
+                        }
+                        listOf(1).map { item ->
+                            val b = state { item }
+                            b.value
+                        }
+                        repeat(1) { index ->
+                            val c = state { index }
+                            c.value
+                        }
+                    }
+                """,
+            ),
+        )
+
+        messages.assertErrorMessages(
+            multiRunMessage("state", "forEach"),
+            multiRunMessage("state", "map"),
+            multiRunMessage("state", "repeat"),
+        )
+    }
+
+    @Test
+    fun localFunctionHostStaysMultiRunViaNameListFallback() {
+        // A local function cannot get a SingleRunOracle entry (no stable CallableId on the
+        // IR side), so both phases must agree via the name-list fallback: FIR rejects the
+        // host, and IR never numbers inside it. The compile error is that agreement.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+
+                    @UiComponent
+                    fun ComponentScope.Fan() {
+                        fun localSection(block: () -> Unit) = block()
+                        localSection {
+                            val id = state { 0 }
+                            id.value
+                        }
+                    }
+                """,
+            ),
+        )
+
+        messages.assertSingleErrorEquals(multiRunMessage("state", "localSection"))
+    }
+
     /**
      * IR verdict of a drift probe: the frame pass numbered the construct (framed message,
      * no decline-to-transform bail-out) and the slots are real (rendering does not throw
