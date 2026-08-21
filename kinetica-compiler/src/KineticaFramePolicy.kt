@@ -38,6 +38,39 @@ internal object KineticaFramePolicy {
     val REGION_CONSTRUCT_NAMES: Set<String> = REGION_CONTENT_PARAMETERS.keys
 
     /**
+     * Lambda parameters of Kinetica DSL functions that never run inline during the render
+     * pass that numbers them. Deferred handlers (event dispatch, post-commit effects,
+     * async loaders) execute arbitrarily often when `currentFrame` is no longer the
+     * numbering frame, and the per-item `key` selectors of `each`/`lazyEach` run once per
+     * item while numbered with the ENCLOSING region's counters. An ordinal consumer
+     * inside one of these lambdas aliases state or crashes at runtime, so FIR rejects it
+     * (rule F) and the IR walker never assigns ordinals inside the lambda. Every OTHER
+     * Kinetica DSL lambda parameter (region content, inline content such as `button`'s
+     * `content`, slot initializers) shares the enclosing frame and stays single-run.
+     */
+    val MULTI_RUN_DSL_PARAMETERS: Map<String, Set<String>> = mapOf(
+        "event" to setOf("block"),
+        "hostEvent" to setOf("onEvent"),
+        "hostEventBlock" to setOf("block"),
+        "launchEffect" to setOf("block"),
+        "layoutEffect" to setOf("block"),
+        "watch" to setOf("source", "block"),
+        "action" to setOf("invalidates", "block"),
+        "resource" to setOf("loader"),
+        "button" to setOf("onClick"),
+        "textInput" to setOf("onInput", "onSubmit"),
+        "checkbox" to setOf("onToggle"),
+        "each" to setOf("key"),
+        "lazyEach" to setOf("key"),
+        "eachRegion" to setOf("key"),
+        "lazyEachRegion" to setOf("key"),
+    )
+
+    /** Whether [parameterName] of the Kinetica DSL function [calleeName] is multi-run. */
+    fun isMultiRunDslParameter(calleeName: String, parameterName: String): Boolean =
+        MULTI_RUN_DSL_PARAMETERS[calleeName]?.contains(parameterName) == true
+
+    /**
      * `kotlin` package functions whose lambdas run at most once, in place. This is the
      * shared FALLBACK for callees without a usable `callsInPlace` contract verdict (the
      * contract-derived verdicts travel FIR→IR through `SingleRunOracle` instead).

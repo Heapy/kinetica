@@ -387,19 +387,42 @@
 - Modify: `kinetica-compiler/test/KineticaFirCheckerTest.kt`
 - Modify: `kinetica-compiler/test/KineticaIrFrameCompileTest.kt`
 
-- [ ] write failing tests from the review probes: `state { }` inside `button(onClick = { ... })`
+- [x] write failing tests from the review probes: `state { }` inside `button(onClick = { ... })`
       / `launchEffect` / `watch` / `action` must be a FIR error (deferred handlers are
       multi-run); `state { }` inside the `each(items, key = { ... })` key selector must
       be a FIR error (numbered with enclosing counters → duplicate-key crash)
-- [ ] remove the blanket `if (callee.isKineticaDsl()) return true` from
+      (note: probes cover the full F4 handler set — button/textInput/checkbox handlers,
+      `event`, `hostEvent`, `hostEventBlock`, `launchEffect`, `layoutEffect`, `watch`
+      source AND block, `action`, `resource` loader — plus `each`/`lazyEach` key
+      selectors; all four negative probes were red before the fix, the checks=off
+      key-selector IR probe reproducing the review's `Duplicate key: a` crash verbatim)
+- [x] remove the blanket `if (callee.isKineticaDsl()) return true` from
       `isKnownSingleRun`; classify per (callee, parameter) via `KineticaFramePolicy`:
       region content params single-run, deferred handler params multi-run, key
       selectors multi-run
-- [ ] align IR: stop numbering slot calls inside key selectors and deferred handler
+      (note: implemented as `KineticaFramePolicy.MULTI_RUN_DSL_PARAMETERS` +
+      `isMultiRunDslParameter(callee, parameter)`; unlisted Kinetica DSL params stay
+      single-run, so `row`/`peek`/`provide`/button `content` behave exactly as before;
+      `state` initializers and `derived` compute lambdas stay single-run — reactive
+      reclassification is Task 14 territory)
+- [x] align IR: stop numbering slot calls inside key selectors and deferred handler
       lambdas (they must fail FIR, not get unsound ordinals)
-- [ ] write positive tests: slot calls directly in region content lambdas
+      (note: `transformArgumentsSelectively` skips lambda-LITERAL args of multi-run
+      params and `transformRegion`'s non-content loop skips the key selector; `IrCall`
+      arguments in handler position — `onClick = event { … }` — still transform, so
+      the hostEventBlock fusion keeps its event ordinal; at checks=off both shapes now
+      fail fast with MissingKineticaPluginException instead of aliasing/duplicate-key,
+      pinned by two new checks=off IR tests)
+- [x] write positive tests: slot calls directly in region content lambdas
       (`each` item content, `keyed` content) still compile and number correctly
-- [ ] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 7
+      (new `deferredHandlersAndRegionContentCompileAndDispatchAtChecksError` pins a
+      consumer-free `onClick` dispatching + `each` content + `keyed` content numbering
+      stably across renders at checks=error; Task 1's `firAndIrAgreeOn*` drift tests
+      keep covering region content on their own)
+- [x] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 7
+      (105/105 green: 100 prior + 5 new; consumer scan found no slot calls inside
+      handlers or key selectors in runtime/persist/test/bench/samples, so no new
+      Task 19 fallout expected)
 
 ### Task 7: Close the val-stored-lambda hole (F6)
 

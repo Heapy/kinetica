@@ -385,11 +385,19 @@ internal class KineticaFrameTransformer(
                 }
             }
 
-            // Non-content arguments share this region's counters.
+            // Non-content arguments share this region's counters — except lambda literals
+            // bound to multi-run parameters (the each/lazyEach key selector): those run
+            // per item outside this region's numbering and must fail FIR, not get unsound
+            // ordinals from the enclosing counters (F5).
             val callee = expression.symbol.owner
             for (parameter in callee.parameters) {
                 val argument = expression.arguments[parameter.indexInParameters] ?: continue
                 if (parameter.kind == IrParameterKind.Regular && parameter.name.asString() in contentParams) continue
+                if (argument is IrFunctionExpression &&
+                    KineticaFramePolicy.isMultiRunDslParameter(name, parameter.name.asString())
+                ) {
+                    continue
+                }
                 expression.arguments[parameter.indexInParameters] = argument.transform(this, null)
             }
 
@@ -475,25 +483,33 @@ internal class KineticaFrameTransformer(
          * Static ordinals are only sound for code that runs at most once per render of its
          * frame. Lambdas passed to arbitrary functions (List(n) { … }, repeat, map) can run
          * any number of times, so the walker descends only into lambdas whose single-run
-         * contract is known: Kinetica DSL content, the shared name-list scope functions,
-         * and parameters whose `callsInPlace(…, EXACTLY_ONCE / AT_MOST_ONCE)` contract the
-         * FIR checker recorded in the per-compilation [SingleRunOracle]. Everything else
-         * keeps the legacy positional path (its cursors advance per invocation).
+         * contract is known: Kinetica DSL content (classified per parameter — deferred
+         * handler lambdas and key selectors are multi-run, see
+         * [KineticaFramePolicy.MULTI_RUN_DSL_PARAMETERS]), the shared name-list scope
+         * functions, and parameters whose `callsInPlace(…, EXACTLY_ONCE / AT_MOST_ONCE)`
+         * contract the FIR checker recorded in the per-compilation [SingleRunOracle].
+         * Everything else keeps the legacy positional path (its cursors advance per
+         * invocation).
          */
         private fun transformArgumentsSelectively(expression: IrCall, inKinetica: Boolean, parent: FqName?) {
             val callee = expression.symbol.owner
-            val singleRunByName = inKinetica || KineticaFramePolicy.isSingleRunScopeFunction(
+            val name = callee.name.asString()
+            val singleRunScopeFunction = KineticaFramePolicy.isSingleRunScopeFunction(
                 containerFqName = parent,
-                name = callee.name.asString(),
+                name = name,
             )
-            val oracleKey = if (singleRunByName) null else callee.callableIdOrNull()
+            val oracleKey = if (inKinetica || singleRunScopeFunction) null else callee.callableIdOrNull()
             val regularParameterCount = callee.parameters.count { it.kind == IrParameterKind.Regular }
             for (parameter in callee.parameters) {
                 val argument = expression.arguments[parameter.indexInParameters] ?: continue
-                if (argument is IrFunctionExpression && !singleRunByName &&
-                    !singleRunOracle.isSingleRun(oracleKey, regularParameterCount, parameter.name.asString())
-                ) {
-                    continue
+                if (argument is IrFunctionExpression) {
+                    val parameterName = parameter.name.asString()
+                    val singleRun = when {
+                        inKinetica -> !KineticaFramePolicy.isMultiRunDslParameter(name, parameterName)
+                        singleRunScopeFunction -> true
+                        else -> singleRunOracle.isSingleRun(oracleKey, regularParameterCount, parameterName)
+                    }
+                    if (!singleRun) continue
                 }
                 expression.arguments[parameter.indexInParameters] = argument.transform(this, null)
             }

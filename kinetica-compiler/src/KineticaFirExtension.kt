@@ -436,7 +436,13 @@ private data class LambdaHost(
     }
 
     fun isKnownSingleRun(): Boolean {
-        if (callee.isKineticaDsl()) return true
+        // Kinetica DSL is classified per (callee, parameter), not blanket-whitelisted:
+        // region content and inline content lambdas share the enclosing frame, while
+        // deferred handlers and the each/lazyEach key selectors never run inline in the
+        // numbering frame (F4, F5) — IR does not number inside them either.
+        if (callee.isKineticaDsl()) {
+            return !KineticaFramePolicy.isMultiRunDslParameter(name, parameter.name.asString())
+        }
         // Contract verdict first: callsInPlace(…, EXACTLY_ONCE / AT_MOST_ONCE) proves the
         // parameter single-run. This predicate stays pure (it re-derives the verdict, it
         // never reads the oracle) so checker traversal order cannot matter; the oracle is

@@ -695,6 +695,169 @@ class KineticaIrFrameCompileTest {
         }
     }
 
+    @Test
+    fun deferredHandlersAndRegionContentCompileAndDispatchAtChecksError() {
+        // F4/F5 positive side: handlers without ordinal consumers stay legal and still
+        // register their events, and slot calls directly in region content lambdas keep
+        // compiling and numbering correctly next to a (multi-run) plain key selector.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.button
+                    import io.heapy.kinetica.each
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Panel(items: List<String>) {
+                        val count = state { 0 }
+                        button(onClick = { count.value = count.value + 1 }) {
+                            text("clicks=" + count.value)
+                        }
+                        each(items, key = { it }) { item ->
+                            val id = state { nextId++ }
+                            text(item + "=" + id.value)
+                        }
+                        keyed("footer") {
+                            val id = state { nextId++ }
+                            text("footer=" + id.value)
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope, items: List<String>): Node =
+                        runtime.render(scope) { Panel(items) }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val items = listOf("a", "b")
+            val first = compiled.invokeRender(
+                "app.MainKt",
+                "render",
+                List::class.java to items,
+                runtime = runtime,
+                scope = scope,
+            )
+            val firstText = first.toDebugString()
+            assertTrue("clicks=0" in firstText, "initial click count must render: $firstText")
+            assertTrue(
+                "a=0" in firstText && "b=1" in firstText && "footer=2" in firstText,
+                "region content slots must number correctly: $firstText",
+            )
+
+            runtime.dispatch(first.collectHostEventIds().single())
+            val second = compiled.invokeRender(
+                "app.MainKt",
+                "render",
+                List::class.java to items,
+                runtime = runtime,
+                scope = scope,
+            ).toDebugString()
+            assertTrue("clicks=1" in second, "dispatched handler must update the cell: $second")
+            assertTrue(
+                "a=0" in second && "b=1" in second && "footer=2" in second,
+                "region content slots must be reused across renders: $second",
+            )
+        }
+    }
+
+    @Test
+    fun deferredHandlerSlotCallsFailFastWhenChecksAreOff() {
+        // F4 IR alignment: the walker no longer numbers slot calls inside deferred
+        // handler lambdas, so at checks=off the handler fails fast at dispatch time
+        // instead of silently sharing one root-frame ordinal across components.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.button
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Panel() {
+                        button(onClick = { state { "handler" }.value }) { text("b") }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Panel() }.tree
+                """,
+            ),
+            checks = "off",
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val tree = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope)
+            val eventId = tree.collectHostEventIds().single()
+            val failure = assertFailsWith<MissingKineticaPluginException> {
+                runtime.dispatch(eventId)
+            }
+            assertTrue(
+                failure.message.orEmpty().startsWith("A Kinetica state ran without a compiler-assigned ordinal."),
+                "the fail-fast message must identify the untransformed construct: ${failure.message}",
+            )
+        }
+    }
+
+    @Test
+    fun eachKeySelectorSlotCallsFailFastWhenChecksAreOff() {
+        // F5 IR alignment: key selectors are not numbered, so at checks=off the selector
+        // fails fast instead of borrowing the enclosing region's counters and collapsing
+        // every item onto the first item's key (duplicate-key crash).
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.each
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Rows() {
+                        each(listOf("a", "b", "c"), key = { item -> state { item }.value }) { item ->
+                            text(item)
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Rows() }.tree
+                """,
+            ),
+            checks = "off",
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val failure = assertFailsWith<java.lang.reflect.InvocationTargetException> {
+                compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope)
+            }
+            val cause = failure.cause
+            assertTrue(
+                cause is MissingKineticaPluginException,
+                "slot calls in key selectors must fail fast, got: $cause",
+            )
+        }
+    }
+
     private fun Node.toDebugString(): String = toString()
 
     private fun Node.collectHostEventIds(): List<String> = when (this) {
