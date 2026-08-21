@@ -158,6 +158,156 @@ class KineticaFirCheckerTest {
     }
 
     @Test
+    fun ruleC_hoistedComponentContentArgumentIsReported() {
+        // F8 probe: content hoisted into a local val bypasses IR's literal-only wrapping
+        // (wrapAnnotatedContentArgumentsOf), so Badge() is never staged and the first
+        // render throws MissingKineticaPluginException. Must be a compile error instead.
+        harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.TextNode
+                    import io.heapy.kinetica.UiComponent
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        emit(TextNode(value = "badge"))
+                    }
+
+                    fun main(runtime: KineticaRuntime) {
+                        val content: @UiComponent ComponentScope.() -> Unit = { Badge() }
+                        listOf(1, 2).forEach { runtime.render(content) }
+                    }
+                """,
+            ),
+        ).assertContainsError("must be a lambda literal")
+    }
+
+    @Test
+    fun ruleC_localFunctionRenderWrapperCompiles() {
+        // The findings' F8 mirror image: wrapping the entry-point render in a nested
+        // local fun used to compile only by accident (multiRunLambdaHost stopped at the
+        // FirNamedFunction). After Task 4, entry points are not ordinal consumers, so
+        // this compiles for a deliberate reason — pinned here. The content stays a
+        // lambda literal at the render call, so IR wraps it normally.
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.TextNode
+                    import io.heapy.kinetica.UiComponent
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        emit(TextNode(value = "badge"))
+                    }
+
+                    fun entry(runtime: KineticaRuntime, scope: ComponentScope) {
+                        fun render() = runtime.render(scope) { Badge() }
+                        listOf(1, 2).forEach { render() }
+                    }
+                """,
+            ),
+            checks = "error",
+        ).close()
+    }
+
+    @Test
+    fun ruleC_literalComponentContentArgumentsCompile() {
+        // Literal content lambdas are exactly what IR wraps — entry points and user
+        // content-wrapper helpers taking literals must stay unaffected by the F8 rule.
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.TextNode
+                    import io.heapy.kinetica.UiComponent
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        emit(TextNode(value = "badge"))
+                    }
+
+                    fun runContent(scope: ComponentScope, content: @UiComponent ComponentScope.() -> Unit) {
+                        scope.content()
+                    }
+
+                    fun entry(runtime: KineticaRuntime, scope: ComponentScope) {
+                        runtime.render(scope) { Badge() }
+                        runContent(scope) { Badge() }
+                    }
+                """,
+            ),
+            checks = "error",
+        ).close()
+    }
+
+    @Test
+    fun ruleC_forwardedContentValuesRemainAllowed() {
+        // Sound forwarding shapes the framework itself relies on (KineticaRuntime.render
+        // single-arg overload, HeadlessTestRoot, EachKeyedFlagTest): the value arriving
+        // at a @UiComponent-typed parameter was frame-wrapped at its literal site, so a
+        // read of a value parameter or a non-local property must stay allowed. Only the
+        // locally hoisted lambda (F8 probe) is provably never wrapped.
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.TextNode
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        emit(TextNode(value = "badge"))
+                    }
+
+                    // Value-parameter forward, annotated to annotated (KineticaRuntime.render shape).
+                    fun forward(runtime: KineticaRuntime, scope: ComponentScope, content: @UiComponent ComponentScope.() -> Unit) {
+                        runtime.render(scope, content)
+                    }
+
+                    // Member-property forward, unannotated property type, filled from an
+                    // annotated value parameter (KineticaTest.render / HeadlessTestRoot shape).
+                    class Root(private val content: ComponentScope.() -> Unit) {
+                        fun render(runtime: KineticaRuntime, scope: ComponentScope) {
+                            runtime.render(scope, content)
+                        }
+                    }
+
+                    fun mount(runtime: KineticaRuntime, scope: ComponentScope, content: @UiComponent ComponentScope.() -> Unit) {
+                        Root(content).render(runtime, scope)
+                    }
+
+                    // Local fun whose unannotated parameter forwards into the annotated
+                    // render parameter (EachKeyedFlagTest.renderFlags shape).
+                    fun entry(runtime: KineticaRuntime, scope: ComponentScope) {
+                        fun renderBody(body: ComponentScope.() -> Unit) {
+                            runtime.render(scope, body)
+                        }
+                        renderBody { text("body") }
+                        forward(runtime, scope) { Badge() }
+                        mount(runtime, scope) { Badge() }
+                    }
+                """,
+            ),
+            checks = "error",
+        ).close()
+    }
+
+    @Test
     fun ruleD_slotCallInLoopIsReported() {
         harness.compileExpectingErrors(
             mapOf(

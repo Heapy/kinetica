@@ -32,6 +32,7 @@ import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirLoop
+import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirVarargArgumentsExpression
 import org.jetbrains.kotlin.fir.expressions.impl.FirResolvedArgumentList
 import org.jetbrains.kotlin.fir.expressions.unwrapArgument
@@ -39,6 +40,9 @@ import org.jetbrains.kotlin.fir.extensions.FirExtensionRegistrar
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirLocalPropertySymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirValueParameterSymbol
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.coneTypeOrNull
@@ -57,6 +61,11 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  *    literals whose expected function type carries `@UiComponent` (entry-point content).
  * C. Region-construct content/fallback arguments must be lambda literals — the compiler
  *    numbers their bodies into fresh frame tables, which is impossible for references.
+ *    The same holds for every `@UiComponent`-typed content parameter (entry points such
+ *    as `render`, user content wrappers): IR wraps only lambda LITERALS into fresh frame
+ *    regions, so content hoisted into a local variable is never wrapped and fails at
+ *    render. Forwarding an already-wrapped value stays legal: reads of value parameters
+ *    and non-local properties carry content that was wrapped at its own literal site.
  * D. No slot/event/component call directly inside a loop body: static ordinals cannot
  *    tell iterations apart. `keyed {}` / `each(key = …)` are the sanctioned loop forms.
  * E. `@UiComponent` functions must have a `ComponentScope` receiver.
@@ -131,8 +140,10 @@ public object KineticaFirErrorRenderers : BaseDiagnosticRendererFactory() {
         )
         map.put(
             KineticaFirErrors.REGION_CONTENT_NOT_LITERAL,
-            "The ''{0}'' argument of a Kinetica region must be a lambda literal so the compiler " +
-                "can assign its slot ordinals; passing a function reference or variable is not supported.",
+            "The ''{0}'' content argument must be a lambda literal so the compiler " +
+                "can assign its slot ordinals: content hoisted into a local variable or passed " +
+                "as a function reference is never frame-wrapped and fails at render. " +
+                "Pass the lambda literal directly.",
             CommonRenderers.STRING,
         )
         map.put(
@@ -189,9 +200,9 @@ private class KineticaCallChecker(
         val isRegionConstruct = isKineticaDsl && name in REGION_CONSTRUCT_NAMES
         val isLoopSafeRegion = isKineticaDsl && name in LOOP_SAFE_REGION_NAMES
         val isComponentCall = callee.hasAnnotation(UI_COMPONENT_CLASS_ID, session)
-        val hasComponentTypedLambdaArgument = expression.hasComponentTypedLambdaArgument()
+        val unwrappableContentArguments = expression.unwrappableComponentContentArguments()
         if (!isSlotDsl && !isRegionConstruct && !isLoopSafeRegion &&
-            !isComponentCall && !hasComponentTypedLambdaArgument
+            !isComponentCall && unwrappableContentArguments.isEmpty()
         ) {
             return
         }
@@ -246,6 +257,21 @@ private class KineticaCallChecker(
                     )
                 }
             }
+        }
+
+        // Rule C, extended to @UiComponent-typed content parameters (F8): IR wraps only
+        // lambda literals into fresh frame regions (wrapAnnotatedContentArgumentsOf), so
+        // content it provably cannot wrap must fail here, not at first render.
+        for ((argument, parameter) in unwrappableContentArguments) {
+            if (isRegionConstruct && parameter.name.asString() in REGION_CONTENT_PARAMETERS[name].orEmpty()) {
+                continue
+            }
+            reporter.reportOn(
+                argument.source ?: expression.source,
+                KineticaFirErrors.REGION_CONTENT_NOT_LITERAL,
+                parameter.name.asString(),
+                context,
+            )
         }
     }
 }
@@ -329,10 +355,43 @@ private fun FirFunctionCall.consumesCompilerOrdinal(session: FirSession): Boolea
     }
 }
 
-private fun FirFunctionCall.hasComponentTypedLambdaArgument(): Boolean {
-    val mapping = (argumentList as? FirResolvedArgumentList)?.mapping ?: return false
-    return mapping.any { (argument, parameter) ->
-        argument.unwrapArgument() is FirAnonymousFunctionExpression && parameter.hasUiComponentFunctionType()
+/**
+ * Arguments of `@UiComponent`-typed content parameters that the IR frame pass provably
+ * cannot wrap. IR wraps only lambda LITERALS into fresh frame regions (its
+ * `wrapAnnotatedContentArgumentsOf` requires an `IrFunctionExpression`) and never
+ * descends into non-argument lambdas, so content hoisted into a local variable is never
+ * wrapped — every ordinal consumer inside it crashes at first render (F8). Sound shapes
+ * are exempt:
+ *  - a lambda literal — wrapped right at this call by the IR pass;
+ *  - a literal `null` — the runtime never invokes absent content;
+ *  - a read of a value parameter or a non-local property — a forwarded value that was
+ *    frame-wrapped at its own literal site (`KineticaRuntime.render(content)` forwarding
+ *    to the two-arg overload, `HeadlessTestRoot`'s stored content). Only the local hoist
+ *    is provably unwrapped, and it is exactly the F8 escape.
+ */
+private fun FirFunctionCall.unwrappableComponentContentArguments(): List<Pair<FirExpression, FirValueParameter>> {
+    val mapping = (argumentList as? FirResolvedArgumentList)?.mapping ?: return emptyList()
+    var violations: MutableList<Pair<FirExpression, FirValueParameter>>? = null
+    for ((argument, parameter) in mapping) {
+        if (!parameter.hasUiComponentFunctionType()) continue
+        if (argument.isWrappableContentArgument()) continue
+        (violations ?: mutableListOf<Pair<FirExpression, FirValueParameter>>().also { violations = it })
+            .add(argument to parameter)
+    }
+    return violations ?: emptyList()
+}
+
+private fun FirExpression.isWrappableContentArgument(): Boolean {
+    val unwrapped = unwrapArgument()
+    if (unwrapped is FirAnonymousFunctionExpression) return true
+    if (isLiteralNull()) return true
+    if (unwrapped !is FirPropertyAccessExpression) return false
+    return when (unwrapped.calleeReference.toResolvedCallableSymbol()) {
+        is FirValueParameterSymbol -> true
+        // Order matters: the local-property symbol is a FirPropertySymbol subclass.
+        is FirLocalPropertySymbol -> false
+        is FirPropertySymbol -> true
+        else -> false
     }
 }
 
