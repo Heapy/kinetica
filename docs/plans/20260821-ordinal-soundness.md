@@ -1105,7 +1105,14 @@
       `ruleC_localFunctionRenderWrapperCompiles` +
       `localComponentFunctionCallsInRepeatedContextsAreReported`; overlapping keys
       across loop iterations — Task 9's each/keyed tests PLUS the lazyEach hazard
-      flagged there, closed by the ➕ item below; checks modes — the six Task 15
+      flagged there, closed by the ➕ item below; exitGroup (also named in Task 9's
+      decision) evaluated clean: exitGroupRegion has NO per-call eviction sweep
+      (retain-on-deactivate, unstamped ordinal) and same-key re-entry cannot alias
+      slots because its content is a compiler-wrapped region — Task 3's fork, the
+      exact mechanism pinned for keyed by
+      keyedInvocationsSharingKeyInLoopKeepIndependentState; the scope-level
+      ExitGroupState shared per key is the construct's documented global
+      exit-coordination identity, not ordinal state; checks modes — the six Task 15
       checks-mode tests plus the new
       `multiRunComponentTypedHelperFailsCompileWhenChecksAreOff`. The sweep also
       re-probed the entry-content double-wrap suspicion: green —
