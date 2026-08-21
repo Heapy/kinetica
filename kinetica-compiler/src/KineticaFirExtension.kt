@@ -24,6 +24,7 @@ import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirExpressionChecke
 import org.jetbrains.kotlin.fir.analysis.extensions.FirAdditionalCheckersExtension
 import org.jetbrains.kotlin.fir.declarations.FirAnonymousFunction
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
+import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.declarations.FirValueParameter
 import org.jetbrains.kotlin.fir.declarations.hasAnnotation
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
@@ -31,6 +32,7 @@ import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirLoop
+import org.jetbrains.kotlin.fir.expressions.FirVarargArgumentsExpression
 import org.jetbrains.kotlin.fir.expressions.impl.FirResolvedArgumentList
 import org.jetbrains.kotlin.fir.expressions.unwrapArgument
 import org.jetbrains.kotlin.fir.extensions.FirExtensionRegistrar
@@ -60,6 +62,8 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  * E. `@UiComponent` functions must have a `ComponentScope` receiver.
  * F. Ordinal-consuming calls cannot sit in arbitrary multi-run lambdas. Kinetica DSL
  *    content and Kotlin's single-run scope functions share the enclosing frame safely.
+ *    A lambda that is not a resolved call argument (stored in a val/var or property)
+ *    has no run-count contract at all and counts as an unknown-run host.
  */
 internal val KINETICA_PACKAGE: FqName = KineticaFramePolicy.KINETICA_PACKAGE
 internal val UI_COMPONENT_CLASS_ID: ClassId = ClassId(KINETICA_PACKAGE, Name.identifier("UiComponent"))
@@ -466,18 +470,28 @@ private fun findLambdaHost(
             is FirFunctionCall -> {
                 val mapping = (element.argumentList as? FirResolvedArgumentList)?.mapping ?: continue
                 for ((argument, parameter) in mapping) {
+                    // Vararg lambda elements hide behind FirVarargArgumentsExpression;
+                    // unwrap them so they resolve to their callee like plain arguments
+                    // instead of escaping as host-less stored lambdas (F6).
                     val unwrapped = argument.unwrapArgument()
-                    val expression = unwrapped as? FirAnonymousFunctionExpression ?: continue
-                    val argumentFunction = expression.anonymousFunction
-                    val argumentSource = argumentFunction.source
-                    val lambdaSource = lambda.source
-                    val sameLambda = argumentFunction.symbol == lambda.symbol ||
-                        argumentSource != null && lambdaSource != null &&
-                        argumentSource.startOffset == lambdaSource.startOffset &&
-                        argumentSource.endOffset == lambdaSource.endOffset
-                    if (sameLambda) {
-                        val callee = element.calleeReference.toResolvedCallableSymbol() ?: return null
-                        return LambdaHost(callee, parameter)
+                    val candidates = if (unwrapped is FirVarargArgumentsExpression) {
+                        unwrapped.arguments.map { it.unwrapArgument() }
+                    } else {
+                        listOf(unwrapped)
+                    }
+                    for (candidate in candidates) {
+                        val expression = candidate as? FirAnonymousFunctionExpression ?: continue
+                        val argumentFunction = expression.anonymousFunction
+                        val argumentSource = argumentFunction.source
+                        val lambdaSource = lambda.source
+                        val sameLambda = argumentFunction.symbol == lambda.symbol ||
+                            argumentSource != null && lambdaSource != null &&
+                            argumentSource.startOffset == lambdaSource.startOffset &&
+                            argumentSource.endOffset == lambdaSource.endOffset
+                        if (sameLambda) {
+                            val callee = element.calleeReference.toResolvedCallableSymbol() ?: return null
+                            return LambdaHost(callee, parameter)
+                        }
                     }
                 }
             }
@@ -515,8 +529,16 @@ private fun CheckerContext.multiRunLambdaHost(
                 ) {
                     break@search
                 }
-                val host = findLambdaHost(elements, index, element) ?: continue
-                if (!host.isKnownSingleRun()) {
+                val host = findLambdaHost(elements, index, element)
+                if (host == null) {
+                    // A lambda that is not a resolved call argument (stored in a local
+                    // val, a property, …) has no run-count contract at all: it can run
+                    // any number of times, long after this render pass, and the IR
+                    // walker never numbers inside it. It is an unknown-run host, not a
+                    // transparent one (F6).
+                    unsafeLambdaIndex = index
+                    unsafeHostName = storedLambdaHostName(elements, index)
+                } else if (!host.isKnownSingleRun()) {
                     // Walking inside-out means the last unsafe host found is the outermost
                     // one — exactly where the IR transform stops descending.
                     unsafeLambdaIndex = index
@@ -536,6 +558,21 @@ private fun CheckerContext.multiRunLambdaHost(
             enclosingCall.consumesCompilerOrdinal(session)
     }
     return hostName.takeUnless { nestedUnderOrdinalConsumer }
+}
+
+/**
+ * Display name for a lambda that is not a resolved call argument: the variable or
+ * property whose initializer stores it when one encloses it, or a generic label.
+ */
+private fun storedLambdaHostName(elements: List<FirElement>, index: Int): String {
+    for (outer in (index - 1) downTo 0) {
+        when (val element = elements[outer]) {
+            is FirProperty -> return element.name.asString()
+            is FirNamedFunction, is FirAnonymousFunction -> return "stored"
+            else -> {}
+        }
+    }
+    return "stored"
 }
 
 private fun FirFunctionCall.hasSameSourceAs(other: FirFunctionCall): Boolean {

@@ -229,6 +229,14 @@ internal class KineticaFrameTransformer(
         private val variableNames = ArrayDeque<String>()
 
         override fun visitVariable(declaration: IrVariable): IrStatement {
+            // A lambda literal stored in a variable is not a call argument, so no
+            // single-run verdict can exist for it: it can run any number of times, long
+            // after this render pass. Gate descent exactly like
+            // transformArgumentsSelectively gates call arguments — the body stays
+            // unnumbered so its ordinal consumers fail fast at runtime instead of
+            // aliasing the enclosing region's ordinals (F6); FIR rule F rejects them
+            // at compile time.
+            if (declaration.initializer is IrFunctionExpression) return declaration
             variableNames.addLast(declaration.name.asString())
             try {
                 return super.visitVariable(declaration)
