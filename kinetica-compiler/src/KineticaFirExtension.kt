@@ -297,7 +297,14 @@ private class KineticaCallChecker(
         val isSlotDsl = facts.isSlotDsl
         val isRegionConstruct = facts.isRegionConstruct
         val isComponentCall = facts.isComponentCall
-        val unwrappableContentArguments = expression.unwrappableComponentContentArguments()
+        // S4: the argument-mapping walk with per-parameter cone-type and annotation
+        // resolution is the expensive half of this guard. Lazy keeps it behind the four
+        // cheap facts: Kinetica constructs pass the guard without paying it (probing at
+        // most once, in the end-of-check rule C block), and only the none-of-the-four
+        // call probes here as the guard's final conjunct.
+        val unwrappableContentArguments by lazy(LazyThreadSafetyMode.NONE) {
+            expression.unwrappableComponentContentArguments()
+        }
         if (!isSlotDsl && !isRegionConstruct && !facts.isLoopSafeRegion &&
             !isComponentCall && unwrappableContentArguments.isEmpty()
         ) {
