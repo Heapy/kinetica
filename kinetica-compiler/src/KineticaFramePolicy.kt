@@ -85,8 +85,28 @@ internal object KineticaFramePolicy {
      * Top-level `io.heapy.kinetica` functions WITHOUT a ComponentScope receiver whose
      * lambdas are still single-run numbering contexts. Kept inside the shared predicate
      * (not as a phase-local patch list) so FIR and IR can never disagree about them.
+     * `peek` runs its block inline exactly once (`ReadTracking.peek`), so ordinal
+     * consumers inside it share the enclosing frame soundly.
      */
-    private val SINGLE_RUN_TOP_LEVEL_FUNCTIONS: Set<String> = setOf("peek")
+    val SINGLE_RUN_TOP_LEVEL_FUNCTIONS: Set<String> = setOf("peek")
+
+    /**
+     * Top-level `io.heapy.kinetica` functions WITHOUT a ComponentScope receiver whose
+     * lambdas are NOT numbering contexts: FIR rejects ordinal consumers inside them
+     * (rule F) and the IR walker never descends into them (F12). This ledger is NOT
+     * consulted by [isKineticaDsl] — absence from [SINGLE_RUN_TOP_LEVEL_FUNCTIONS]
+     * already classifies a top-level lambda as multi-run on both phases. It exists so
+     * the enumeration drift test can force an explicit single-run/multi-run decision
+     * for every top-level lambda-taking helper the runtime publishes; adding a name
+     * here changes nothing behaviorally, it records the decision.
+     *
+     * Why each is multi-run: `derive`'s compute lambda re-runs reactively whenever a
+     * dependency cell changes (`DerivedCell`); `invalidate`'s predicate runs once per
+     * cached resource key at invalidation time, long after the numbering render pass;
+     * `serverActionStub`'s handler runs per server-action dispatch.
+     */
+    val MULTI_RUN_TOP_LEVEL_FUNCTIONS: Set<String> =
+        setOf("derive", "invalidate", "serverActionStub")
 
     /**
      * THE shared Kinetica-lambda classification: whether a callee is Kinetica DSL whose

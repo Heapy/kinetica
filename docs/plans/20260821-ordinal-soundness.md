@@ -781,18 +781,55 @@
 - Modify: `kinetica-compiler/test/KineticaFirCheckerTest.kt`
 - Modify: `kinetica-compiler/test/KineticaIrFrameCompileTest.kt`
 
-- [ ] write failing tests for the four mismatched top-level functions: `peek`,
+- [x] write failing tests for the four mismatched top-level functions: `peek`,
       `derive`, `invalidate`, `serverActionStub` — for each, FIR verdict and IR
       numbering must agree (the review probe: `derive { state { 1 }.value }` errors
       at `checks=error` but numbers fine at `checks=off`)
-- [ ] decide per function in `KineticaFramePolicy` (Task 1's shared predicate is the
+      (note: red-before-fix is no longer reproducible at HEAD — Task 1's shared
+      predicate plus Task 2's oracle gating already closed the mismatch as a side
+      effect; the findings file carries the probe-verified red state at 657eef5. The
+      new tests pin the agreement: FIR halves
+      `deriveComputeLambdaOrdinalConsumerIsReported` /
+      `invalidatePredicateOrdinalConsumerIsReported` /
+      `serverActionStubHandlerOrdinalConsumerIsReported` (rule F at checks=error); IR
+      halves at checks=off `deriveComputeSlotCallsFailFastWhenChecksAreOff` — the
+      review probe verbatim, now MissingKineticaPluginException instead of unsound
+      numbering — plus `invalidatePredicateStaysUnnumberedWhenChecksAreOff` and
+      `serverActionStubHandlerStaysUnnumberedWhenChecksAreOff`, which pin the IR
+      verdict via the framed slot count (slots=1, not 2) because those lambdas never
+      execute during render. `peek` matches (findings' own enumeration) and its
+      agreement is already pinned end to end by `firAndIrAgreeOnSingleRunLambdaHosts`)
+- [x] decide per function in `KineticaFramePolicy` (Task 1's shared predicate is the
       single place to encode it) whether its lambda is a numbering context (IR
       descends + FIR allows) or not (IR skips + FIR rejects); `derive`, `invalidate`,
       `serverActionStub` lambdas re-run reactively — classify multi-run on both sides
       unless the runtime slot semantics prove otherwise
-- [ ] add a drift test enumerating all top-level `io.heapy.kinetica` lambda-taking
+      (decision: all three multi-run — runtime sources confirm `derive`'s compute
+      re-runs per dependency change (`DerivedCell`), `invalidate`'s predicate runs per
+      cached key at invalidation time, `serverActionStub`'s handler runs per dispatch;
+      `peek` runs inline exactly once and stays the sole single-run top-level helper.
+      Encoded as the `MULTI_RUN_TOP_LEVEL_FUNCTIONS` ledger next to
+      `SINGLE_RUN_TOP_LEVEL_FUNCTIONS` — deliberately NOT consulted by `isKineticaDsl`
+      (absence from the single-run set already means multi-run on both phases); it
+      records the per-function decision so the enumeration drift test can force one
+      for every future helper, per its KDoc)
+- [x] add a drift test enumerating all top-level `io.heapy.kinetica` lambda-taking
       functions and asserting FIR/IR agreement for each
-- [ ] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 15
+      (`everyTopLevelKineticaLambdaFunctionHasAnExplicitFramePolicyClassification`:
+      reflection-enumerates the runtime's file facades on the test classpath for
+      top-level lambda-taking functions WITHOUT a ComponentScope receiver — the exact
+      scope of F12's enumeration; extensions/members are classified per parameter by
+      Task 6's tables and Task 1's drift tests — then asserts scanned =
+      single-run ∪ multi-run in both directions (no unclassified, no stale entries,
+      sets disjoint) and that the shared predicate's verdict matches the set for every
+      name. Found a fifth top-level function the findings missed: `synchronizedOn`,
+      Kotlin-internal (bytecode-public inline), uncallable from consumer source —
+      excluded via a documented test-side list. Mutation-verified: removing `derive`
+      from the ledger fails the test with "unclassified … [derive]")
+- [x] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 15
+      (135/135 green: 128 prior + 7 new — 3 FIR probes, 3 IR probes, 1 enumeration
+      drift test; no compiler-behavior change in this task, so no mavenLocal republish
+      needed and no new Task 19 fallout possible)
 
 ### Task 15: checks=off must not remove soundness rules (S1)
 

@@ -963,6 +963,161 @@ class KineticaIrFrameCompileTest {
         }
     }
 
+    // F12 remainder: top-level io.heapy.kinetica helpers without a ComponentScope
+    // receiver. At 657eef5 the IR pass classified lambdas by PACKAGE (inKinetica) while
+    // FIR classified by RECEIVER, so IR descended into derive/invalidate/serverActionStub
+    // lambdas and numbered slot calls FIR had just rejected — the review probe compiled
+    // AND rendered at checks=off with unsound ordinals. Both phases now read
+    // KineticaFramePolicy: these lambdas re-run reactively (recompute / per-key
+    // invalidation / per-dispatch), so IR must never number inside them. The FIR halves
+    // (checks=error rejections) live in KineticaFirCheckerTest.
+
+    @Test
+    fun deriveComputeSlotCallsFailFastWhenChecksAreOff() {
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.derive
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Fan() {
+                        // The review's F12 probe: derive's compute lambda re-runs whenever a
+                        // dependency changes, so the state call inside it must not receive a
+                        // static ordinal from the enclosing component's counters.
+                        val c = derive { state { 1 }.value }
+                        text("d=" + c.value)
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Fan() }.tree
+                """,
+            ),
+            checks = "off",
+        ).use { compiled ->
+            // IR verdict: nothing inside the compute lambda was numbered (Fan itself has
+            // no direct slots), matching FIR's multi-run rejection at checks=error.
+            compiled.assertTransformFired("app.Fan: framed (slots=0,")
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val failure = assertFailsWith<java.lang.reflect.InvocationTargetException> {
+                compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope)
+            }
+            val cause = failure.cause
+            assertTrue(
+                cause is MissingKineticaPluginException,
+                "slot calls in derive's compute lambda must fail fast, got: $cause",
+            )
+            assertTrue(
+                cause.message.orEmpty().startsWith(
+                    "A Kinetica state ran without a compiler-assigned ordinal.",
+                ),
+                "the fail-fast message must identify the untransformed construct: ${cause.message}",
+            )
+        }
+    }
+
+    @Test
+    fun invalidatePredicateStaysUnnumberedWhenChecksAreOff() {
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.invalidate
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Fan(doInvalidate: Boolean) {
+                        val count = state { 0 }
+                        if (doInvalidate) {
+                            // Runs once per cached resource key at invalidation time, long
+                            // after this render pass — never a numbering context. Guarded so
+                            // the runtime never executes it against the global registry; the
+                            // IR verdict below is static.
+                            invalidate { state { 1 }.value > 0 }
+                        }
+                        text("count=" + count.value)
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Fan(false) }.tree
+                """,
+            ),
+            checks = "off",
+        ).use { compiled ->
+            // Only Fan's own state is numbered; slots=2 would mean IR descended into the
+            // invalidate predicate the FIR checker rejects at checks=error.
+            compiled.assertTransformFired("app.Fan: framed (slots=1,")
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val tree = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toString()
+            assertTrue("count=0" in tree, "the numbered state outside the predicate must render: $tree")
+        }
+    }
+
+    @Test
+    fun serverActionStubHandlerStaysUnnumberedWhenChecksAreOff() {
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.ServerActionRegistration
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.serverActionStub
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+                    import kotlinx.serialization.builtins.serializer
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Fan() {
+                        val count = state { 0 }
+                        // The handler runs per server-action dispatch, never inline in the
+                        // numbering render pass.
+                        val stub = serverActionStub(
+                            registration = ServerActionRegistration(
+                                actionId = "bump",
+                                functionFqName = "app.bump",
+                            ),
+                            inputSerializer = Int.serializer(),
+                            outputSerializer = Int.serializer(),
+                        ) { input -> state { input }.value }
+                        text("count=" + count.value + " action=" + stub.registration.actionId)
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Fan() }.tree
+                """,
+            ),
+            checks = "off",
+        ).use { compiled ->
+            // Only Fan's own state is numbered; slots=2 would mean IR descended into the
+            // dispatch handler the FIR checker rejects at checks=error.
+            compiled.assertTransformFired("app.Fan: framed (slots=1,")
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val tree = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toString()
+            assertTrue("count=0" in tree, "the numbered state outside the handler must render: $tree")
+            assertTrue("action=bump" in tree, "the stub value itself must stay usable: $tree")
+        }
+    }
+
     private fun Node.toDebugString(): String = toString()
 
     private fun Node.collectHostEventIds(): List<String> = when (this) {
