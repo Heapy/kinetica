@@ -5,6 +5,7 @@ package io.heapy.kinetica.compiler
 import org.jetbrains.kotlin.backend.common.extensions.IrGenerationExtension
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
+import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSourceLocation
 import org.jetbrains.kotlin.cli.common.messages.MessageCollector
 import org.jetbrains.kotlin.descriptors.DescriptorVisibilities
 import org.jetbrains.kotlin.ir.IrStatement
@@ -293,8 +294,12 @@ public class KineticaIrGenerationExtension internal constructor(
             isHidden = false,
         ).apply { parent = owner }
 
-    private fun report(message: String) {
-        messageCollector.report(CompilerMessageSeverity.LOGGING, "[kinetica] $message")
+    private fun report(
+        message: String,
+        severity: CompilerMessageSeverity = CompilerMessageSeverity.LOGGING,
+        location: CompilerMessageSourceLocation? = null,
+    ) {
+        messageCollector.report(severity, "[kinetica] $message", location)
     }
 
     private companion object {

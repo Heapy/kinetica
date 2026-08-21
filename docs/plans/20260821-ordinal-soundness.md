@@ -577,23 +577,57 @@
 - Modify: `kinetica-compiler/src/KineticaFirExtension.kt`
 - Modify: `kinetica-compiler/test/KineticaFirCheckerTest.kt`
 
-- [ ] write failing test from the review probe: `suspendSubtree(key = id, ...)` inside
+- [x] write failing test from the review probe: `suspendSubtree(key = id, ...)` inside
       a component compiles clean today and throws `MissingKineticaPluginException` on
       first render — must become a compile error
-- [ ] audit the repo for `state(persistent = ..., key = ...)`-style explicit-key
+      (`suspendSubtreeExplicitKeyIsReported`, red before the fix — the probe compiled
+      clean; the checks=off backstop `suspendSubtreeExplicitKeyFailsCompileWhenChecksAreOff`
+      was red too, pinning that the IR decline is now a located ERROR, not LOGGING)
+- [x] audit the repo for `state(persistent = ..., key = ...)`-style explicit-key
       usages (kinetica-persist is the likely user) BEFORE flipping that bail-out to an
       error; if legitimate usages exist, the fix is IR support or a scoped exemption,
       not a blanket error — record the decision here
-- [ ] add FIR rules for the two remaining documented IR bail-outs: `suspendSubtree`
+      (decision: NO runtime `state` overload has a `key` parameter at all — persistent
+      state is addressed exclusively by `slotId` (kinetica-persist included) and there
+      are zero `state(key = …)` call sites repo-wide; the IR bail-out survives from the
+      PSI-era key addressing and the form is inexpressible against the pinned runtime.
+      The blanket error therefore stands, kept as version-skew defense; positive
+      coverage declares a simulated legacy `state(key, …)` overload in
+      `io.heapy.kinetica` inside the test sources — the only possible probe)
+- [x] add FIR rules for the two remaining documented IR bail-outs: `suspendSubtree`
       with explicit non-null key, persistent state with explicit key (the non-literal
       region argument bail-out is covered by Task 8's rule C extension)
-- [ ] upgrade `KineticaIrTransform.report` decline-to-transform paths from
+      (note: implemented as one rule G with a single `UNSUPPORTED_EXPLICIT_KEY`
+      factory2 — the second rendered parameter carries the per-callee consequence, so
+      Task 16's advice mechanism has nothing to unwind. Absent and literal-null keys
+      stay exempt (the Task 5 sound proxy), and IR's persistent-state gate now applies
+      the same `isNullConst` exemption — previously `state(key = null)` would have
+      tripped IR's bail-out while FIR stayed silent; the FIR gate also mirrors IR's
+      other guards: `slotId`-overload callees and non-literal `persistent` are skipped)
+- [x] upgrade `KineticaIrTransform.report` decline-to-transform paths from
       `CompilerMessageSeverity.LOGGING` to `ERROR`, threading a
       `CompilerMessageSourceLocation` from the `IrCall`'s file/offset — an ERROR
       without a location is not actionable
-- [ ] write tests: `suspendSubtree(key = null, ...)` and implicit-key forms still
+      (note: `report` gained defaulted severity+location parameters; the frame
+      transformer routes info lines through `log(...)` and exactly the three
+      F9-documented decline paths — suspendSubtree explicit key, persistent-state
+      explicit key, non-literal region content — through `reportDecline(...)` = ERROR
+      + `getSourceRangeInfo` location, keeping the "left on the legacy path" needle.
+      `stageComponentCall`'s "left unstaged" stays LOGGING for Task 11's checkbox, and
+      the two content-lambda-shape reports stay LOGGING: their harm is conditional and
+      an ERROR there could reject sound emit-only content. checks=off IR ERRORS are
+      pinned with location assertions by the two `...FailsCompileWhenChecksAreOff`
+      tests plus `regionContentNotLiteralFailsCompileWhenChecksAreOff`)
+- [x] write tests: `suspendSubtree(key = null, ...)` and implicit-key forms still
       compile and transform
-- [ ] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 11
+      (`suspendSubtreeNullOrImplicitKeyCompilesAndTransforms` — content lambdas use
+      `awaitCancellation()` so both renders deterministically emit the fallbacks — and
+      `nullLiteralOrAbsentPersistentKeysStayOnTheCompilerPath` pinning keyless and
+      literal-null-key persistent state on the compiler SlotId path end to end)
+- [x] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 11
+      (120/120 green: 113 prior + 7 new; consumer scan: the only `suspendSubtree` call
+      sites outside the compiler — RuntimeSmokeResourceTest — pass no key, and the
+      explicit-key `state` form is inexpressible, so no new Task 19 fallout expected)
 
 ### Task 11: Component-call receivers IR cannot stage (F10)
 

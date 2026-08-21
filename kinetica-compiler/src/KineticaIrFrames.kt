@@ -4,6 +4,10 @@ package io.heapy.kinetica.compiler
 
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
 import org.jetbrains.kotlin.backend.common.lower.DeclarationIrBuilder
+import org.jetbrains.kotlin.cli.common.messages.CompilerMessageLocation
+import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
+import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSourceLocation
+import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.builders.irCall
 import org.jetbrains.kotlin.ir.builders.irCallConstructor
@@ -72,7 +76,9 @@ import org.jetbrains.kotlin.name.Name
  * Plain lambdas (host content, `let`/branches) share the enclosing region's counters —
  * they run at most once per render in the same frame. Fresh counters start only at region
  * boundaries. Anything the pass cannot prove (non-trivial staging receiver, explicit
- * suspendSubtree key) is left on the legacy string-keyed path and reported.
+ * suspendSubtree key) is left on the legacy string-keyed path and reported — declines
+ * whose legacy path crashes at render or silently loses persistence are located compile
+ * ERRORS (F9), the rest LOGGING.
  */
 internal class KineticaFrameSymbols private constructor(
     val frameTableConstructor: IrConstructorSymbol,
@@ -182,12 +188,37 @@ internal class KineticaFrameTransformer(
     private val pluginContext: IrPluginContext,
     private val symbols: KineticaFrameSymbols,
     private val moduleId: String,
-    private val report: (String) -> Unit,
+    private val report: (String, CompilerMessageSeverity, CompilerMessageSourceLocation?) -> Unit,
     private val singleRunOracle: SingleRunOracle,
 ) {
     var componentsFramed: Int = 0
         private set
     private var tableFieldCount = 0
+
+    private fun log(message: String) {
+        report(message, CompilerMessageSeverity.LOGGING, null)
+    }
+
+    /**
+     * A decline-to-transform is a compile ERROR, never a LOGGING line (F9): the
+     * surviving legacy call either throws MissingKineticaPluginException at first render
+     * or silently loses behavior (persistence addressing). An error without a location
+     * is not actionable, so the declined element's file offset travels along.
+     */
+    private fun reportDecline(message: String, element: IrElement) {
+        report(message, CompilerMessageSeverity.ERROR, sourceLocation(element))
+    }
+
+    private fun sourceLocation(element: IrElement): CompilerMessageSourceLocation? {
+        if (element.startOffset < 0) return CompilerMessageLocation.create(file.fileEntry.name)
+        val range = file.fileEntry.getSourceRangeInfo(element.startOffset, element.endOffset)
+        return CompilerMessageLocation.create(
+            range.filePath,
+            range.startLineNumber + 1,
+            range.startColumnNumber + 1,
+            null,
+        )
+    }
 
     /** Per-function shared state: the PSI-compatible persistent-slot ordinal counter. */
     private class FunctionShared(val functionFqName: String) {
@@ -215,7 +246,7 @@ internal class KineticaFrameTransformer(
         wrapBodyInFrame(function, receiver, table, component = true)
         function.patchDeclarationParents(function.parent)
         componentsFramed++
-        report(
+        log(
             "$fqName: framed (slots=${numbering.slots}, events=${numbering.events}, " +
                 "children=${numbering.children}).",
         )
@@ -353,8 +384,16 @@ internal class KineticaFrameTransformer(
             }
             if (hasSlotId) return expression
             if (expression.constBooleanArgument("persistent") != true) return expression
-            if (expression.argumentByName("key") != null) {
-                report("${shared.functionFqName}: persistent state with explicit key left on the legacy path.")
+            // A literal null key is provably absent — same sound proxy as FIR rule G,
+            // so the two phases agree on exactly which calls stay on the compiler path.
+            val keyArgument = expression.argumentByName("key")
+            if (keyArgument != null && !keyArgument.isNullConst()) {
+                reportDecline(
+                    "${shared.functionFqName}: persistent state with an explicit key cannot be " +
+                        "retargeted to a compiler SlotId; left on the legacy path — the slot is " +
+                        "never registered for persistence. Use state(slotId = ...) or omit the key.",
+                    expression,
+                )
                 return expression
             }
             val disambiguator = variableNames.lastOrNull() ?: "state$stateIndex"
@@ -387,7 +426,13 @@ internal class KineticaFrameTransformer(
             if (name == "suspendSubtree") {
                 val keyArgument = expression.argumentByName("key")
                 if (keyArgument != null && !keyArgument.isNullConst()) {
-                    report("${shared.functionFqName}: suspendSubtree with explicit key left on the legacy path.")
+                    reportDecline(
+                        "${shared.functionFqName}: suspendSubtree with an explicit key cannot be " +
+                            "assigned compiler ordinals; left on the legacy path — the untransformed " +
+                            "call throws MissingKineticaPluginException at first render. Remove the " +
+                            "key argument or wrap the call in keyed(...).",
+                        expression,
+                    )
                     expression.transformChildrenVoid(this)
                     return expression
                 }
@@ -433,7 +478,13 @@ internal class KineticaFrameTransformer(
                 if (parameterName !in contentParams) continue
                 val argument = expression.arguments[parameter.indexInParameters] ?: continue
                 val lambda = argument as? IrFunctionExpression ?: run {
-                    report("${shared.functionFqName}: $name ${parameter.name} is not a lambda literal; left on the legacy path.")
+                    reportDecline(
+                        "${shared.functionFqName}: $name ${parameter.name} is not a lambda literal; " +
+                            "left on the legacy path — the untransformed call throws " +
+                            "MissingKineticaPluginException at first render. Pass the content " +
+                            "lambda literally.",
+                        expression,
+                    )
                     expression.transformChildrenVoid(this)
                     return expression
                 }
@@ -462,7 +513,8 @@ internal class KineticaFrameTransformer(
             }
             val receiverArgument = expression.arguments[receiverParameter.indexInParameters]
             if (receiverArgument !is IrGetValue) {
-                report(
+                // Stays LOGGING until Task 11 pairs it with the FIR receiver rule (F10).
+                log(
                     "${shared.functionFqName}: component call ${callee.name} has a non-trivial " +
                         "receiver expression; left unstaged.",
                 )
@@ -582,11 +634,11 @@ internal class KineticaFrameTransformer(
         val lambda = lambdaExpression.function
         val receiver = lambda.parameters.firstOrNull { it.kind == IrParameterKind.ExtensionReceiver }
         if (receiver == null || receiver.type.classOrNull?.owner?.kotlinFqName != COMPONENT_SCOPE_FQ) {
-            report("${shared.functionFqName}: content lambda without ComponentScope receiver; left unwrapped.")
+            log("${shared.functionFqName}: content lambda without ComponentScope receiver; left unwrapped.")
             return null
         }
         if (lambda.body !is IrBlockBody) {
-            report("${shared.functionFqName}: content lambda without a block body; left unwrapped.")
+            log("${shared.functionFqName}: content lambda without a block body; left unwrapped.")
             return null
         }
         val regionNumbering = RegionNumbering()
@@ -599,7 +651,7 @@ internal class KineticaFrameTransformer(
             it.kind == IrParameterKind.Regular && it.name.asString() == "ordinal"
         }
         if (parameter == null) {
-            report("${file.fileEntry.name}: no ordinal parameter on ${expression.symbol.owner.name}; skipped.")
+            log("${file.fileEntry.name}: no ordinal parameter on ${expression.symbol.owner.name}; skipped.")
             return
         }
         val builder = DeclarationIrBuilder(pluginContext, expression.symbol)

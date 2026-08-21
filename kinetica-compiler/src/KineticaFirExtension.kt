@@ -73,6 +73,11 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  *    content and Kotlin's single-run scope functions share the enclosing frame safely.
  *    A lambda that is not a resolved call argument (stored in a val/var or property)
  *    has no run-count contract at all and counts as an unknown-run host.
+ * G. Explicit non-null `key` arguments the IR pass declines to number are compile
+ *    errors: `suspendSubtree(key = …)` keeps the whole call on the legacy path
+ *    (guaranteed MissingKineticaPluginException at first render), and key-addressed
+ *    persistent state skips the SlotId retarget (the slot silently never persists).
+ *    Absent and literal-null keys stay allowed — both provably keep the compiler path.
  */
 internal val KINETICA_PACKAGE: FqName = KineticaFramePolicy.KINETICA_PACKAGE
 internal val UI_COMPONENT_CLASS_ID: ClassId = ClassId(KINETICA_PACKAGE, Name.identifier("UiComponent"))
@@ -106,6 +111,8 @@ public object KineticaFirErrors : KtDiagnosticsContainer() {
     public val CALL_IN_MULTI_RUN_LAMBDA: KtDiagnosticFactory2<String, String> by
         error2<PsiElement, String, String>()
     public val REGION_CONTENT_NOT_LITERAL: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
+    public val UNSUPPORTED_EXPLICIT_KEY: KtDiagnosticFactory2<String, String> by
+        error2<PsiElement, String, String>()
     public val COMPONENT_WITHOUT_SCOPE_RECEIVER: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
 
     override fun getRendererFactory(): BaseDiagnosticRendererFactory = KineticaFirErrorRenderers
@@ -144,6 +151,13 @@ public object KineticaFirErrorRenderers : BaseDiagnosticRendererFactory() {
                 "can assign its slot ordinals: content hoisted into a local variable or passed " +
                 "as a function reference is never frame-wrapped and fails at render. " +
                 "Pass the lambda literal directly.",
+            CommonRenderers.STRING,
+        )
+        map.put(
+            KineticaFirErrors.UNSUPPORTED_EXPLICIT_KEY,
+            "''{0}'' with an explicit ''key'' argument cannot use compiler-assigned ordinals: " +
+                "the call is left on the legacy path and {1}",
+            CommonRenderers.STRING,
             CommonRenderers.STRING,
         )
         map.put(
@@ -241,6 +255,31 @@ private class KineticaCallChecker(
                     context,
                 )
                 return
+            }
+        }
+
+        // Rule G (F9): explicit keys the IR pass declines to number must fail here, not
+        // surface as a runtime crash (suspendSubtree) or silent persistence loss (state).
+        if (isRegionConstruct && name == "suspendSubtree") {
+            expression.explicitKeyArgument()?.let { argument ->
+                reporter.reportOn(
+                    argument.source ?: expression.source,
+                    KineticaFirErrors.UNSUPPORTED_EXPLICIT_KEY,
+                    name,
+                    SUSPEND_SUBTREE_KEY_CONSEQUENCE,
+                    context,
+                )
+            }
+        }
+        if (isSlotDsl && name == "state" && expression.isPersistentStateWithoutSlotId()) {
+            expression.explicitKeyArgument()?.let { argument ->
+                reporter.reportOn(
+                    argument.source ?: expression.source,
+                    KineticaFirErrors.UNSUPPORTED_EXPLICIT_KEY,
+                    name,
+                    PERSISTENT_STATE_KEY_CONSEQUENCE,
+                    context,
+                )
             }
         }
 
@@ -414,6 +453,53 @@ private fun FirCallableSymbol<*>.isKineticaDsl(): Boolean {
 private fun FirExpression.isLiteralNull(): Boolean {
     val unwrapped = unwrapArgument()
     return unwrapped is FirLiteralExpression && unwrapped.kind == ConstantValueKind.Null
+}
+
+// Rendered as UNSUPPORTED_EXPLICIT_KEY's second parameter, so advice can differ per
+// callee without a parallel factory (the template itself carries the shared lead-in).
+private const val SUSPEND_SUBTREE_KEY_CONSEQUENCE: String =
+    "throws MissingKineticaPluginException at first render. Remove the key argument " +
+        "(call-site identity is compiler-assigned), or wrap the call in keyed(...) for " +
+        "explicit identity."
+
+private const val PERSISTENT_STATE_KEY_CONSEQUENCE: String =
+    "the slot is never registered for persistence. Address it with state(slotId = ...) " +
+        "or omit the key so the compiler derives a durable SlotId."
+
+/**
+ * The argument bound to a parameter literally named `key`, when present and not a literal
+ * `null` — the same sound proxy rule F uses for optional handlers: absence and a null
+ * literal provably keep the call on the compiler path, so only real keys report.
+ */
+private fun FirFunctionCall.explicitKeyArgument(): FirExpression? {
+    val mapping = (argumentList as? FirResolvedArgumentList)?.mapping ?: return null
+    for ((argument, parameter) in mapping) {
+        if (parameter.name.asString() != "key") continue
+        return argument.takeUnless { it.isLiteralNull() }
+    }
+    return null
+}
+
+/**
+ * Mirror of IR's `maybeRetargetPersistentState` gate: the SlotId-addressed overload is
+ * already durable (no retarget attempted), and only a LITERAL `persistent = true` makes
+ * IR attempt the retarget the explicit key would defeat.
+ */
+private fun FirFunctionCall.isPersistentStateWithoutSlotId(): Boolean {
+    val callee = calleeReference.toResolvedCallableSymbol() as? FirFunctionSymbol<*> ?: return false
+    if (callee.valueParameterSymbols.any { it.name.asString() == "slotId" }) return false
+    return literalBooleanArgument("persistent") == true
+}
+
+private fun FirFunctionCall.literalBooleanArgument(name: String): Boolean? {
+    val mapping = (argumentList as? FirResolvedArgumentList)?.mapping ?: return null
+    for ((argument, parameter) in mapping) {
+        if (parameter.name.asString() != name) continue
+        val literal = argument.unwrapArgument() as? FirLiteralExpression ?: return null
+        if (literal.kind != ConstantValueKind.Boolean) return null
+        return literal.value as? Boolean
+    }
+    return null
 }
 
 private object KineticaComponentDeclarationChecker : FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common) {
