@@ -63,6 +63,16 @@ before `beginComponentFrame`), callable references to `@UiComponent` functions
 chain (framing reads the override's annotation, staging reads the resolved
 base's).
 
+The gated walker can lexically reach reusable declarations nested under a
+component root, but that does not make direct static ordinals there safe. A
+local function, property accessor, constructor, or named local-class initializer
+can run repeatedly, so direct ordinal consumers there classify as `OUTSIDE`.
+An anonymous-object initializer evaluated directly at its expression site is
+not reusable and remains owned by the outer frame, while its accessors and
+functions are reusable boundaries. Compiler-wrapped content is different: its
+fresh region uses documented call-site/invocation-position identity and must not
+be rejected merely because its closure can escape.
+
 The `firAndIrAgreeOn*` drift tests in
 `kinetica-compiler/test/KineticaFirCheckerTest.kt` pin the shared tables;
 extend them when adding region kinds or single-run hosts.
