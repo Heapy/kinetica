@@ -473,22 +473,47 @@
 - Modify: `kinetica-compiler/src/KineticaFirExtension.kt`
 - Modify: `kinetica-compiler/test/KineticaFirCheckerTest.kt`
 
-- [ ] write failing test from the review probe: hoisted content
+- [x] write failing test from the review probe: hoisted content
       `val content: @UiComponent ComponentScope.() -> Unit = { Badge() }` passed to
       `render` — IR cannot wrap it, runtime throws; must become a FIR error telling
       the author to pass a lambda literal
-- [ ] extend the existing rule C (`REGION_CONTENT_NOT_LITERAL` already rejects
+      (probe `ruleC_hoistedComponentContentArgumentIsReported`, red before the fix:
+      `render(content)` reported nothing — the only pre-existing diagnostic was a
+      rule B error on `Badge()` inside the stored lambda, because FIR drops the
+      `@UiComponent` type annotation from the stored literal's inferred type; the new
+      rule adds the actionable "must be a lambda literal" error at the render site)
+- [x] extend the existing rule C (`REGION_CONTENT_NOT_LITERAL` already rejects
       non-literal region content) to cover every parameter IR declines to wrap:
       any argument whose parameter type carries `@UiComponent` must be a lambda
       literal (matching IR's `as? IrFunctionExpression` restriction) — one rule, not
       a parallel new one; this also covers the "region argument is not a lambda
       literal" IR bail-out so Task 10 does not duplicate it
-- [ ] add a test for the nested-local-fun path (`fun render() = ...` wrapper) — after
+      (note: literal-only-as-written would reject the framework's own SOUND
+      forwarding — `KineticaRuntime.render(content)` → two-arg overload,
+      `Boundary.kt:85`, `HeadlessTestRoot`/`BrowserKineticaApp`/gtk/appkit stored
+      content, `RouterSmokeTest.ShellNavHost`, `EachKeyedFlagTest.renderFlags` —
+      values already frame-wrapped at their literal site. The rule therefore exempts
+      reads of value parameters and NON-local properties (`FirValueParameterSymbol` /
+      `FirPropertySymbol` minus `FirLocalPropertySymbol`) plus literal `null`; the
+      local hoist — the F8 probe, the shape IR provably never wraps — is rejected,
+      as are function references and call results. The gate helper
+      `hasComponentTypedLambdaArgument()` was replaced by
+      `unwrappableComponentContentArguments()` — Task 17's reorder target renamed
+      accordingly)
+- [x] add a test for the nested-local-fun path (`fun render() = ...` wrapper) — after
       Task 4 it compiles because entry points are no longer consumers; pin that with
       an explicit test so the old accidental-compile reason is replaced by a
       deliberate one
-- [ ] write positive tests: literal content lambdas unaffected
-- [ ] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 9
+      (`ruleC_localFunctionRenderWrapperCompiles`)
+- [x] write positive tests: literal content lambdas unaffected
+      (`ruleC_literalComponentContentArgumentsCompile` — literal to entry point and
+      to a user content wrapper — plus `ruleC_forwardedContentValuesRemainAllowed`
+      pinning all three sound forwarding shapes the framework relies on)
+- [x] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 9
+      (113/113 green: 109 prior + 4 new; consumer scan over every `@UiComponent`-typed
+      parameter call site in runtime/test/persist/browser/gtk/appkit/router/samples/
+      docs/bench/examples found only value-parameter and member-property forwards —
+      all exempt — so no new Task 19 fallout expected)
 
 ### Task 9: Runtime — scope each-region eviction per render pass (F7)
 
@@ -673,9 +698,11 @@
 **Files:**
 - Modify: `kinetica-compiler/src/KineticaFirExtension.kt`
 
-- [ ] reorder `check()` so `hasComponentTypedLambdaArgument()` (argument-mapping walk +
+- [ ] reorder `check()` so `unwrappableComponentContentArguments()` (renamed from
+      `hasComponentTypedLambdaArgument()` in Task 8; argument-mapping walk +
       cone-type + annotation resolution) runs only after the cheap early-return guard
-      rejects the common case
+      rejects the common case — it now also feeds the end-of-check rule C block, so
+      compute it lazily rather than skipping it
 - [ ] confirm no diagnostic changes: full checker suite green (this is the test — the
       change is pure reordering; no new test cases apply to a no-behavior-change
       reorder, the existing suite is the coverage)
