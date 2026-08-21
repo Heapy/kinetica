@@ -105,6 +105,7 @@ internal class KineticaHoistTransformer(
     private val pluginContext: IrPluginContext,
     private val symbols: KineticaHoistSymbols,
     private val constPropsIndex: ConstPropsFieldIndex,
+    private val statics: FileStaticsCursor,
 ) : IrElementTransformerVoid() {
     private val internedProps = mutableMapOf<String, IrField>()
     private val hoistedHosts = mutableMapOf<String, IrField>()
@@ -142,6 +143,7 @@ internal class KineticaHoistTransformer(
             val field = addStaticFileField(
                 file = file,
                 pluginContext = pluginContext,
+                statics = statics,
                 name = nextStaticFieldName("kineticaProps"),
                 type = symbols.stringMapType,
             ) { fieldBuilder ->
@@ -212,6 +214,7 @@ internal class KineticaHoistTransformer(
             addStaticFileField(
                 file = file,
                 pluginContext = pluginContext,
+                statics = statics,
                 name = nextStaticFieldName("kineticaHost"),
                 type = symbols.hostNodeType,
             ) { fieldBuilder ->

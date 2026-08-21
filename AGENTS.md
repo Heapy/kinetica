@@ -27,15 +27,41 @@ complement — "some `FirFunctionSymbol` is on the containment path" (local
 function, lambda, property accessor, constructor). Widening one side without the
 other reopens the compile-clean/crash-at-render hole this rule exists to close.
 
+That pairing governs COMPONENT FRAMING only. Entry content (`runtime.render { … }`)
+carries no `@UiComponent` declaration for FIR to reject, so the entry pass must
+reach strictly further than the framing collection: it descends into nested
+classes of every body it visits, and the collection yields each
+`IrValueParameter.defaultValue` as its own entry body. Both are idempotent with
+the framing collection — `wrappedContentLambdas` wraps a content literal once.
+
 Two consequences to preserve:
 
-- The `IrClass` scan over initializer expressions must stop at every `IrFunction`
-  boundary — that stop is what makes the complement exact.
+- The `IrClass` scan over initializer expressions (`collectNestedClasses`) must
+  stop at every `IrFunction` boundary — that stop is what makes the FRAMING
+  complement exact. The entry pass deliberately does not stop there.
 - A `@UiComponent`-typed lambda literal argument is ALWAYS wrapped into its own
   fresh region and NEVER descended inline, on every branch of
   `KineticaFrameTransformer.Walker.visitCall`. Wrapping on the fall-through
   branches only left the slot-DSL, event-DSL and hostEvent-fusion branches
   handing unwrapped content to the runtime.
+
+## Invariant: what the GATED walker owns, FIR must gate the same way
+
+`KineticaFrameTransformer.Walker` (component bodies, and every content lambda it
+wraps) refuses to descend into multi-run and stored lambdas, while the
+entry-point pass wraps content bottom-up ungated. Which of the two owns a
+position is decided by the numbering ROOT — the OUTERMOST enclosing named
+function — not by the innermost containment boundary.
+`isInsideComponentNumberingRoot` is that test on the FIR side; do not replace it
+with `classifyContainment`, which stops at the innermost boundary and therefore
+misses nested content lambdas and local functions inside a component.
+
+Positions no frame reaches at all are FIR rejections, never IR widenings: default
+argument values of a `@UiComponent` function (evaluated by the `$default` stub
+before `beginComponentFrame`), callable references to `@UiComponent` functions
+(no call site to stage at), and `@UiComponent` disagreement across an override
+chain (framing reads the override's annotation, staging reads the resolved
+base's).
 
 The `firAndIrAgreeOn*` drift tests in
 `kinetica-compiler/test/KineticaFirCheckerTest.kt` pin the shared tables;

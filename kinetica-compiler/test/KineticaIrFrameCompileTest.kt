@@ -2159,6 +2159,272 @@ class KineticaIrFrameCompileTest {
         )
     }
 
+    @Test
+    fun topLevelPropertyInitializerRenderSeesInitializedFrameTables() {
+        // The generated FrameTable statics used to be APPENDED to file.declarations, so a
+        // top-level property whose initializer renders ran first in <clinit> and read a
+        // still-null table: "Parameter specified as non-null is null: ... beginRegionFrame".
+        // Exactly the property-initializer shape the EntryBody collection enabled.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Badge() {
+                        val id = state { nextId++ }
+                        text("badge:" + id.value)
+                    }
+
+                    private val bootRuntime: KineticaRuntime = KineticaRuntime()
+
+                    val booted: Node =
+                        bootRuntime.render(ComponentScope(bootRuntime)) { Badge() }.tree
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node = booted
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val tree = compiled.invokeRender("app.MainKt", "render").toDebugString()
+            assertTrue("badge:0" in tree, "top-level initializer render must see live tables: $tree")
+        }
+    }
+
+    @Test
+    fun helperReachedFromTopLevelInitializerSeesInitializedFrameTables() {
+        // The same ordering hazard one call deep: the render lives in a helper the
+        // initializer calls, so only the file-level <clinit> order decides the outcome.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Badge() {
+                        val id = state { nextId++ }
+                        text("badge:" + id.value)
+                    }
+
+                    fun boot(): Node {
+                        val runtime = KineticaRuntime()
+                        return runtime.render(ComponentScope(runtime)) { Badge() }.tree
+                    }
+
+                    val booted: Node = boot()
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node = booted
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val tree = compiled.invokeRender("app.MainKt", "render").toDebugString()
+            assertTrue("badge:0" in tree, "helper-reached initializer render must see live tables: $tree")
+        }
+    }
+
+    @Test
+    fun entryContentInFunctionDefaultArgumentIsFrameWrapped() {
+        // Neither IR pass walked IrValueParameter.defaultValue: transform() and
+        // transformEntryPoints() both start at function.body, and the collector yielded no
+        // parameter defaults, so this render content was never wrapped and Badge() threw.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Badge() {
+                        val id = state { nextId++ }
+                        text("badge:" + id.value)
+                    }
+
+                    fun setup(
+                        runtime: KineticaRuntime,
+                        scope: ComponentScope,
+                        tree: Node = runtime.render(scope) { Badge() }.tree,
+                    ): Node = tree
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        setup(runtime, scope)
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val tree = compiled.invokeRender("app.MainKt", "render").toDebugString()
+            assertTrue("badge:0" in tree, "default-argument entry content must be wrapped: $tree")
+        }
+    }
+
+    @Test
+    fun entryContentInConstructorDefaultArgumentIsFrameWrapped() {
+        // Constructor bodies were collected, but their parameter defaults were not.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Badge() {
+                        val id = state { nextId++ }
+                        text("badge:" + id.value)
+                    }
+
+                    class Holder(val tree: Node) {
+                        constructor(
+                            runtime: KineticaRuntime,
+                            scope: ComponentScope,
+                            content: Node = runtime.render(scope) { Badge() }.tree,
+                        ) : this(content)
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        Holder(runtime, scope).tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val tree = compiled.invokeRender("app.MainKt", "render").toDebugString()
+            assertTrue("badge:0" in tree, "constructor default entry content must be wrapped: $tree")
+        }
+    }
+
+    @Test
+    fun entryContentInObjectLiteralInsideInitializerLambdaIsFrameWrapped() {
+        // collectNestedClasses stops at every function boundary (the LOCAL_COMPONENT_FUNCTION
+        // complement), and the initializer EntryBody refused to descend into classes — so a
+        // class declared inside a LAMBDA inside an initializer was reached by neither. Its
+        // entry content is not a @UiComponent declaration, so no FIR rule compensates.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Badge() {
+                        val id = state { nextId++ }
+                        text("badge:" + id.value)
+                    }
+
+                    interface Shower {
+                        fun show(runtime: KineticaRuntime, scope: ComponentScope): Node
+                    }
+
+                    val holder: Shower = run {
+                        object : Shower {
+                            override fun show(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                                runtime.render(scope) { Badge() }.tree
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        holder.show(runtime, scope)
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val tree = compiled.invokeRender("app.MainKt", "render").toDebugString()
+            assertTrue("badge:0" in tree, "object literal in an initializer lambda must be wrapped: $tree")
+        }
+    }
+
+    @Test
+    fun entryContentInObjectLiteralInsideInitBlockLambdaIsFrameWrapped() {
+        // The same shape inside an init { } block, which is a separate EntryBody kind.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Badge() {
+                        val id = state { nextId++ }
+                        text("badge:" + id.value)
+                    }
+
+                    interface Shower {
+                        fun show(runtime: KineticaRuntime, scope: ComponentScope): Node
+                    }
+
+                    class Screen(runtime: KineticaRuntime, scope: ComponentScope) {
+                        var tree: Node? = null
+
+                        init {
+                            val shower: Shower = run {
+                                object : Shower {
+                                    override fun show(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                                        runtime.render(scope) { Badge() }.tree
+                                }
+                            }
+                            tree = shower.show(runtime, scope)
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        Screen(runtime, scope).tree!!
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val tree = compiled.invokeRender("app.MainKt", "render").toDebugString()
+            assertTrue("badge:0" in tree, "init-block lambda object literal must be wrapped: $tree")
+        }
+    }
+
     private fun Node.toDebugString(): String = toString()
 
     private fun Node.collectHostEventIds(): List<String> = when (this) {

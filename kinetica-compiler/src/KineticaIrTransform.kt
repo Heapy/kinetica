@@ -108,8 +108,16 @@ public class KineticaIrGenerationExtension internal constructor(
             // Both allocation transformers for this file must share this index; hoisted-props
             // recognition is index-only, not inferred from field shape or name.
             val constPropsIndex = ConstPropsFieldIndex()
-            val hoister = hoistSymbols?.let { KineticaHoistTransformer(file, pluginContext, it, constPropsIndex) }
-            val templater = templateSymbols?.let { KineticaTemplateTransformer(file, pluginContext, it, constPropsIndex) }
+            // Every generated static of this file goes through one cursor so they land
+            // BEFORE the user declarations that may read them in <clinit>, in generation
+            // order among themselves.
+            val statics = FileStaticsCursor()
+            val hoister = hoistSymbols?.let {
+                KineticaHoistTransformer(file, pluginContext, it, constPropsIndex, statics)
+            }
+            val templater = templateSymbols?.let {
+                KineticaTemplateTransformer(file, pluginContext, it, constPropsIndex, statics)
+            }
             val framer = frameSymbols?.let {
                 KineticaFrameTransformer(
                     file,
@@ -118,6 +126,7 @@ public class KineticaIrGenerationExtension internal constructor(
                     pluginConfiguration.moduleId,
                     ::report,
                     singleRunOracle,
+                    statics,
                 )
             }
             // snapshot: hoisting appends file-level fields while we iterate declarations.
@@ -144,12 +153,7 @@ public class KineticaIrGenerationExtension internal constructor(
                 }
             }
             targets.entryBodies.forEach { entry ->
-                framer?.transformEntryPointBody(
-                    entry.body,
-                    entry.fqName,
-                    entry.owner,
-                    entry.descendIntoNestedClasses,
-                )
+                framer?.transformEntryPointBody(entry.body, entry.fqName, entry.owner)
             }
             if (templater != null && templater.templatesEmitted > 0) {
                 report("${file.fileEntry.name}: emitted ${templater.templatesEmitted} template definitions.")
@@ -186,13 +190,6 @@ public class KineticaIrGenerationExtension internal constructor(
         val owner: IrDeclaration,
         val body: IrElement,
         val fqName: String,
-        /**
-         * Whether the entry pass must descend into classes declared inside this body.
-         * True for a constructor body — a function body, whose nested classes the
-         * collection deliberately does not reach; false for initializer expressions,
-         * whose nested classes ARE collected and would otherwise be processed twice.
-         */
-        val descendIntoNestedClasses: Boolean,
     )
 
     private fun collectFramingTargetsIn(
@@ -207,30 +204,35 @@ public class KineticaIrGenerationExtension internal constructor(
         out: FramingTargets,
     ) {
         when (declaration) {
-            is IrSimpleFunction -> out.functions += declaration
-            is IrConstructor ->
+            is IrSimpleFunction -> {
+                out.functions += declaration
+                collectParameterDefaults(declaration, out)
+            }
+            is IrConstructor -> {
                 declaration.body?.let {
-                    out.entryBodies += EntryBody(declaration, it, declaration.targetName(), descendIntoNestedClasses = true)
+                    out.entryBodies += EntryBody(declaration, it, declaration.targetName())
                 }
+                collectParameterDefaults(declaration, out)
+            }
             is IrClass -> collectFramingTargetsIn(declaration, out)
             is IrProperty -> {
-                declaration.getter?.let { out.functions += it }
-                declaration.setter?.let { out.functions += it }
+                declaration.getter?.let { collectFramingTargets(it, out) }
+                declaration.setter?.let { collectFramingTargets(it, out) }
                 declaration.backingField?.let { collectFramingTargets(it, out) }
             }
             is IrField ->
                 declaration.initializer?.let { initializer ->
-                    out.entryBodies += EntryBody(declaration, initializer, declaration.targetName(), descendIntoNestedClasses = false)
+                    out.entryBodies += EntryBody(declaration, initializer, declaration.targetName())
                     collectNestedClasses(initializer, out)
                 }
             is IrAnonymousInitializer -> {
-                out.entryBodies += EntryBody(declaration, declaration.body, declaration.targetName(), descendIntoNestedClasses = false)
+                out.entryBodies += EntryBody(declaration, declaration.body, declaration.targetName())
                 collectNestedClasses(declaration.body, out)
             }
             is IrEnumEntry -> {
                 declaration.correspondingClass?.let { collectFramingTargetsIn(it, out) }
                 declaration.initializerExpression?.let { initializer ->
-                    out.entryBodies += EntryBody(declaration, initializer, declaration.targetName(), descendIntoNestedClasses = false)
+                    out.entryBodies += EntryBody(declaration, initializer, declaration.targetName())
                     collectNestedClasses(initializer, out)
                 }
             }
@@ -239,11 +241,31 @@ public class KineticaIrGenerationExtension internal constructor(
     }
 
     /**
+     * Default argument values (`fun setup(tree: Node = runtime.render { … }.tree)`, the
+     * same on a constructor). They hang off the parameter, not off the body, so no pass
+     * reached them: entry content inside was never frame-wrapped and threw at first
+     * render. Ordinal consumers in a COMPONENT's own defaults are a different shape — the
+     * default runs before the frame prologue, so no numbering could help and FIR rejects
+     * them (ORDINAL_CALL_IN_DEFAULT_ARGUMENT).
+     */
+    private fun collectParameterDefaults(function: IrFunction, out: FramingTargets) {
+        function.parameters.forEach { parameter ->
+            val default = parameter.defaultValue ?: return@forEach
+            out.entryBodies += EntryBody(function, default, function.targetName())
+            collectNestedClasses(default, out)
+        }
+    }
+
+    /**
      * Anonymous-object classes declared inside an initializer expression (`val panel =
      * object : Panel() { @UiComponent override fun ComponentScope.Render() { … } }`).
      * The walk stops at every function boundary: a class declared inside a lambda or a
-     * local function is unreachable for framing, and FIR rejects `@UiComponent`
+     * local function is unreachable for FRAMING, and FIR rejects `@UiComponent`
      * declarations there instead — that stop is what keeps the two rules complementary.
+     * Entry content (`runtime.render { … }`) in such a class carries no `@UiComponent`
+     * declaration, so no FIR rule covers it; the entry pass reaches it by descending into
+     * nested classes of every body it visits, which is idempotent with what is collected
+     * here (a content lambda is wrapped at most once).
      */
     private fun collectNestedClasses(element: IrElement, out: FramingTargets) {
         element.acceptChildrenVoid(object : IrVisitorVoid() {

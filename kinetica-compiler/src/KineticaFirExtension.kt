@@ -19,6 +19,7 @@ import org.jetbrains.kotlin.diagnostics.reportOn
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
+import org.jetbrains.kotlin.fir.analysis.checkers.directOverriddenFunctionsSafe
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirDeclarationChecker
@@ -31,6 +32,7 @@ import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.declarations.FirValueParameter
 import org.jetbrains.kotlin.fir.declarations.hasAnnotation
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
+import org.jetbrains.kotlin.fir.expressions.FirCallableReferenceAccess
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
@@ -98,12 +100,19 @@ import java.util.concurrent.ConcurrentHashMap
  *    argument position of another staged call, consumes the enclosing component's
  *    ordinal and renders into the wrong frame (F10).
  *
- * Two further soundness rules mirror hard IR limitations: `@UiComponent` functions
- * declared inside a function body are rejected (LOCAL_COMPONENT_FUNCTION — the framing
- * pass reaches only declarations whose path from the file crosses no function body, so
- * this rule is its exact complement), and content literals bound to a receiver-less
- * `@UiComponent` function type are rejected (COMPONENT_CONTENT_WITHOUT_SCOPE_RECEIVER —
- * IR wraps content by its ComponentScope receiver).
+ * Further soundness rules mirror hard IR limitations, all of them errors in every mode:
+ * `@UiComponent` functions declared inside a function body are rejected
+ * (LOCAL_COMPONENT_FUNCTION — the framing pass reaches only declarations whose path from
+ * the file crosses no function body, so this rule is its exact complement); content
+ * literals bound to a receiver-less `@UiComponent` function type are rejected
+ * (COMPONENT_CONTENT_WITHOUT_SCOPE_RECEIVER — IR wraps content by its ComponentScope
+ * receiver); ordinal consumers in a component's default argument values are rejected
+ * (ORDINAL_CALL_IN_DEFAULT_ARGUMENT — the default runs before the frame prologue);
+ * callable references to `@UiComponent` functions are rejected
+ * (COMPONENT_CALLABLE_REFERENCE — staging happens at a call site a reference does not
+ * have); and `@UiComponent` must be present on all or none of an override chain
+ * (COMPONENT_OVERRIDE_ANNOTATION_MISMATCH — framing reads the override's annotation while
+ * staging reads the resolved base's).
  */
 // Every classification table (ordinal-consumer names, region content, loop-safe regions,
 // optional handlers) lives in KineticaFramePolicy, shared with the IR frame pass, so the
@@ -122,12 +131,14 @@ public object KineticaFirErrors : KtDiagnosticsContainer() {
 
     /**
      * A call passing a `@UiComponent` content lambda literal from inside a multi-run (or
-     * stored, unknown-run) lambda within a component body. The IR walker never descends
-     * into such lambdas, so the content is never frame-wrapped: its component calls and
-     * slots crash at first render while no other rule fires — the wrapper consumes no
-     * ordinal (F1) and the rule-F walk stops at the content lambda boundary. Outside
-     * component bodies the ungated entry-point pass wraps content everywhere, so this is
-     * a soundness rule exactly for COMPONENT_BODY containment.
+     * stored, unknown-run) lambda whose numbering root is a component declaration. The IR
+     * walker never descends into such lambdas, so the content is never frame-wrapped: its
+     * component calls and slots crash at first render while no other rule fires — the
+     * wrapper consumes no ordinal (F1) and the rule-F walk stops at the content lambda
+     * boundary. What decides is the numbering ROOT, not the innermost containment: nested
+     * content lambdas and local functions inside a component are walked by the same gated
+     * walker. Outside a component declaration the ungated entry-point pass wraps content
+     * bottom-up everywhere, so the identical shape is sound there.
      */
     public val COMPONENT_CONTENT_IN_MULTI_RUN_LAMBDA: KtDiagnosticFactory2<String, String> by
         error2<PsiElement, String, String>()
@@ -155,6 +166,38 @@ public object KineticaFirErrors : KtDiagnosticsContainer() {
      * rule, active in every checks mode.
      */
     public val LOCAL_COMPONENT_FUNCTION: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
+
+    /**
+     * A callable reference (`ComponentScope::Badge`, `::Badge`) whose target is
+     * `@UiComponent`. IR stages a component's child frame ordinal only at a call site
+     * (`visitCall`), never from an `IrFunctionReference`, and the reference binds to a
+     * plain function type, so the eventual invoke is not a component call either: the
+     * callee's frame prologue finds an empty ordinal stack and throws at first render.
+     * Soundness rule, active in every checks mode.
+     */
+    public val COMPONENT_CALLABLE_REFERENCE: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
+
+    /**
+     * An ordinal-consuming call in a value parameter's DEFAULT VALUE inside a
+     * `@UiComponent` function. The default is evaluated by the `$default` stub BEFORE the
+     * component's `beginComponentFrame` prologue runs, so there is no frame to number it
+     * into — and neither IR pass walks `IrValueParameter.defaultValue` in the first place.
+     * The ordinal keeps its `-1` sentinel and the call throws at first render. Soundness
+     * rule, active in every checks mode.
+     */
+    public val ORDINAL_CALL_IN_DEFAULT_ARGUMENT: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
+
+    /**
+     * A `@UiComponent` annotation that is present on one end of an override chain and
+     * missing on the other. IR frames a component by the annotation on its OWN
+     * declaration, while a call site stages the child ordinal by the annotation on the
+     * declaration it RESOLVES to — the base, for a virtual call. An annotated override of
+     * an unannotated base is framed but never staged (MissingKineticaPluginException at
+     * first render); the mirror image stages an ordinal nothing consumes. Soundness rule,
+     * active in every checks mode.
+     */
+    public val COMPONENT_OVERRIDE_ANNOTATION_MISMATCH: KtDiagnosticFactory2<String, String> by
+        error2<PsiElement, String, String>()
 
     /**
      * A content lambda literal bound to a `@UiComponent` parameter whose function type
@@ -251,6 +294,32 @@ public object KineticaFirErrorRenderers : BaseDiagnosticRendererFactory() {
             CommonRenderers.STRING,
         )
         map.put(
+            KineticaFirErrors.COMPONENT_CALLABLE_REFERENCE,
+            "@UiComponent function ''{0}'' cannot be used as a callable reference: the compiler " +
+                "stages a component''s child frame ordinal at the call site, and a reference has no " +
+                "call site to stage. Call it directly, or pass a @UiComponent-typed lambda literal " +
+                "('{' {0}() '}') instead.",
+            CommonRenderers.STRING,
+        )
+        map.put(
+            KineticaFirErrors.ORDINAL_CALL_IN_DEFAULT_ARGUMENT,
+            "Kinetica call ''{0}'' cannot use a compiler-assigned ordinal in a default argument " +
+                "value: the default is evaluated before the component''s frame is entered, so the " +
+                "compiler never numbers it. Move the call into the component body (for example " +
+                "make the parameter nullable and compute the fallback there).",
+            CommonRenderers.STRING,
+        )
+        map.put(
+            KineticaFirErrors.COMPONENT_OVERRIDE_ANNOTATION_MISMATCH,
+            "@UiComponent must agree across an override chain: ''{0}'' {1}. " +
+                "The compiler frames a component by the annotation on its own declaration and " +
+                "stages the child ordinal by the annotation on the declaration the call resolves " +
+                "to, so a mismatch throws MissingKineticaPluginException at first render or " +
+                "leaves a staged ordinal unconsumed. Annotate every declaration in the chain, or none.",
+            CommonRenderers.STRING,
+            CommonRenderers.STRING,
+        )
+        map.put(
             KineticaFirErrors.COMPONENT_CONTENT_WITHOUT_SCOPE_RECEIVER,
             "The ''{0}'' parameter''s @UiComponent function type has no " +
                 "io.heapy.kinetica.ComponentScope receiver, so the compiler cannot frame-wrap " +
@@ -306,6 +375,12 @@ internal class KineticaFirCheckersExtension(
     override val expressionCheckers: ExpressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers: Set<FirExpressionChecker<FirFunctionCall>> =
             setOf(KineticaCallChecker(singleRunOracle))
+
+        // Soundness: a @UiComponent reference has no call site for IR to stage, so it can
+        // never be sound in any checks mode.
+        override val callableReferenceAccessCheckers:
+            Set<FirExpressionChecker<FirCallableReferenceAccess>> =
+            setOf(KineticaComponentReferenceChecker())
     }
 
     override val declarationCheckers: DeclarationCheckers = object : DeclarationCheckers() {
@@ -313,6 +388,9 @@ internal class KineticaFirCheckersExtension(
             // Soundness: local @UiComponent functions can never be framed by IR, so the
             // declaration rule is active in every checks mode.
             add(KineticaLocalComponentDeclarationChecker())
+            // Soundness: framing and staging read @UiComponent off different declarations
+            // of an override chain, so the annotation must be present on all or none.
+            add(KineticaComponentOverrideChecker())
             when (checksMode) {
                 KineticaChecksMode.ERROR ->
                     add(KineticaComponentDeclarationChecker(KineticaFirErrors.COMPONENT_WITHOUT_SCOPE_RECEIVER))
@@ -398,6 +476,21 @@ private class KineticaCallChecker(
 
         val consumesCompilerOrdinal = facts.consumesCompilerOrdinal()
 
+        // A default argument value runs in the $default stub, before the component's
+        // beginComponentFrame prologue — no frame exists to number the call into, and the
+        // IR passes never walk parameter defaults either. Rules A/B already cover defaults
+        // of non-component functions (containment there is OUTSIDE), so this fires exactly
+        // where they pass: inside a component declaration.
+        if (consumesCompilerOrdinal && context.isInsideValueParameterDefault(session)) {
+            reporter.reportOn(
+                expression.source,
+                KineticaFirErrors.ORDINAL_CALL_IN_DEFAULT_ARGUMENT,
+                name,
+                context,
+            )
+            return
+        }
+
         // Static ordinals cannot tell loop iterations apart. Optional host-event calls
         // whose handler is absent or a literal null never register an event at runtime.
         if (!facts.isLoopSafeRegion && consumesCompilerOrdinal && context.isDirectlyInsideLoop(session)) {
@@ -410,9 +503,9 @@ private class KineticaCallChecker(
         // to number the lambda and the call fails fast at render. Non-consumers need the
         // same walk when they pass @UiComponent content literals from a component body:
         // there the IR walker's descent gates decide whether the content is ever wrapped.
-        val wrapsContentInComponentBody = containment == KineticaContainment.COMPONENT_BODY &&
-            contentArguments.hasWrappableLiteral
-        val unsafeHost = if (consumesCompilerOrdinal || wrapsContentInComponentBody) {
+        val wrapsContentInGatedRegion = contentArguments.hasWrappableLiteral &&
+            context.isInsideComponentNumberingRoot(session)
+        val unsafeHost = if (consumesCompilerOrdinal || wrapsContentInGatedRegion) {
             context.multiRunLambdaHost(expression, session, multiRunReportedCalls)
         } else {
             null
@@ -435,14 +528,14 @@ private class KineticaCallChecker(
         }
 
         // A content-wrapper (or entry-point) call passing a @UiComponent lambda literal
-        // from inside a multi-run or stored lambda within a component body: the IR
-        // walker never descends there, so the literal is never frame-wrapped and its
-        // component calls and slots crash at first render — while no other rule fires
+        // from inside a multi-run or stored lambda whose numbering root is a component:
+        // the IR walker never descends there, so the literal is never frame-wrapped and
+        // its component calls and slots crash at first render — while no other rule fires
         // (post-F1 the wrapper consumes no ordinal, and the rule-F walk from consumers
-        // INSIDE the content stops at the content lambda boundary). Non-component
-        // functions take the ungated entry-point wrap instead, so only COMPONENT_BODY
-        // containment is unsound. Closes the known gap recorded at Task 15.
-        if (wrapsContentInComponentBody && unsafeHost != null) {
+        // INSIDE the content stops at the content lambda boundary). Declarations rooted
+        // outside a component take the ungated entry-point wrap instead, which wraps
+        // nested content bottom-up and is therefore sound.
+        if (wrapsContentInGatedRegion && unsafeHost != null) {
             reporter.reportOn(
                 expression.source,
                 KineticaFirErrors.COMPONENT_CONTENT_IN_MULTI_RUN_LAMBDA,
@@ -861,6 +954,59 @@ private class KineticaLocalComponentDeclarationChecker :
     }
 }
 
+/**
+ * Rejects callable references to `@UiComponent` functions. Staging happens at the call
+ * site (`stageComponentCall` runs from `visitCall`), and a reference has no call site: the
+ * function value it produces has a plain function type, so invoking it later is not a
+ * component call and the callee's frame prologue finds nothing staged.
+ */
+private class KineticaComponentReferenceChecker :
+    FirExpressionChecker<FirCallableReferenceAccess>(MppCheckerKind.Common) {
+    context(context: CheckerContext, reporter: DiagnosticReporter)
+    override fun check(expression: FirCallableReferenceAccess) {
+        val callee = expression.calleeReference.toResolvedCallableSymbol() ?: return
+        if (!callee.hasAnnotation(UI_COMPONENT_CLASS_ID, context.session)) return
+        reporter.reportOn(
+            expression.source,
+            KineticaFirErrors.COMPONENT_CALLABLE_REFERENCE,
+            callee.callableId?.callableName?.asString() ?: callee.name.asString(),
+            context,
+        )
+    }
+}
+
+/**
+ * Requires `@UiComponent` to agree across every override chain. The framing pass reads the
+ * annotation off the declaration it transforms; the staging site reads it off the
+ * declaration the call resolved to, which for a virtual call is the BASE. Only agreement
+ * makes the two read the same verdict. Reported at the override, so a base coming from a
+ * dependency is covered too.
+ */
+private class KineticaComponentOverrideChecker :
+    FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common) {
+    context(context: CheckerContext, reporter: DiagnosticReporter)
+    override fun check(declaration: FirNamedFunction) {
+        if (!declaration.status.isOverride) return
+        val annotated = declaration.hasAnnotation(UI_COMPONENT_CLASS_ID, context.session)
+        for (base in declaration.symbol.directOverriddenFunctionsSafe(context)) {
+            if (base.hasAnnotation(UI_COMPONENT_CLASS_ID, context.session) == annotated) continue
+            val owner = base.callableId.classId?.asSingleFqName()?.asString() ?: "the base declaration"
+            reporter.reportOn(
+                declaration.source,
+                KineticaFirErrors.COMPONENT_OVERRIDE_ANNOTATION_MISMATCH,
+                declaration.name.asString(),
+                if (annotated) {
+                    "is annotated @UiComponent while the declaration it overrides in '$owner' is not"
+                } else {
+                    "overrides the @UiComponent declaration in '$owner' without being annotated itself"
+                },
+                context,
+            )
+            return
+        }
+    }
+}
+
 private class KineticaComponentDeclarationChecker(
     private val factory: KtDiagnosticFactory1<String>,
 ) : FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common) {
@@ -917,6 +1063,52 @@ private fun CheckerContext.classifyContainment(session: FirSession): KineticaCon
         }
     }
     return KineticaContainment.OUTSIDE
+}
+
+/**
+ * Whether the checked call sits in a value parameter's default value, with no frame
+ * boundary of its own in between. A `@UiComponent`-typed content lambda or a region
+ * content lambda in the default IS frame-wrapped at its literal site (the entry pass
+ * reaches parameter defaults), so the walk stops there and the shape stays legal.
+ */
+private fun CheckerContext.isInsideValueParameterDefault(session: FirSession): Boolean {
+    val elements = containingElements
+    for (index in elements.indices.reversed()) {
+        when (val element = elements[index]) {
+            is FirValueParameter -> return true
+            is FirAnonymousFunction -> {
+                if (isComponentTypedLambda(elements, index, element, session)) return false
+                if (isRegionContentArgument(elements, index, element)) return false
+                // A plain lambda in a default is still evaluated with the default.
+            }
+            is FirNamedFunction -> return false
+            else -> {}
+        }
+    }
+    return false
+}
+
+/**
+ * Whether the IR pass numbers this position with the GATED walker
+ * (`KineticaFrameTransformer.Walker`), which refuses to descend into multi-run and stored
+ * lambdas: true exactly when the OUTERMOST enclosing named function is a `@UiComponent`
+ * with a `ComponentScope` receiver. Inside such a declaration every position — however
+ * deeply nested in further content lambdas or local functions — is reached, or missed, by
+ * that walker. Everywhere else the ungated entry-point pass runs first and wraps nested
+ * content bottom-up, so the same shape is sound. `LOCAL_COMPONENT_FUNCTION` guarantees a
+ * component can never be an INNER named function, so testing the outermost one is exact.
+ *
+ * Deliberately distinct from [classifyContainment], which stops at the innermost boundary:
+ * a call inside a component's content lambda is COMPONENT_TYPED_LAMBDA, and one inside a
+ * local function is OUTSIDE, yet both are numbered by the gated walker.
+ */
+private fun CheckerContext.isInsideComponentNumberingRoot(session: FirSession): Boolean {
+    for (element in containingElements) {
+        if (element !is FirNamedFunction) continue
+        return element.hasAnnotation(UI_COMPONENT_CLASS_ID, session) &&
+            element.receiverParameter?.typeRef?.coneTypeOrNull?.classId == COMPONENT_SCOPE_CLASS_ID
+    }
+    return false
 }
 
 /**

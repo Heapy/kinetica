@@ -170,6 +170,7 @@ internal class KineticaFrameTransformer(
     private val moduleId: String,
     private val report: (String, CompilerMessageSeverity, CompilerMessageSourceLocation?) -> Unit,
     private val singleRunOracle: SingleRunOracle,
+    private val statics: FileStaticsCursor,
 ) {
     var componentsFramed: Int = 0
         private set
@@ -671,32 +672,28 @@ internal class KineticaFrameTransformer(
     fun transformEntryPoints(function: IrSimpleFunction) {
         val body = function.body ?: return
         val fqName = function.fqNameWhenAvailable?.asString() ?: return
-        transformEntryPointsIn(body, fqName, descendIntoNestedClasses = true)
+        transformEntryPointsIn(body, fqName)
         function.patchDeclarationParents(function.parent)
     }
 
     /**
      * Entry-point pass for the bodies the framing collection reaches that are not
      * [IrSimpleFunction]s: constructor bodies, property/field initializers, `init { }`
-     * blocks and enum-entry initializers all hold `runtime.render { … }` content exactly
-     * like a function body. [descendIntoNestedClasses] is false for initializer
-     * expressions, whose nested classes the collection reaches on its own — descending
-     * here as well would number one body into two regions.
+     * blocks, enum-entry initializers and default argument values all hold
+     * `runtime.render { … }` content exactly like a function body.
      */
     fun transformEntryPointBody(
         body: IrElement,
         fqName: String,
         owner: IrDeclaration,
-        descendIntoNestedClasses: Boolean,
     ) {
-        transformEntryPointsIn(body, fqName, descendIntoNestedClasses)
+        transformEntryPointsIn(body, fqName)
         owner.patchDeclarationParents(owner.parent)
     }
 
     private fun transformEntryPointsIn(
         body: IrElement,
         fqName: String,
-        descendIntoNestedClasses: Boolean,
     ) {
         val shared = FunctionShared(fqName)
         body.transformChildrenVoid(object : IrElementTransformerVoid() {
@@ -713,8 +710,12 @@ internal class KineticaFrameTransformer(
                     super.visitSimpleFunction(declaration)
                 }
 
-            override fun visitClass(declaration: IrClass): IrStatement =
-                if (descendIntoNestedClasses) super.visitClass(declaration) else declaration
+            // Nested classes are always descended into: a class declared inside a LAMBDA
+            // inside an initializer is reached by neither the collection (it stops at
+            // every function boundary) nor any other pass, and its entry content carries
+            // no @UiComponent declaration for FIR to reject. Classes the collection DOES
+            // reach are visited twice, which is idempotent — wrappedContentLambdas wraps
+            // each content literal once, and components are skipped above.
 
             // visitFunctionAccess (not visitCall) so constructor calls wrap too:
             // a @UiComponent content literal handed to a constructor is stored and
@@ -892,6 +893,7 @@ internal class KineticaFrameTransformer(
         addStaticFileField(
             file = file,
             pluginContext = pluginContext,
+            statics = statics,
             // Kotlin/JS klib signatures for top-level privates are package-scoped, so the
             // name must be unique across files of one package, not just within the file.
             name = Name.identifier("kineticaFrame\$${file.fileUniqueTag()}\$${tableFieldCount++}"),

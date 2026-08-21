@@ -89,6 +89,7 @@ internal class KineticaTemplateTransformer(
     private val pluginContext: IrPluginContext,
     private val symbols: KineticaTemplateSymbols,
     private val constPropsIndex: ConstPropsFieldIndex,
+    private val statics: FileStaticsCursor,
 ) : IrElementTransformerVoid() {
     private lateinit var builder: DeclarationIrBuilder
     private var nextTemplateOrdinal = 0
@@ -130,6 +131,7 @@ internal class KineticaTemplateTransformer(
         return addStaticFileField(
             file = file,
             pluginContext = pluginContext,
+            statics = statics,
             name = staticFieldName("kineticaTemplate", file, ordinal),
             type = symbols.templateDefinitionType,
         ) { fieldBuilder ->
