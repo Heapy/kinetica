@@ -650,6 +650,51 @@ class KineticaIrFrameCompileTest {
         }
     }
 
+    @Test
+    fun nullLiteralHandlersInLoopCompileAndRenderWithoutEvents() {
+        // F2 sound proxy end to end: an absent or literal-null handler never reaches
+        // registerHostEvent, so the loop-shared static event ordinal IR fills stays
+        // unused — the pattern must compile at checks=error AND render without crashing.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.button
+                    import io.heapy.kinetica.checkbox
+                    import io.heapy.kinetica.text
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Rows() {
+                        for (label in listOf("a", "b", "c")) {
+                            button(onClick = null) { text("row-" + label) }
+                            checkbox(checked = false)
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Rows() }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val first = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
+            val second = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toDebugString()
+            assertTrue(
+                "row-a" in first && "row-b" in first && "row-c" in first,
+                "all rows must render: $first",
+            )
+            assertTrue("event:" !in first, "null handlers must not register host events: $first")
+            assertEquals(first, second, "re-render must be stable")
+        }
+    }
+
     private fun Node.toDebugString(): String = toString()
 
     private fun Node.collectHostEventIds(): List<String> = when (this) {

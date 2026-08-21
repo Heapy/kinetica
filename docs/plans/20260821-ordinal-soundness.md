@@ -341,20 +341,42 @@
 - Modify: `kinetica-compiler/test/KineticaFirCheckerTest.kt`
 - Modify: `kinetica-compiler/test/KineticaIrFrameCompileTest.kt`
 
-- [ ] write failing tests from the review probes: nullable-typed non-null handler in
+- [x] write failing tests from the review probes: nullable-typed non-null handler in
       `forEach` (runtime `MissingKineticaPluginException`) and in a `for` loop
       (event aliasing: clicking row "a" runs row "c") — both must become FIR errors
       at `checks=error`
-- [ ] replace the static-nullability exemption with the sound proxy: exempt only when
+      (`nullableTypedHandlerInForEachLambdaIsReported` — rule F, multi-run 'forEach' —
+      and `nullableTypedHandlerInForLoopIsReported` — rule D; both red before the fix.
+      A third probe pins the sound side end to end in `KineticaIrFrameCompileTest`:
+      `nullLiteralHandlersInLoopCompileAndRenderWithoutEvents` compiles at
+      `checks=error` and renders a null-handler loop without registering events)
+- [x] replace the static-nullability exemption with the sound proxy: exempt only when
       the handler argument is absent or a literal `null`; delete `isDefinitelyNonNull`
-- [ ] rewrite `nullableOptionalHandlersRemainAllowedInRepeatedContexts` to cover the
+      (new `isLiteralNull()` checks the unwrapped argument for
+      `FirLiteralExpression` of kind `ConstantValueKind.Null`; absence falls out of the
+      resolved argument mapping for free — defaults are not materialized in FIR;
+      `isDefinitelyNonNull` deleted along with the `canBeNull`/`resolvedType` imports)
+- [x] rewrite `nullableOptionalHandlersRemainAllowedInRepeatedContexts` to cover the
       sound cases only (absent argument / literal null in a loop stays allowed)
-- [ ] add tests for platform types and unbounded type parameters (previously
+      (renamed to `absentOrNullLiteralHandlersRemainAllowedInRepeatedContexts`; covers
+      absent + literal-null handlers for button/textInput/checkbox in both `forEach`
+      and a `for` loop)
+- [x] add tests for platform types and unbounded type parameters (previously
       misclassified by `isDefinitelyNonNull`)
-- [ ] note the migration path for newly-rejected code in the release notes draft
+      (`platformTypedHandlerInLoopIsReported` — `ThreadLocal<() -> Unit>.get()`
+      platform type — and `typeParameterTypedHandlerInLoopIsReported` — handler typed
+      by a nullable-bounded type parameter, the only shape that can flow into
+      `onClick`; both were red before the fix, so old `canBeNull` exempted both)
+- [x] note the migration path for newly-rejected code in the release notes draft
       (Post-Completion): hoist the handler out of the loop, or wrap rows in
       `each`/`keyed`
-- [ ] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 6
+      (already present in Post-Completion: "nullable-handler exemption removed …
+      migration — hoist the handler, or wrap rows in `each`/`keyed`" — no duplicate
+      entry added)
+- [x] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 6
+      (100/100 green: 95 prior + 5 new — 4 error probes + 1 IR render probe; consumer
+      scan found only `onClick = event { … }` literal handlers in runtime/test/persist,
+      which were consumers before this change too, so no new Task 19 fallout expected)
 
 ### Task 6: Parameter-aware single-run classification (F4, F5)
 

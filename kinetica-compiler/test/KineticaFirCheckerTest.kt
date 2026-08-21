@@ -584,7 +584,9 @@ class KineticaFirCheckerTest {
     }
 
     @Test
-    fun nullableOptionalHandlersRemainAllowedInRepeatedContexts() {
+    fun absentOrNullLiteralHandlersRemainAllowedInRepeatedContexts() {
+        // Sound exemption only: an absent or literal-null handler provably never reaches
+        // registerHostEvent, so the loop-shared static event ordinal stays unused.
         harness.compile(
             mapOf(
                 "main.kt" to """
@@ -597,27 +599,127 @@ class KineticaFirCheckerTest {
                     import io.heapy.kinetica.textInput
 
                     @UiComponent
-                    fun ComponentScope.Form(
-                        click: (() -> Unit)?,
-                        input: ((String) -> Unit)?,
-                        submit: (() -> Unit)?,
-                        toggle: (() -> Unit)?,
-                    ) {
+                    fun ComponentScope.Form() {
                         listOf("one").forEach { value ->
-                            button(onClick = click) {}
-                            textInput(value = value, onInput = input, onSubmit = submit)
-                            checkbox(checked = false, onToggle = toggle)
+                            button {}
+                            button(onClick = null) {}
+                            textInput(value = value)
+                            textInput(value = value, onInput = null, onSubmit = null)
+                            checkbox(checked = false)
+                            checkbox(checked = false, onToggle = null)
                         }
                         for (value in listOf("two")) {
-                            button(onClick = click) {}
-                            textInput(value = value, onInput = input, onSubmit = submit)
-                            checkbox(checked = false, onToggle = toggle)
+                            button {}
+                            button(onClick = null) {}
+                            textInput(value = value)
+                            textInput(value = value, onInput = null, onSubmit = null)
+                            checkbox(checked = false)
+                            checkbox(checked = false, onToggle = null)
                         }
                     }
                 """,
             ),
             checks = "error",
         ).close()
+    }
+
+    @Test
+    fun nullableTypedHandlerInForEachLambdaIsReported() {
+        // F2 probe (a): the handler's STATIC type is nullable but the VALUE may be
+        // non-null — IR never descends into forEach, the ordinal keeps its -1 default,
+        // and registerHostEvent throws MissingKineticaPluginException on first render.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.button
+
+                    @UiComponent
+                    fun ComponentScope.Rows(click: (() -> Unit)?) {
+                        listOf("a", "b", "c").forEach { label ->
+                            button(onClick = click) {}
+                        }
+                    }
+                """,
+            ),
+        )
+
+        messages.assertSingleErrorEquals(multiRunMessage("button", "forEach"))
+    }
+
+    @Test
+    fun nullableTypedHandlerInForLoopIsReported() {
+        // F2 probe (b): in a raw loop IR fills ONE static event ordinal for every
+        // iteration, so all rows alias the last closure — clicking row "a" runs row "c".
+        harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.button
+
+                    @UiComponent
+                    fun ComponentScope.Rows(click: (() -> Unit)?) {
+                        for (label in listOf("a", "b", "c")) {
+                            button(onClick = click) {}
+                        }
+                    }
+                """,
+            ),
+        ).assertContainsError("'button' must not be called directly inside a loop")
+    }
+
+    @Test
+    fun platformTypedHandlerInLoopIsReported() {
+        // ThreadLocal.get() returns the Java platform type (() -> Unit)! — static
+        // nullability is undefined, so only the argument-shape proxy can classify it.
+        harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.button
+
+                    @UiComponent
+                    fun ComponentScope.Rows(holder: ThreadLocal<() -> Unit>) {
+                        for (index in 0..1) {
+                            button(onClick = holder.get()) {}
+                        }
+                    }
+                """,
+            ),
+        ).assertContainsError("'button' must not be called directly inside a loop")
+    }
+
+    @Test
+    fun typeParameterTypedHandlerInLoopIsReported() {
+        // A type-parameter-typed handler (nullable upper bound) also has no useful
+        // static nullability; the value can still be non-null at runtime.
+        harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.button
+
+                    @UiComponent
+                    fun <T : (() -> Unit)?> ComponentScope.Rows(handler: T) {
+                        for (index in 0..1) {
+                            button(onClick = handler) {}
+                        }
+                    }
+                """,
+            ),
+        ).assertContainsError("'button' must not be called directly inside a loop")
     }
 
     // Drift tests: the FIR checker exists to predict what the IR frame pass numbers.
