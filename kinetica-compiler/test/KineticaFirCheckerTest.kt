@@ -1660,6 +1660,179 @@ class KineticaFirCheckerTest {
         messages.assertSingleIrDeclineError("each content is not a lambda literal")
     }
 
+    @Test
+    fun ruleH_componentCallResultReceiverIsReported() {
+        // F10 primary probe: the receiver is a call result, so IR cannot stage the child
+        // frame ordinal (its stageComponentCall requires an IrGetValue receiver) and the
+        // callee prologue throws MissingKineticaPluginException at first render. This
+        // compiled clean before rule H.
+        harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        text("badge")
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Fan(panes: List<ComponentScope>) {
+                        panes.first().Badge()
+                    }
+                """,
+            ),
+        ).assertContainsError("'Badge' must be invoked on a simple receiver")
+    }
+
+    @Test
+    fun ruleH_nestedArgumentReceiverStealIsReported() {
+        // F10's nastier variant: evaluated inside another staged component call's
+        // argument list, the unstaged Badge would pop the ENCLOSING component's staged
+        // ordinal and render into the wrong fixed child frame. Rule H rejects the
+        // receiver shape before the runtime backstop is ever needed.
+        harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        text("badge")
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Wrapper(label: String) {
+                        text(label)
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Fan(panes: List<ComponentScope>) {
+                        Wrapper(label = run { panes.first().Badge(); "x" })
+                    }
+                """,
+            ),
+        ).assertContainsError("'Badge' must be invoked on a simple receiver")
+    }
+
+    @Test
+    fun ruleH_safeCallAndSmartCastReceiversAreReported() {
+        // Probe-verified against IR at checks=off: fir2ir wraps both receiver reads (the
+        // checked safe-call subject and the smart-cast IMPLICIT_CAST), so stageComponentCall
+        // sees no bare IrGetValue and leaves BOTH calls unstaged — they crash at first
+        // render. Rule H must mirror IR exactly, not the source-level "it is a variable".
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        text("badge")
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.SafeCall(maybe: ComponentScope?) {
+                        maybe?.Badge()
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.SmartCast(maybe: ComponentScope?) {
+                        if (maybe != null) {
+                            maybe.Badge()
+                        }
+                    }
+                """,
+            ),
+        )
+        val receiverErrors = messages.filter {
+            it.severity.isError && "'Badge' must be invoked on a simple receiver" in it.message
+        }
+        assertEquals(
+            2,
+            receiverErrors.size,
+            "Both the safe-call and the smart-cast receiver must be reported. Messages:\n" +
+                messages.joinToString("\n") { "${it.severity}: ${it.message}" },
+        )
+    }
+
+    @Test
+    fun ruleH_simpleReceiversCompile() {
+        // The shapes IR provably stages (bare IrGetValue): implicit and explicit `this`,
+        // a value parameter, and a plain non-delegated local val.
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        text("badge")
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Fan(other: ComponentScope) {
+                        Badge()
+                        this.Badge()
+                        other.Badge()
+                        val scope = other
+                        scope.Badge()
+                    }
+                """,
+            ),
+            checks = "error",
+        ).close()
+    }
+
+    @Test
+    fun componentCallNonTrivialReceiverFailsCompileWhenChecksAreOff() {
+        // F10's other half: with the FIR extension absent, the IR "left unstaged" decline
+        // must be a located compile ERROR, not a LOGGING line invisible without -verbose.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        text("badge")
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Fan(panes: List<ComponentScope>) {
+                        panes.first().Badge()
+                    }
+                """,
+            ),
+            checks = "off",
+        )
+
+        messages.assertSingleIrDeclineError(
+            "component call Badge has a non-trivial receiver expression",
+            pathMarker = "left unstaged",
+        )
+    }
+
     /**
      * IR verdict of a drift probe: the frame pass numbered the construct (framed message,
      * no decline-to-transform bail-out) and the slots are real (rendering does not throw
@@ -1689,7 +1862,10 @@ class KineticaFirCheckerTest {
             "the call is left on the legacy path and $consequence"
 
     /** A decline-to-transform IR error: exactly one, matching [needle], with a location. */
-    private fun List<RecordedCompilerMessage>.assertSingleIrDeclineError(needle: String) {
+    private fun List<RecordedCompilerMessage>.assertSingleIrDeclineError(
+        needle: String,
+        pathMarker: String = "left on the legacy path",
+    ) {
         val errors = filter { it.severity.isError }
         assertEquals(
             1,
@@ -1700,8 +1876,8 @@ class KineticaFirCheckerTest {
         val error = errors.single()
         assertTrue(needle in error.message, "Expected '$needle' in: ${error.message}")
         assertTrue(
-            "left on the legacy path" in error.message,
-            "Decline errors must name the legacy path: ${error.message}",
+            pathMarker in error.message,
+            "Decline errors must name the declined path ('$pathMarker'): ${error.message}",
         )
         val location = error.location
         assertTrue(

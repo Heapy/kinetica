@@ -638,21 +638,56 @@
 - Modify: `kinetica-compiler/test/KineticaFirCheckerTest.kt`
 - Modify: `kinetica-compiler/test/KineticaIrFrameCompileTest.kt`
 
-- [ ] write failing tests from the review probes: `panes.first().Badge()` compiles
+- [x] write failing tests from the review probes: `panes.first().Badge()` compiles
       clean and throws at render; the nested-argument variant steals the enclosing
       component's staged ordinal and renders into the wrong frame
-- [ ] add FIR rule: a `@UiComponent` call's extension receiver must be a simple
+      (probes ported as `ruleH_componentCallResultReceiverIsReported` and
+      `ruleH_nestedArgumentReceiverStealIsReported` — both shapes compiled clean
+      pre-fix; the wrong-frame steal itself is pinned at kernel level by
+      `stagedOrdinalConsumedInDifferentFrameThrowsImmediately`, since post-fix the
+      compiled shape no longer exists at either checks mode)
+- [x] add FIR rule: a `@UiComponent` call's extension receiver must be a simple
       variable or `this` (mirror IR's `IrGetValue` requirement)
-- [ ] upgrade the IR "left unstaged" report to `ERROR` with source location (same
+      (rule H, new `COMPONENT_RECEIVER_NOT_SIMPLE` factory; whitelist mirrors
+      IrGetValue exactly — `this`, value parameters, plain non-delegated local vals.
+      Probe-verified BEFORE writing the rule: IR leaves safe-call (`maybe?.Badge()`)
+      AND smart-cast (`if (maybe != null) maybe.Badge()`) receivers unstaged — fir2ir
+      wraps both variable reads — so rule H rejects those too, pinned by
+      `ruleH_safeCallAndSmartCastReceiversAreReported`; migration is binding to a
+      plain local val of the scope type)
+- [x] upgrade the IR "left unstaged" report to `ERROR` with source location (same
       mechanism as Task 10)
-- [ ] runtime hardening: add a stack-discipline check so `consumeStagedOrdinal` throws
+      (routes through `reportDecline`; pinned with a location assertion by
+      `componentCallNonTrivialReceiverFailsCompileWhenChecksAreOff` —
+      `assertSingleIrDeclineError` gained a `pathMarker` parameter because "left
+      unstaged" is the accurate needle here, not "left on the legacy path": the call
+      is not retargeted, only its staging is missing)
+- [x] runtime hardening: add a stack-discipline check so `consumeStagedOrdinal` throws
       immediately on a mismatched pop instead of corrupting frames — do NOT tag staged
       entries with the callee: `beginComponentFrame` is public plugin↔runtime ABI, and
       changing its contract forces plugin/runtime version lockstep for every mavenLocal
       consumer
-- [ ] write positive tests: `this.Badge()`, `scope.Badge()` via local val — unaffected
-- [ ] run `./kotlin test -m kinetica-compiler --platform jvm` and
+      (implemented as frame-pairing: `ordinal(n)` records the current frame in a
+      parallel internal array — no ABI change — and `consumeStagedOrdinal` throws
+      IllegalStateException BEFORE entering any frame when the popped entry was staged
+      in a different frame. Catches every cross-frame steal immediately; a SAME-frame
+      steal is indistinguishable without callee tagging (the forbidden ABI change) and
+      still fails loudly within the same render via the existing empty-stack throw at
+      the enclosing call's prologue. Deliberately NO commit-time empty-stack assert:
+      entries legitimately linger when an error boundary catches a throw between
+      staging and the staged call; beginRender drops them)
+- [x] write positive tests: `this.Badge()`, `scope.Badge()` via local val — unaffected
+      (`ruleH_simpleReceiversCompile` — implicit/explicit `this`, parameter, local
+      val — plus the end-to-end render probe
+      `componentCallsOnSimpleReceiversStageAndRenderStably`; kernel positives
+      `argumentPositionStagingKeepsLifoDiscipline` and
+      `stagingInsideRegionFrameIsConsumedInThatFrame` pin the blessed staging shapes
+      under the new check)
+- [x] run `./kotlin test -m kinetica-compiler --platform jvm` and
       `./kotlin test -m kinetica-runtime --platform jvm` - must pass before task 12
+      (compiler 126/126: 120 prior + 6 new; runtime 225/225: 222 prior + 3 new;
+      consumer scan for call-result/safe-call receivers before capitalized calls found
+      only java.net.http builder GET() noise, so no new Task 19 fallout expected)
 
 ### Task 12: Unify call classification in the FIR checker (F11)
 

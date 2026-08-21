@@ -33,6 +33,7 @@ import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirLoop
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
+import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
 import org.jetbrains.kotlin.fir.expressions.FirVarargArgumentsExpression
 import org.jetbrains.kotlin.fir.expressions.impl.FirResolvedArgumentList
 import org.jetbrains.kotlin.fir.expressions.unwrapArgument
@@ -78,6 +79,13 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  *    (guaranteed MissingKineticaPluginException at first render), and key-addressed
  *    persistent state skips the SlotId retarget (the slot silently never persists).
  *    Absent and literal-null keys stay allowed — both provably keep the compiler path.
+ * H. `@UiComponent` calls must be invoked on a simple receiver — `this`, a parameter,
+ *    or a plain local variable — mirroring IR's `IrGetValue` staging requirement: the
+ *    child frame ordinal is staged by re-reading the receiver variable, which is
+ *    impossible for call results, safe calls, and smart-cast values (probe-verified:
+ *    IR leaves all three unstaged). An unstaged call throws at first render or, in
+ *    argument position of another staged call, consumes the enclosing component's
+ *    ordinal and renders into the wrong frame (F10).
  */
 internal val KINETICA_PACKAGE: FqName = KineticaFramePolicy.KINETICA_PACKAGE
 internal val UI_COMPONENT_CLASS_ID: ClassId = ClassId(KINETICA_PACKAGE, Name.identifier("UiComponent"))
@@ -114,6 +122,7 @@ public object KineticaFirErrors : KtDiagnosticsContainer() {
     public val UNSUPPORTED_EXPLICIT_KEY: KtDiagnosticFactory2<String, String> by
         error2<PsiElement, String, String>()
     public val COMPONENT_WITHOUT_SCOPE_RECEIVER: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
+    public val COMPONENT_RECEIVER_NOT_SIMPLE: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
 
     override fun getRendererFactory(): BaseDiagnosticRendererFactory = KineticaFirErrorRenderers
 }
@@ -163,6 +172,14 @@ public object KineticaFirErrorRenderers : BaseDiagnosticRendererFactory() {
         map.put(
             KineticaFirErrors.COMPONENT_WITHOUT_SCOPE_RECEIVER,
             "@UiComponent function ''{0}'' must be an extension of io.heapy.kinetica.ComponentScope.",
+            CommonRenderers.STRING,
+        )
+        map.put(
+            KineticaFirErrors.COMPONENT_RECEIVER_NOT_SIMPLE,
+            "@UiComponent call ''{0}'' must be invoked on a simple receiver — ''this'', a parameter, " +
+                "or a plain local val — so the compiler can stage the child frame ordinal. " +
+                "Call-result, safe-call, and smart-cast receivers are left unstaged and fail at " +
+                "first render. Bind the receiver to a plain local val of the scope type first.",
             CommonRenderers.STRING,
         )
     }
@@ -231,6 +248,22 @@ private class KineticaCallChecker(
         if (isComponentCall && containment == KineticaContainment.OUTSIDE) {
             reporter.reportOn(expression.source, KineticaFirErrors.COMPONENT_CALL_OUTSIDE_COMPONENT, name, context)
             return
+        }
+
+        // Rule H (F10): IR stages the child frame ordinal only for receivers it can
+        // re-read as an IrGetValue. Anything else is left unstaged — the callee prologue
+        // throws at first render or steals an enclosing call's staged ordinal.
+        if (isComponentCall) {
+            val receiver = expression.extensionReceiver
+            if (receiver != null && !receiver.isSimpleStagingReceiver()) {
+                reporter.reportOn(
+                    receiver.source ?: expression.source,
+                    KineticaFirErrors.COMPONENT_RECEIVER_NOT_SIMPLE,
+                    name,
+                    context,
+                )
+                return
+            }
         }
 
         val consumesCompilerOrdinal = expression.consumesCompilerOrdinal(session)
@@ -418,6 +451,24 @@ private fun FirFunctionCall.unwrappableComponentContentArguments(): List<Pair<Fi
             .add(argument to parameter)
     }
     return violations ?: emptyList()
+}
+
+/**
+ * Whether this extension-receiver expression lowers to the bare `IrGetValue` that IR's
+ * `stageComponentCall` requires: `this` (implicit or explicit), a value parameter, or a
+ * plain (non-delegated) local variable. Safe-call subjects and smart-cast values do NOT
+ * qualify — probe-verified: fir2ir wraps the variable read (checked-subject block,
+ * IMPLICIT_CAST), so IR leaves those calls unstaged. Delegated local reads lower to a
+ * `getValue` call, not a variable read. Non-local property reads lower to getter calls.
+ */
+private fun FirExpression.isSimpleStagingReceiver(): Boolean = when (this) {
+    is FirThisReceiverExpression -> true
+    is FirPropertyAccessExpression -> when (val symbol = calleeReference.toResolvedCallableSymbol()) {
+        is FirValueParameterSymbol -> true
+        is FirLocalPropertySymbol -> !symbol.hasDelegate
+        else -> false
+    }
+    else -> false
 }
 
 private fun FirExpression.isWrappableContentArgument(): Boolean {
