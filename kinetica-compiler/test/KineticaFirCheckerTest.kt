@@ -1,5 +1,7 @@
 package io.heapy.kinetica.compiler
 
+import io.heapy.kinetica.ComponentScope
+import io.heapy.kinetica.KineticaRuntime
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -525,6 +527,203 @@ class KineticaFirCheckerTest {
             ),
             checks = "error",
         ).close()
+    }
+
+    // Drift tests: the FIR checker exists to predict what the IR frame pass numbers.
+    // Each probe compiles with checks=error (FIR verdict: allowed), then asserts the IR
+    // pass actually numbered the same construct (no bail-out, renders with stable slots).
+    // Both phases must consult KineticaFramePolicy; these fail if either side grows a
+    // private copy of the region-content or single-run tables and drifts.
+
+    @Test
+    fun firAndIrAgreeOnKeyedRegionContent() {
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Panel() {
+                        keyed("tab") {
+                            val id = state { nextId++ }
+                            text("k=" + id.value)
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Panel() }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            compiled.assertIrNumberedAndRendersStably("k=0")
+        }
+    }
+
+    @Test
+    fun firAndIrAgreeOnEachRegionContent() {
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.each
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Rows() {
+                        each(listOf("a", "b"), key = { it }) { item ->
+                            val id = state { nextId++ }
+                            text(item + "=" + id.value)
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Rows() }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            compiled.assertIrNumberedAndRendersStably("a=0", "b=1")
+        }
+    }
+
+    @Test
+    fun firAndIrAgreeOnLazyEachContentAndPlaceholder() {
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.lazyEach
+                    import io.heapy.kinetica.lazyItems
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Rows() {
+                        lazyEach(
+                            lazyItems(listOf("a", "b")),
+                            key = { it },
+                            placeholder = {
+                                val pending = state { -1 }
+                                text("pending=" + pending.value)
+                            },
+                        ) { item ->
+                            val id = state { nextId++ }
+                            text(item + "=" + id.value)
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Rows() }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            // The placeholder lambda only executes for pending resources; its IR verdict
+            // is the absence of a bail-out message, asserted for the whole probe below.
+            compiled.assertIrNumberedAndRendersStably("a=0", "b=1")
+        }
+    }
+
+    @Test
+    fun firAndIrAgreeOnSingleRunLambdaHosts() {
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.peek
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Hosts() {
+                        listOf(1).let {
+                            val a = state { nextId++ }
+                            text("let=" + a.value)
+                        }
+                        run {
+                            val b = state { nextId++ }
+                            text("run=" + b.value)
+                        }
+                        with(listOf(1)) {
+                            val c = state { nextId++ }
+                            text("with=" + c.value)
+                        }
+                        listOf(1).apply {
+                            val d = state { nextId++ }
+                            text("apply=" + d.value)
+                        }
+                        listOf(1).also {
+                            val e = state { nextId++ }
+                            text("also=" + e.value)
+                        }
+                        peek {
+                            val f = state { nextId++ }
+                            text("peek=" + f.value)
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Hosts() }.tree
+                """,
+            ),
+            checks = "error",
+        ).use { compiled ->
+            compiled.assertIrNumberedAndRendersStably(
+                "let=0", "run=1", "with=2", "apply=3", "also=4", "peek=5",
+            )
+        }
+    }
+
+    /**
+     * IR verdict of a drift probe: the frame pass numbered the construct (framed message,
+     * no decline-to-transform bail-out) and the slots are real (rendering does not throw
+     * MissingKineticaPluginException, re-rendering reuses the same cells).
+     */
+    private fun CompiledKineticaModule.assertIrNumberedAndRendersStably(vararg markers: String) {
+        assertTransformFired("framed (slots=")
+        assertTransformDidNotFire("left on the legacy path")
+        assertTransformDidNotFire("left unwrapped")
+        assertTransformDidNotFire("no ordinal parameter")
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+        val first = invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toString()
+        val second = invokeRender("app.MainKt", "render", runtime = runtime, scope = scope).toString()
+        markers.forEach { marker ->
+            assertTrue(marker in first, "Expected '$marker' in rendered output: $first")
+        }
+        assertEquals(first, second, "slots must be reused, not re-initialized, across renders")
     }
 
     private fun multiRunMessage(call: String, host: String): String =

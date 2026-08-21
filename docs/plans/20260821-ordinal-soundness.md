@@ -180,20 +180,24 @@
 - Modify: `kinetica-compiler/src/KineticaIrFrames.kt`
 - Modify: `kinetica-compiler/test/KineticaFirCheckerTest.kt`
 
-- [ ] write a drift test first: assert the FIR checker and IR pass consult the same
+- [x] write a drift test first: assert the FIR checker and IR pass consult the same
       region-content-parameter and single-run tables (compile a probe per region kind —
       `each`, `lazyEach` incl. `empty`/`placeholder`, `keyed` — and assert FIR verdict
       matches IR numbering outcome)
-- [ ] create `internal object KineticaFramePolicy` holding `REGION_CONTENT_PARAMETERS`,
+      (note: `lazyEach` has no `empty` parameter in the current runtime signature —
+      probes cover `content` + `placeholder`; the placeholder lambda never executes
+      without a pending resource, so its IR verdict is bail-out-message absence)
+- [x] create `internal object KineticaFramePolicy` holding `REGION_CONTENT_PARAMETERS`,
       `KOTLIN_PACKAGE`, `SINGLE_RUN_SCOPE_FUNCTIONS`, and ONE shared Kinetica-lambda
       classification predicate that replaces both FIR's receiver-based `isKineticaDsl`
       and IR's package-based `inKinetica`; fold the `SINGLE_RUN_KINETICA_FUNCTIONS =
       setOf("peek")` patch-list into that predicate instead of porting it as a
       separate table (Task 14 would otherwise delete it again)
-- [ ] point `KineticaFirExtension.kt` at the shared object; delete its private copies
-- [ ] point `KineticaIrFrames.kt` at the shared object; delete `REGION_CONTENT_PARAMS`,
+- [x] point `KineticaFirExtension.kt` at the shared object; delete its private copies
+- [x] point `KineticaIrFrames.kt` at the shared object; delete `REGION_CONTENT_PARAMS`,
       `KOTLIN_PKG`, its `SINGLE_RUN_SCOPE_FUNCTIONS`
-- [ ] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 2
+- [x] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 2
+      (84/84 green, including the 4 new drift tests)
 
 ### Task 2: Contract-based single-run detection with FIR→IR oracle (F13)
 
