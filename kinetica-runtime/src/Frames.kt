@@ -256,6 +256,20 @@ internal class Frame(
         ensureChildCapacity(ordinal)
         val evict = keyedEvictionStamp ?: IntArray(children!!.size).also { keyedEvictionStamp = it }
         evict[ordinal] = generation
+        return beginKeyedPass(ordinal, generation)
+    }
+
+    /**
+     * Pass counting alone, WITHOUT deferring eviction to [commitChecks]: `lazyEach`
+     * retention is policy-driven per call (hidden rows are retained by design), so
+     * stamping [keyedEvictionStamp] would wrongly dispose them at commit. The pass index
+     * still namespaces row keys per invocation ([keyedPassChildKey]) and scopes each
+     * call's own VisibleOnly/PersistentSlots retention sweep to the rows it owns — one
+     * loop invocation can neither alias nor evict a sibling invocation's rows (the F7
+     * hazard shape, closed for `each` by Task 9 and for `lazyEach` here).
+     */
+    internal fun beginKeyedPass(ordinal: Int, generation: Int): Int {
+        ensureChildCapacity(ordinal)
         val stamps = childEnterStamp!!
         if (stamps[ordinal] != generation) {
             stamps[ordinal] = generation
@@ -592,6 +606,18 @@ internal data class KeyedPassKey(val pass: Int, val key: Any)
 
 internal fun keyedPassChildKey(pass: Int, key: Any): Any =
     if (pass == 0) key else KeyedPassKey(pass, key)
+
+/**
+ * The user key behind a stored keyed-child key IF the render pass [pass] owns that row;
+ * null for rows owned by sibling invocations of the same static ordinal. Pass 0 owns the
+ * bare (non-composite) keys, pass n > 0 owns `KeyedPassKey(n, …)` — the exact inverse of
+ * [keyedPassChildKey], used to scope per-call retention sweeps to one invocation's rows.
+ */
+internal fun keyedPassUserKey(childKey: Any, pass: Int): Any? = when {
+    childKey is KeyedPassKey -> if (childKey.pass == pass) childKey.key else null
+    pass == 0 -> childKey
+    else -> null
+}
 
 internal const val EVENT_ROLE_PRIMARY: Int = 0
 internal const val EVENT_ROLE_SECONDARY: Int = 1

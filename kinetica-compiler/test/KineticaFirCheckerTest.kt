@@ -684,7 +684,9 @@ class KineticaFirCheckerTest {
         // F1: a content-wrapper helper is not an ordinal consumer. IR wraps its
         // @UiComponent-typed lambda literal into one static FrameTable and numbers
         // nothing on the call itself; region re-entry forking keeps repeated
-        // invocations independent at runtime.
+        // invocations independent at runtime. Single-run hosts (a raw loop, `run`)
+        // stay reachable by the IR walker, so the wrapper compiles there too — only
+        // multi-run lambda hosts are rejected (see the componentContentWrapper tests).
         harness.compile(
             mapOf(
                 "main.kt" to """
@@ -708,7 +710,122 @@ class KineticaFirCheckerTest {
                     @UiComponent
                     fun ComponentScope.Fan() {
                         helper { Badge() }
+                        for (i in 0..1) {
+                            helper { Badge() }
+                        }
+                        run { helper { Badge() } }
+                    }
+                """,
+            ),
+            checks = "error",
+        ).close()
+    }
+
+    @Test
+    fun componentContentWrapperInMultiRunLambdaIsReported() {
+        // Known gap recorded at Task 15, closed: within a component body the IR walker
+        // never descends into a multi-run lambda, so the wrapper's content literal is
+        // never frame-wrapped and Badge() crashes at first render — previously with no
+        // diagnostic at ANY checks mode.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.TextNode
+                    import io.heapy.kinetica.UiComponent
+
+                    fun ComponentScope.helper(
+                        content: @UiComponent ComponentScope.() -> Unit,
+                    ) {
+                        content()
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        emit(TextNode(value = "badge"))
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Fan() {
                         listOf(1).forEach { helper { Badge() } }
+                    }
+                """,
+            ),
+        )
+
+        messages.assertSingleErrorEquals(componentContentInMultiRunMessage("helper", "forEach"))
+    }
+
+    @Test
+    fun componentContentWrapperInStoredLambdaIsReported() {
+        // The stored-lambda door into the same gap: the IR walker gates variable
+        // initializers exactly like multi-run call arguments (F6), so content literals
+        // inside a stored lambda are never wrapped either.
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.TextNode
+                    import io.heapy.kinetica.UiComponent
+
+                    fun ComponentScope.helper(
+                        content: @UiComponent ComponentScope.() -> Unit,
+                    ) {
+                        content()
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        emit(TextNode(value = "badge"))
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Fan() {
+                        val row: ComponentScope.() -> Unit = { helper { Badge() } }
+                        row()
+                    }
+                """,
+            ),
+        )
+
+        messages.assertSingleErrorEquals(componentContentInMultiRunMessage("helper", "row"))
+    }
+
+    @Test
+    fun componentContentWrapperInEntryContentCompiles() {
+        // Outside component bodies the entry-point pass wraps content arguments
+        // ungated (it descends into loops and multi-run lambdas alike), so the same
+        // wrapper-in-forEach shape is sound inside entry content and must not be
+        // rejected — the new rule keys on COMPONENT_BODY containment exactly.
+        harness.compile(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.TextNode
+                    import io.heapy.kinetica.UiComponent
+
+                    fun ComponentScope.helper(
+                        content: @UiComponent ComponentScope.() -> Unit,
+                    ) {
+                        content()
+                    }
+
+                    @UiComponent
+                    fun ComponentScope.Badge() {
+                        emit(TextNode(value = "badge"))
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope) {
+                        runtime.render(scope) {
+                            listOf(1, 2).forEach { helper { Badge() } }
+                        }
                     }
                 """,
             ),
@@ -2347,6 +2464,13 @@ class KineticaFirCheckerTest {
         "Kinetica call '$call' cannot use a compiler-assigned ordinal inside the multi-run '$host' lambda. " +
             "The call already keys its own content; hoist it out of the multi-run lambda, " +
             "or key the outer repetition with keyed(...)."
+
+    private fun componentContentInMultiRunMessage(call: String, host: String): String =
+        "'$call' receives @UiComponent content inside the multi-run '$host' lambda. " +
+            "Within a component body the compiler never descends into '$host', so the " +
+            "content lambda is not frame-wrapped and fails at first render. " +
+            "Hoist the call out of the multi-run lambda, or use " +
+            "each(items, key = ...) or keyed(...) for repeated rendering."
 
     private fun explicitKeyMessage(call: String, consequence: String): String =
         "'$call' with an explicit 'key' argument cannot use compiler-assigned ordinals: " +

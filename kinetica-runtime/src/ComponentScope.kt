@@ -169,6 +169,10 @@ public class ComponentScope public constructor(
     internal fun keyedChildFrameKeys(ordinal: Int): Set<Any> =
         currentFrame.keyedChildKeys(ordinal)
 
+    /** See [Frame.beginKeyedPass]; exposed for the top-level `lazyEachRegion`. */
+    internal fun beginKeyedFramePass(ordinal: Int): Int =
+        currentFrame.beginKeyedPass(ordinal, slotGeneration)
+
     internal fun disposeKeyedChildFrame(ordinal: Int, key: Any) {
         currentFrame.removeKeyedChild(ordinal, key, runtime)
     }
@@ -1088,6 +1092,14 @@ public fun <T> ComponentScope.lazyEachRegion(
 ) {
     markEachCapturesUnsafe()
     val snapshot = keyedLastWins(items, key)
+    // Pass index namespaces row identity when this static ordinal is invoked again
+    // within one render (lazyEach in a for loop): iterations sharing a user key get
+    // independent rows, and each invocation's retention sweep below only touches rows
+    // of its own pass — it can no longer dispose or strip rows a sibling invocation
+    // rendered this pass (the F7 hazard shape). Unlike `each`, eviction stays per call
+    // (policy-driven): hidden rows are retained by design, so commit must not collect
+    // unkept rows.
+    val pass = beginKeyedFramePass(ordinal)
     val visibleRange = state.visibleRange(snapshot.size)
     val visibleKeys = mutableSetOf<Any>()
     val frameStart = currentNodeFrameSize()
@@ -1104,7 +1116,7 @@ public fun <T> ComponentScope.lazyEachRegion(
     snapshot.forEachIndexed { index, keyed ->
         if (index in visibleRange) {
             visibleKeys += keyed.key
-            enterKeyedChildFrame(ordinal, keyed.key, rowTable)
+            enterKeyedChildFrame(ordinal, keyedPassChildKey(pass, keyed.key), rowTable)
             try {
                 content(keyed.item)
             } catch (pending: ResourcePendingException) {
@@ -1120,15 +1132,21 @@ public fun <T> ComponentScope.lazyEachRegion(
         }
     }
     recordChildRegion(ordinal, frameStart)
+    // Retention sweeps are scoped to the rows THIS pass owns (keyedPassUserKey returns
+    // null for a sibling invocation's rows): row identity is pass-namespaced above, so
+    // sweeping another pass's rows would compare the wrong key sets and dispose rows
+    // that are already part of this render's emitted tree.
     when (retain) {
         RetainPolicy.Keyed -> Unit
         RetainPolicy.VisibleOnly -> keyedChildFrameKeys(ordinal).forEach { existingKey ->
-            if (existingKey !in visibleKeys) {
+            val userKey = keyedPassUserKey(existingKey, pass) ?: return@forEach
+            if (userKey !in visibleKeys) {
                 disposeKeyedChildFrame(ordinal, existingKey)
             }
         }
         RetainPolicy.PersistentSlots -> keyedChildFrameKeys(ordinal).forEach { existingKey ->
-            if (existingKey !in visibleKeys) {
+            val userKey = keyedPassUserKey(existingKey, pass) ?: return@forEach
+            if (userKey !in visibleKeys) {
                 stripKeyedChildFrameForPersistence(ordinal, existingKey)
             }
         }

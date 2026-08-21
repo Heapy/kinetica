@@ -35,6 +35,59 @@ Fixed by the plan in `20260821-ordinal-soundness.md`. Task mapping:
 
 ---
 
+## Task 20 verification walk (2026-08-21)
+
+Every finding re-verified against HEAD by walking the mapping table above, item by
+item. "Dedicated tests" are the pins that fail if the fix regresses; compiler tests
+live in `kinetica-compiler/test/`, runtime tests in `kinetica-runtime/test/`.
+
+| ID | Verdict | Dedicated tests (primary pins) |
+|----|---------|--------------------------------|
+| F1 | ✅ fixed (Task 4) | `renderEntryPointInsideRepeatCompilesAndRuns`, `renderEntryPointInsideAssertFailsWithCompiles` |
+| F2 | ✅ fixed (Task 5) | `nullableTypedHandlerInForEachLambdaIsReported`, `nullableTypedHandlerInForLoopIsReported`, `nullLiteralHandlersInLoopCompileAndRenderWithoutEvents` |
+| F3 | ✅ fixed (Task 3) | `contentLambdaInvokedTwiceForksRegionFramesPerInvocation`, `regionReenteredWithinOneRenderForksSiblingFrames`, `forkedRegionSiblingIsDeactivatedWhenLaterRenderEntersOnce` |
+| F4 | ✅ fixed (Task 6) | `deferredHandlerLambdasAreMultiRunHosts`, `deferredHandlerSlotCallsFailCompileWhenChecksAreOff`, `deferredHandlersAndRegionContentCompileAndDispatchAtChecksError` |
+| F5 | ✅ fixed (Task 6) | `eachAndLazyEachKeySelectorsAreMultiRunHosts`, `eachKeySelectorSlotCallsFailCompileWhenChecksAreOff` |
+| F6 | ✅ fixed (Task 7) | `valStoredLambdaWithOrdinalConsumersIsReported`, `varargLambdaElementWithOrdinalConsumersIsReported`, `valStoredLambdaSlotCallsFailCompileWhenChecksAreOff`, `valStoredLambdaWithoutOrdinalConsumersCompiles` |
+| F7 | ✅ fixed (Task 9; `lazyEach` sibling hazard closed in Task 20) | `eachInsideLoopPreservesRowStateAcrossRenders`, `eachInvocationsSharingUserKeysKeepIndependentRowState`, `eachInsideLoopStillDisposesRowsWhoseKeysLeave`, `vanishedEachInvocationDisposesItsRows`; lazyEach: `lazyEachInvocationsSharingUserKeysKeepIndependentRowState`, `lazyEachVisibleOnlyInLoopKeepsSiblingInvocationRows`, `lazyEachPersistentSlotsInLoopKeepsSiblingInvocationRows` |
+| F8 | ✅ fixed (Task 8) | `ruleC_hoistedComponentContentArgumentIsReported`, `ruleC_forwardedContentValuesRemainAllowed`, `ruleC_literalComponentContentArgumentsCompile` |
+| F9 | ✅ fixed (Task 10) | `suspendSubtreeExplicitKeyIsReported`, `suspendSubtreeExplicitKeyFailsCompileWhenChecksAreOff`, `suspendSubtreeNullOrImplicitKeyCompilesAndTransforms`, `persistentStateExplicitKeyIsReported` |
+| F10 | ✅ fixed (Task 11) | `ruleH_componentCallResultReceiverIsReported`, `ruleH_nestedArgumentReceiverStealIsReported`, `ruleH_safeCallAndSmartCastReceiversAreReported`, `stagedOrdinalConsumedInDifferentFrameThrowsImmediately` |
+| F11 | ✅ fixed (Task 12; latent in Kotlin 2.4.10 — see the plan note) | `localComponentFunctionCallsInRepeatedContextsAreReported` |
+| F12 | ✅ fixed (Tasks 1, 14) | `firAndIrAgreeOnKeyedRegionContent` / `…EachRegionContent` / `…LazyEachContentAndPlaceholder` / `…SingleRunLambdaHosts`, `everyTopLevelKineticaLambdaFunctionHasAnExplicitFramePolicyClassification`, `deriveComputeLambdaOrdinalConsumerIsReported` (+ the invalidate / serverActionStub FIR and checks=off IR pins) |
+| F13 | ✅ fixed (Task 2) | `runCatchingLambdaHostCompilesAndNumbersOrdinals`, `takeIfContractLambdaHostCompilesAndNumbersOrdinals`, `userExactlyOnceContractHostCompilesAndNumbersOrdinals`, `userAtMostOnceContractHostCompilesAndNumbersOrdinals`, `localFunctionHostStaysMultiRunViaNameListFallback` |
+| F14 | ✅ fixed (Task 13) | `multiRunReportSurvivesOuterConsumerRuleAEarlyExit`, `multiRunNestedOrdinalCallsReportOnlyTheOutermostConsumer` |
+| F15 | ✅ fixed (Task 1) | the four `firAndIrAgree…` drift tests (both phases now read `KineticaFramePolicy`) |
+| S1 | ✅ fixed (Task 15) | `checksOffKeepsMultiRunOrdinalRuleAnError`, `checksOffKeepsValStoredLambdaRuleAnError`, `checksOffKeepsSlotCallOutsideComponentAnError`, `checksWarningKeepsSoundnessRulesAsErrors`, `checksWarningDowngradesStyleDiagnosticsToWarnings`, `checksOffSuppressesStyleDiagnostics` |
+| S2 | ✅ fixed (Task 16) | `multiRunKeyedConstructGetsHoistAdviceInsteadOfEachKeyedAdvice` (+ the flagged-`each` expectation in `multiRunRegionAndComponentCallsAreReported`) |
+| S3 | ✅ fixed (Task 13) | dead matcher deleted; symbol-identity-only matching pinned by `multiRunNestedOrdinalCallsReportOnlyTheOutermostConsumer` and `multiRunReportSurvivesOuterConsumerRuleAEarlyExit` |
+| S4 | ✅ fixed (Task 17) | none by design — a pure evaluation-order reorder of a pure predicate; the full checker suite is the regression check (recorded in the plan's Task 17) |
+| S5 | ✅ fixed (Task 18) | `KineticaCompilationHarnessTest` (expect-errors cleanup, success-path cleanup on close, failure-path cleanup) |
+
+Two gaps surfaced during implementation were weighed against the Overview promise
+("compile-clean code never throws `MissingKineticaPluginException` and never silently
+aliases") and CLOSED in Task 20 — both were compile-clean shapes that crashed or
+aliased at runtime:
+
+- **Content-wrapper call inside a multi-run lambda in a component body**
+  (`listOf(1).forEach { helper { Badge() } }`, the ⚠️ recorded at Task 15, including
+  its stored-lambda door `val row = { helper { Badge() } }`): now a FIR soundness
+  error (`COMPONENT_CONTENT_IN_MULTI_RUN_LAMBDA`, active in every checks mode). The
+  rule keys on COMPONENT_BODY containment — exactly where IR's gated walker never
+  wraps the content — so entry content stays compiling and rendering (the ungated
+  entry-point pass wraps there): `componentContentWrapperInMultiRunLambdaIsReported`,
+  `componentContentWrapperInStoredLambdaIsReported`,
+  `multiRunComponentTypedHelperFailsCompileWhenChecksAreOff` vs.
+  `componentContentWrapperInEntryContentCompiles`,
+  `entryContentUserWrapperRendersWithStableIdentity`,
+  `multiRunCallWithComponentTypedLambdaArgumentCompiles`.
+- **`lazyEach` in a loop** shared the F7 hazard shape (flagged at Task 9): rows now
+  carry the render-pass index like `each` rows (`Frame.beginKeyedPass`), and the
+  VisibleOnly/PersistentSlots retention sweeps are scoped to their own invocation's
+  rows; single-invocation behavior is byte-identical (pass 0 keeps bare keys):
+  the four `lazyEach…` tests listed under F7 plus
+  `lazyEachVisibleOnlySingleInvocationStillDisposesHiddenRows`.
+
 ## Primary findings (verified)
 
 ### F1 — KineticaFirExtension.kt:255

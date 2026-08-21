@@ -445,13 +445,12 @@ class KineticaIrFrameCompileTest {
     }
 
     @Test
-    fun multiRunComponentTypedHelperFailsFastWhenChecksAreOff() {
-        // Still COMPILES at every checks mode, S1 included: the rule-F walk ends at the
-        // component-typed lambda boundary and post-F1 the wrapper call itself consumes
-        // no ordinal, so FIR has nothing to reject — while IR never descends into the
-        // multi-run forEach lambda to wrap the content. The runtime fail-fast below is
-        // the only guard for this shape today (known gap, see the ⚠️ note on Task 15).
-        harness.compile(
+    fun multiRunComponentTypedHelperFailsCompileWhenChecksAreOff() {
+        // Closes the known gap recorded at Task 15: this shape used to compile at every
+        // checks mode and crash at first render (IR never descends into the multi-run
+        // forEach lambda to wrap the content, and post-F1 the wrapper consumes no
+        // ordinal). It is a soundness rule now, so `checks=off` must not remove it.
+        harness.compileExpectingErrors(
             mapOf(
                 "app/Main.kt" to """
                     package app
@@ -483,21 +482,76 @@ class KineticaIrFrameCompileTest {
                 """,
             ),
             checks = "off",
+        ).assertContainsError(
+            "'helper' receives @UiComponent content inside the multi-run 'forEach' lambda",
+        )
+    }
+
+    @Test
+    fun entryContentUserWrapperRendersWithStableIdentity() {
+        // The sound counterpart of the closed Task 15 gap: OUTSIDE component bodies the
+        // entry-point pass wraps @UiComponent content ungated — a user wrapper nested in
+        // entry content, and even a wrapper inside a multi-run forEach within entry
+        // content, must render correctly with per-invocation identity (region re-entry
+        // forks) that is stable across renders. Also pins that the entry pass does not
+        // double-wrap nested wrapper content (each Chip keeps one slot).
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Chip() {
+                        val id = state { nextId++ }
+                        text("chip:" + id.value)
+                    }
+
+                    fun ComponentScope.helper(
+                        content: @UiComponent ComponentScope.() -> Unit,
+                    ) {
+                        content()
+                    }
+
+                    fun renderNested(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { helper { Chip(); Chip() } }.tree
+
+                    fun renderLooped(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) {
+                            listOf(1, 2).forEach { helper { Chip() } }
+                        }.tree
+                """,
+            ),
+            checks = "error",
         ).use { compiled ->
-            val failure = assertFailsWith<java.lang.reflect.InvocationTargetException> {
-                compiled.invokeRender("app.MainKt", "render")
-            }
-            val cause = failure.cause
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val first = compiled.invokeRender("app.MainKt", "renderNested", runtime = runtime, scope = scope)
+                .toDebugString()
+            val second = compiled.invokeRender("app.MainKt", "renderNested", runtime = runtime, scope = scope)
+                .toDebugString()
+            assertTrue("chip:0" in first && "chip:1" in first, "two chip call sites must get distinct slots: $first")
+            assertEquals(first, second, "wrapper content slots must be stable across renders")
+
+            val loopRuntime = KineticaRuntime()
+            val loopScope = ComponentScope(loopRuntime)
+            val firstLoop = compiled.invokeRender("app.MainKt", "renderLooped", runtime = loopRuntime, scope = loopScope)
+                .toDebugString()
+            val secondLoop = compiled.invokeRender("app.MainKt", "renderLooped", runtime = loopRuntime, scope = loopScope)
+                .toDebugString()
             assertTrue(
-                cause is MissingKineticaPluginException,
-                "component calls hidden behind multi-run component content must fail fast, got: $cause",
+                Regex("chip:(\\d+)").findAll(firstLoop).map { it.groupValues[1] }.toSet().size == 2,
+                "the two forEach invocations must not alias one region frame: $firstLoop",
             )
-            assertTrue(
-                cause.message.orEmpty().startsWith(
-                    "A Kinetica component call ran without a compiler-assigned ordinal.",
-                ),
-                "the fail-fast message must identify the unstaged component call: ${cause.message}",
-            )
+            assertEquals(firstLoop, secondLoop, "per-invocation forks must be stable across renders")
         }
     }
 

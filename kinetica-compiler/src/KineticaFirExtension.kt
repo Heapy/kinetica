@@ -128,6 +128,18 @@ public object KineticaFirErrors : KtDiagnosticsContainer() {
     public val SLOT_CALL_IN_LOOP: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
     public val CALL_IN_MULTI_RUN_LAMBDA: KtDiagnosticFactory3<String, String, String> by
         error3<PsiElement, String, String, String>()
+
+    /**
+     * A call passing a `@UiComponent` content lambda literal from inside a multi-run (or
+     * stored, unknown-run) lambda within a component body. The IR walker never descends
+     * into such lambdas, so the content is never frame-wrapped: its component calls and
+     * slots crash at first render while no other rule fires — the wrapper consumes no
+     * ordinal (F1) and the rule-F walk stops at the content lambda boundary. Outside
+     * component bodies the ungated entry-point pass wraps content everywhere, so this is
+     * a soundness rule exactly for COMPONENT_BODY containment.
+     */
+    public val COMPONENT_CONTENT_IN_MULTI_RUN_LAMBDA: KtDiagnosticFactory2<String, String> by
+        error2<PsiElement, String, String>()
     public val REGION_CONTENT_NOT_LITERAL: KtDiagnosticFactory1<String> by error1<PsiElement, String>()
     public val UNSUPPORTED_EXPLICIT_KEY: KtDiagnosticFactory2<String, String> by
         error2<PsiElement, String, String>()
@@ -169,6 +181,16 @@ public object KineticaFirErrorRenderers : BaseDiagnosticRendererFactory() {
             KineticaFirErrors.CALL_IN_MULTI_RUN_LAMBDA,
             "Kinetica call ''{0}'' cannot use a compiler-assigned ordinal inside the multi-run ''{1}'' lambda. {2}",
             CommonRenderers.STRING,
+            CommonRenderers.STRING,
+            CommonRenderers.STRING,
+        )
+        map.put(
+            KineticaFirErrors.COMPONENT_CONTENT_IN_MULTI_RUN_LAMBDA,
+            "''{0}'' receives @UiComponent content inside the multi-run ''{1}'' lambda. " +
+                "Within a component body the compiler never descends into ''{1}'', so the " +
+                "content lambda is not frame-wrapped and fails at first render. " +
+                "Hoist the call out of the multi-run lambda, or use " +
+                "each(items, key = ...) or keyed(...) for repeated rendering.",
             CommonRenderers.STRING,
             CommonRenderers.STRING,
         )
@@ -300,13 +322,13 @@ private class KineticaCallChecker(
         // S4: the argument-mapping walk with per-parameter cone-type and annotation
         // resolution is the expensive half of this guard. Lazy keeps it behind the four
         // cheap facts: Kinetica constructs pass the guard without paying it (probing at
-        // most once, in the end-of-check rule C block), and only the none-of-the-four
+        // most once, in the later content-argument rules), and only the none-of-the-four
         // call probes here as the guard's final conjunct.
-        val unwrappableContentArguments by lazy(LazyThreadSafetyMode.NONE) {
-            expression.unwrappableComponentContentArguments()
+        val contentArguments by lazy(LazyThreadSafetyMode.NONE) {
+            expression.componentContentArguments()
         }
         if (!isSlotDsl && !isRegionConstruct && !facts.isLoopSafeRegion &&
-            !isComponentCall && unwrappableContentArguments.isEmpty()
+            !isComponentCall && contentArguments.isEmpty
         ) {
             return
         }
@@ -350,25 +372,50 @@ private class KineticaCallChecker(
 
         // Static ordinals are sound only in lambdas known to run at most once per frame.
         // FIR owns this soundness error: IR has no counterpart diagnostic — it declines
-        // to number the lambda and the call fails fast at render.
-        if (consumesCompilerOrdinal) {
-            val unsafeHost = context.multiRunLambdaHost(expression, session, multiRunReportedCalls)
-            if (unsafeHost != null) {
-                multiRunReportedCalls += expression
-                reporter.reportOn(
-                    expression.source,
-                    KineticaFirErrors.CALL_IN_MULTI_RUN_LAMBDA,
-                    name,
-                    unsafeHost,
-                    if (facts.isLoopSafeRegion) {
-                        MULTI_RUN_KEYED_CONSTRUCT_ADVICE
-                    } else {
-                        MULTI_RUN_REPEATED_RENDERING_ADVICE
-                    },
-                    context,
-                )
-                return
-            }
+        // to number the lambda and the call fails fast at render. Non-consumers need the
+        // same walk when they pass @UiComponent content literals from a component body:
+        // there the IR walker's descent gates decide whether the content is ever wrapped.
+        val wrapsContentInComponentBody = containment == KineticaContainment.COMPONENT_BODY &&
+            contentArguments.hasWrappableLiteral
+        val unsafeHost = if (consumesCompilerOrdinal || wrapsContentInComponentBody) {
+            context.multiRunLambdaHost(expression, session, multiRunReportedCalls)
+        } else {
+            null
+        }
+        if (consumesCompilerOrdinal && unsafeHost != null) {
+            multiRunReportedCalls += expression
+            reporter.reportOn(
+                expression.source,
+                KineticaFirErrors.CALL_IN_MULTI_RUN_LAMBDA,
+                name,
+                unsafeHost,
+                if (facts.isLoopSafeRegion) {
+                    MULTI_RUN_KEYED_CONSTRUCT_ADVICE
+                } else {
+                    MULTI_RUN_REPEATED_RENDERING_ADVICE
+                },
+                context,
+            )
+            return
+        }
+
+        // A content-wrapper (or entry-point) call passing a @UiComponent lambda literal
+        // from inside a multi-run or stored lambda within a component body: the IR
+        // walker never descends there, so the literal is never frame-wrapped and its
+        // component calls and slots crash at first render — while no other rule fires
+        // (post-F1 the wrapper consumes no ordinal, and the rule-F walk from consumers
+        // INSIDE the content stops at the content lambda boundary). Non-component
+        // functions take the ungated entry-point wrap instead, so only COMPONENT_BODY
+        // containment is unsound. Closes the known gap recorded at Task 15.
+        if (wrapsContentInComponentBody && unsafeHost != null) {
+            reporter.reportOn(
+                expression.source,
+                KineticaFirErrors.COMPONENT_CONTENT_IN_MULTI_RUN_LAMBDA,
+                name,
+                unsafeHost,
+                context,
+            )
+            return
         }
 
         // Rule G (F9): explicit keys the IR pass declines to number must fail here, not
@@ -414,7 +461,7 @@ private class KineticaCallChecker(
         // Rule C, extended to @UiComponent-typed content parameters (F8): IR wraps only
         // lambda literals into fresh frame regions (wrapAnnotatedContentArgumentsOf), so
         // content it provably cannot wrap must fail here, not at first render.
-        for ((argument, parameter) in unwrappableContentArguments) {
+        for ((argument, parameter) in contentArguments.unwrappable) {
             if (isRegionConstruct && parameter.name.asString() in REGION_CONTENT_PARAMETERS[name].orEmpty()) {
                 continue
             }
@@ -484,7 +531,7 @@ private fun FirCallableSymbol<*>.contractSingleRunParameterNames(): Set<String> 
  * derived once per call so the rule dispatch and the ordinal-consumer predicate can never
  * disagree about what a call is (F11). A call that is none of these is at most an entry
  * point (it merely receives `@UiComponent`-typed content), which `check()` covers via
- * [unwrappableComponentContentArguments] and which never consumes an ordinal itself.
+ * [componentContentArguments] and which never consumes an ordinal itself.
  */
 private class KineticaCallClassification(
     private val call: FirFunctionCall,
@@ -543,29 +590,53 @@ private fun FirFunctionCall.classifyKineticaCall(session: FirSession): KineticaC
 }
 
 /**
- * Arguments of `@UiComponent`-typed content parameters that the IR frame pass provably
- * cannot wrap. IR wraps only lambda LITERALS into fresh frame regions (its
- * `wrapAnnotatedContentArgumentsOf` requires an `IrFunctionExpression`) and never
- * descends into non-argument lambdas, so content hoisted into a local variable is never
- * wrapped — every ordinal consumer inside it crashes at first render (F8). Sound shapes
- * are exempt:
- *  - a lambda literal — wrapped right at this call by the IR pass;
+ * Classifies the call's `@UiComponent`-typed content arguments. IR wraps only lambda
+ * LITERALS into fresh frame regions (its `wrapAnnotatedContentArgumentsOf` requires an
+ * `IrFunctionExpression`) and never descends into non-argument lambdas, so content
+ * hoisted into a local variable is never wrapped — every ordinal consumer inside it
+ * crashes at first render (F8). Sound shapes land in neither bucket:
  *  - a literal `null` — the runtime never invokes absent content;
  *  - a read of a value parameter or a non-local property — a forwarded value that was
  *    frame-wrapped at its own literal site (`KineticaRuntime.render(content)` forwarding
  *    to the two-arg overload, `HeadlessTestRoot`'s stored content). Only the local hoist
  *    is provably unwrapped, and it is exactly the F8 escape.
  */
-private fun FirFunctionCall.unwrappableComponentContentArguments(): List<Pair<FirExpression, FirValueParameter>> {
-    val mapping = (argumentList as? FirResolvedArgumentList)?.mapping ?: return emptyList()
+private fun FirFunctionCall.componentContentArguments(): ComponentContentArguments {
+    val mapping = (argumentList as? FirResolvedArgumentList)?.mapping
+        ?: return ComponentContentArguments.NONE
+    var hasWrappableLiteral = false
     var violations: MutableList<Pair<FirExpression, FirValueParameter>>? = null
     for ((argument, parameter) in mapping) {
         if (!parameter.hasUiComponentFunctionType()) continue
+        if (argument.unwrapArgument() is FirAnonymousFunctionExpression) {
+            hasWrappableLiteral = true
+            continue
+        }
         if (argument.isWrappableContentArgument()) continue
         (violations ?: mutableListOf<Pair<FirExpression, FirValueParameter>>().also { violations = it })
             .add(argument to parameter)
     }
-    return violations ?: emptyList()
+    if (!hasWrappableLiteral && violations == null) return ComponentContentArguments.NONE
+    return ComponentContentArguments(hasWrappableLiteral, violations ?: emptyList())
+}
+
+/**
+ * The call's `@UiComponent`-typed content arguments, split by what the IR pass can do
+ * with them: [hasWrappableLiteral] — at least one lambda literal IR wraps into a fresh
+ * frame region at this call site (but only where its walker reaches the call, see
+ * [KineticaFirErrors.COMPONENT_CONTENT_IN_MULTI_RUN_LAMBDA]); [unwrappable] — arguments
+ * IR provably cannot wrap (rule C / F8). Sound non-literal shapes (absent, literal
+ * `null`, forwarded parameter or non-local property reads) appear in neither.
+ */
+private class ComponentContentArguments(
+    val hasWrappableLiteral: Boolean,
+    val unwrappable: List<Pair<FirExpression, FirValueParameter>>,
+) {
+    val isEmpty: Boolean get() = !hasWrappableLiteral && unwrappable.isEmpty()
+
+    companion object {
+        val NONE = ComponentContentArguments(hasWrappableLiteral = false, unwrappable = emptyList())
+    }
 }
 
 /**
