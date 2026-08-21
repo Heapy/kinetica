@@ -1,6 +1,7 @@
 package io.heapy.kinetica.compiler
 
 import io.heapy.kinetica.ComponentScope
+import io.heapy.kinetica.FragmentNode
 import io.heapy.kinetica.FrameTable
 import io.heapy.kinetica.HostNode
 import io.heapy.kinetica.KineticaRuntime
@@ -505,6 +506,73 @@ class KineticaIrFrameCompileTest {
     }
 
     @Test
+    fun contentLambdaInvokedTwiceForksRegionFramesPerInvocation() {
+        // F3 probe: a helper that invokes its @UiComponent content twice gets ONE static
+        // FrameTable for the lambda literal; the runtime must fork the region frame on
+        // re-entry so the two invocations cannot alias state cells or event ordinals.
+        harness.compile(
+            mapOf(
+                "app/Main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.KineticaRuntime
+                    import io.heapy.kinetica.Node
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.host
+                    import io.heapy.kinetica.hostEvent
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    var nextId: Int = 0
+
+                    fun ComponentScope.twice(content: @UiComponent ComponentScope.() -> Unit) {
+                        content()
+                        content()
+                    }
+
+                    @UiComponent(skippable = false)
+                    fun ComponentScope.Fan() {
+                        twice {
+                            val id = state { nextId++ }
+                            val clicks = state { 0 }
+                            val click = hostEvent(onEvent = { clicks.value = clicks.value + 1 })
+                            host("button", props = mapOf("event:onClick" to click))
+                            text("cell" + id.value + "=" + clicks.value)
+                        }
+                    }
+
+                    fun render(runtime: KineticaRuntime, scope: ComponentScope): Node =
+                        runtime.render(scope) { Fan() }.tree
+                """,
+            ),
+        ).use { compiled ->
+            val runtime = KineticaRuntime()
+            val scope = ComponentScope(runtime)
+            val first = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope)
+            val firstText = first.toDebugString()
+            assertTrue(
+                "cell0=0" in firstText && "cell1=0" in firstText,
+                "the two content invocations must get independent state cells: $firstText",
+            )
+            val eventIds = first.collectHostEventIds()
+            assertEquals(2, eventIds.size, "each invocation must render its own button: $firstText")
+            assertTrue(
+                eventIds[0] != eventIds[1],
+                "each invocation must register its own event, not update the other's: $eventIds",
+            )
+
+            runtime.dispatch(eventIds[1])
+            val second = compiled.invokeRender("app.MainKt", "render", runtime = runtime, scope = scope)
+                .toDebugString()
+            assertTrue(
+                "cell0=0" in second && "cell1=1" in second,
+                "clicking the second invocation's button must mutate only its own cell: $second",
+            )
+        }
+    }
+
+    @Test
     fun componentContentParametersWrapInsideComponentBodies() {
         harness.compile(
             mapOf(
@@ -583,6 +651,12 @@ class KineticaIrFrameCompileTest {
     }
 
     private fun Node.toDebugString(): String = toString()
+
+    private fun Node.collectHostEventIds(): List<String> = when (this) {
+        is FragmentNode -> children.flatMap { it.collectHostEventIds() }
+        is HostNode -> listOfNotNull(props["event:onClick"]) + children.flatMap { it.collectHostEventIds() }
+        else -> emptyList()
+    }
 
     private fun privateField(instance: Any, name: String): Any? =
         instance.javaClass.getDeclaredField(name).also { it.isAccessible = true }.get(instance)

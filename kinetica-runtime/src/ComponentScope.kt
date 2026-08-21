@@ -89,10 +89,12 @@ public class ComponentScope public constructor(
     /**
      * Enters the region frame of a compiler-wrapped content lambda (render roots, region
      * construct bodies, `@UiComponent`-typed content parameters). Keyed by the identity of
-     * the wrapped lambda's [table] static. Paired with [endRegionFrame].
+     * the wrapped lambda's [table] static; re-entry within one render forks to an
+     * invocation-indexed sibling frame so repeated content invocations cannot alias
+     * state. Paired with [endRegionFrame].
      */
     public fun beginRegionFrame(table: FrameTable) {
-        enterFrame(currentFrame.enterRegionChild(table))
+        enterFrame(currentFrame.enterRegionChild(table, slotGeneration))
     }
 
     public fun endRegionFrame() {

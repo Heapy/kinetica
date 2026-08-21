@@ -81,8 +81,13 @@ internal class Frame(
 
     // Region frames created by compiler-wrapped content lambdas, keyed by the identity of
     // their FrameTable static — one table per wrapped lambda literal, so table identity is
-    // call-site identity.
-    private var regions: HashMap<FrameTable, Frame>? = null
+    // call-site identity. The first entry per render owns the bare-table key; re-entries
+    // within one render fork to siblings keyed by RegionForkKey(table, invocation).
+    private var regions: HashMap<Any, Frame>? = null
+
+    // For the primary (bare-table-keyed) region frame instance: how many times its call
+    // site re-entered within the current render; reset on the render's first entry.
+    private var reentryForks: Int = 0
 
     internal var enteredGeneration: Int = -1
         private set
@@ -227,9 +232,22 @@ internal class Frame(
         return map.getOrPut(key) { Frame(table, this) }
     }
 
-    internal fun enterRegionChild(table: FrameTable): Frame {
-        val map = regions ?: HashMap<FrameTable, Frame>(4).also { regions = it }
-        return map.getOrPut(table) { Frame(table, this) }
+    internal fun enterRegionChild(table: FrameTable, generation: Int): Frame {
+        val map = regions ?: HashMap<Any, Frame>(4).also { regions = it }
+        val primary = map.getOrPut(table) { Frame(table, this) }
+        // First-entry detection reads the primary's enteredGeneration stamp, which relies
+        // on an invariant: ComponentScope.beginRegionFrame is the sole caller and stamps
+        // the returned frame immediately via enterFrame -> markEntered. A second caller
+        // that skips markEntered would silently break fork detection.
+        if (primary.enteredGeneration != generation) {
+            primary.reentryForks = 0
+            return primary
+        }
+        // Re-entered within one render (a content wrapper invoked twice): fork to an
+        // invocation-indexed sibling so repeated invocations cannot alias state — the
+        // same mechanism as enterFixedChild.
+        val invocation = ++primary.reentryForks
+        return map.getOrPut(RegionForkKey(table, invocation)) { Frame(table, this) }
     }
 
     internal fun touchFixedChild(ordinal: Int, generation: Int) {
@@ -497,6 +515,13 @@ internal class Frame(
         private const val UNASSIGNED_REGION_ORDINAL = -1
     }
 }
+
+/**
+ * Identity of a forked region frame: the [invocation]-th re-entry (1-based) within one
+ * render of the content lambda whose static is [table]. [FrameTable] has identity
+ * equality, so fork keys compare tables the same way the bare-table region keys do.
+ */
+private data class RegionForkKey(val table: FrameTable, val invocation: Int)
 
 internal const val EVENT_ROLE_PRIMARY: Int = 0
 internal const val EVENT_ROLE_SECONDARY: Int = 1
