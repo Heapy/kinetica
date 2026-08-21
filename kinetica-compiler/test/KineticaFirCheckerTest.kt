@@ -2,6 +2,9 @@ package io.heapy.kinetica.compiler
 
 import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.KineticaRuntime
+import java.io.File
+import java.lang.reflect.Modifier
+import java.util.jar.JarFile
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -1135,6 +1138,190 @@ class KineticaFirCheckerTest {
         ).use { compiled ->
             compiled.assertIrNumberedAndRendersStably(
                 "let=0", "run=1", "with=2", "apply=3", "also=4", "peek=5",
+            )
+        }
+    }
+
+    // F12 remainder: top-level io.heapy.kinetica helpers WITHOUT a ComponentScope
+    // receiver, classified per function in KineticaFramePolicy. peek is a single-run
+    // numbering context (pinned end to end by firAndIrAgreeOnSingleRunLambdaHosts
+    // above); derive, invalidate, and serverActionStub lambdas re-run reactively
+    // (recompute / per-key invalidation / per-dispatch), so ordinal consumers inside
+    // them are rule F errors — and the IR pass never numbers there either (the
+    // checks=off halves live in KineticaIrFrameCompileTest).
+
+    @Test
+    fun deriveComputeLambdaOrdinalConsumerIsReported() {
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.derive
+                    import io.heapy.kinetica.state
+                    import io.heapy.kinetica.text
+
+                    @UiComponent
+                    fun ComponentScope.Fan() {
+                        val c = derive { state { 1 }.value }
+                        text("d=" + c.value)
+                    }
+                """,
+            ),
+        )
+
+        messages.assertSingleErrorEquals(multiRunMessage("state", "derive"))
+    }
+
+    @Test
+    fun invalidatePredicateOrdinalConsumerIsReported() {
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.invalidate
+                    import io.heapy.kinetica.state
+
+                    @UiComponent
+                    fun ComponentScope.Fan() {
+                        invalidate { state { 0 }.value > 0 }
+                    }
+                """,
+            ),
+        )
+
+        messages.assertSingleErrorEquals(multiRunMessage("state", "invalidate"))
+    }
+
+    @Test
+    fun serverActionStubHandlerOrdinalConsumerIsReported() {
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.ServerActionRegistration
+                    import io.heapy.kinetica.UiComponent
+                    import io.heapy.kinetica.serverActionStub
+                    import io.heapy.kinetica.state
+                    import kotlinx.serialization.builtins.serializer
+
+                    @UiComponent
+                    fun ComponentScope.Fan() {
+                        serverActionStub(
+                            registration = ServerActionRegistration(
+                                actionId = "bump",
+                                functionFqName = "app.bump",
+                            ),
+                            inputSerializer = Int.serializer(),
+                            outputSerializer = Int.serializer(),
+                        ) { input -> state { input }.value }
+                    }
+                """,
+            ),
+        )
+
+        messages.assertSingleErrorEquals(multiRunMessage("state", "serverActionStub"))
+    }
+
+    @Test
+    fun everyTopLevelKineticaLambdaFunctionHasAnExplicitFramePolicyClassification() {
+        // The F12 gap was a helper nobody classified: FIR judged lambdas by RECEIVER, IR
+        // by PACKAGE, and every new top-level helper inherited the asymmetry. Both
+        // phases now read one predicate, so agreement per function reduces to that
+        // predicate's verdict — this test enumerates the ACTUAL published surface
+        // (top-level io.heapy.kinetica functions taking a function-typed parameter,
+        // without a ComponentScope receiver; extensions and members are classified per
+        // (callee, parameter) via MULTI_RUN_DSL_PARAMETERS and the region drift tests
+        // above) and fails until each function carries an explicit single-run/multi-run
+        // decision in KineticaFramePolicy. kinetica-runtime is the sole io.heapy.kinetica
+        // contributor on this classpath; helpers in other modules default to multi-run
+        // on both phases, which is aligned and safe.
+        val location = File(ComponentScope::class.java.protectionDomain.codeSource.location.toURI())
+        val facadeNames = if (location.isDirectory) {
+            location.resolve("io/heapy/kinetica").listFiles().orEmpty().map { it.name }
+        } else {
+            JarFile(location).use { jar ->
+                jar.entries().asSequence()
+                    .map { it.name }
+                    .filter { it.startsWith("io/heapy/kinetica/") }
+                    .map { it.removePrefix("io/heapy/kinetica/") }
+                    .filter { "/" !in it }
+                    .toList()
+            }
+        }.filter { it.endsWith("Kt.class") && "$" !in it }
+            .map { "io.heapy.kinetica." + it.removeSuffix(".class") }
+
+        assertTrue(facadeNames.isNotEmpty(), "expected io.heapy.kinetica file facades on the test classpath")
+
+        val scanned = facadeNames
+            .map { Class.forName(it) }
+            .flatMap { facade ->
+                facade.declaredMethods.filter { method ->
+                    Modifier.isStatic(method.modifiers) &&
+                        Modifier.isPublic(method.modifiers) &&
+                        !method.isSynthetic &&
+                        "$" !in method.name &&
+                        method.parameterTypes.any { Function::class.java.isAssignableFrom(it) } &&
+                        method.parameterTypes.firstOrNull() != ComponentScope::class.java
+                }.map { it.name }
+            }
+            .toSortedSet()
+
+        // Kotlin-internal helpers compile to public JVM bytecode (inline internal
+        // functions keep their unmangled name), but consumer source cannot call them, so
+        // they need no classification. Extend this list consciously when adding one.
+        val internalOnly = setOf("synchronizedOn")
+
+        val singleRun = KineticaFramePolicy.SINGLE_RUN_TOP_LEVEL_FUNCTIONS
+        val multiRun = KineticaFramePolicy.MULTI_RUN_TOP_LEVEL_FUNCTIONS
+        assertEquals(
+            emptySet(),
+            singleRun intersect multiRun,
+            "a top-level function cannot be classified both single-run and multi-run",
+        )
+        assertEquals(
+            emptySet(),
+            scanned - singleRun - multiRun - internalOnly,
+            "unclassified top-level io.heapy.kinetica lambda-taking functions — record each " +
+                "in KineticaFramePolicy (SINGLE_RUN_TOP_LEVEL_FUNCTIONS or " +
+                "MULTI_RUN_TOP_LEVEL_FUNCTIONS) before shipping it",
+        )
+        assertEquals(
+            emptySet(),
+            (singleRun + multiRun) - scanned,
+            "stale KineticaFramePolicy ledger entries — these names no longer exist as " +
+                "top-level io.heapy.kinetica lambda-taking functions",
+        )
+
+        // FIR/IR agreement per function: KineticaFirExtension.isKineticaDsl and the IR
+        // walker's inKinetica both call exactly this predicate, so its verdict IS the
+        // shared one — single-run means FIR allows ordinal consumers and IR descends;
+        // multi-run means FIR rejects (rule F) and IR skips.
+        singleRun.forEach { name ->
+            assertTrue(
+                KineticaFramePolicy.isKineticaDsl(
+                    containerFqName = KineticaFramePolicy.KINETICA_PACKAGE,
+                    hasComponentScopeExtensionReceiver = false,
+                    name = name,
+                ),
+                "$name must classify as a single-run numbering context on both phases",
+            )
+        }
+        multiRun.forEach { name ->
+            assertTrue(
+                !KineticaFramePolicy.isKineticaDsl(
+                    containerFqName = KineticaFramePolicy.KINETICA_PACKAGE,
+                    hasComponentScopeExtensionReceiver = false,
+                    name = name,
+                ),
+                "$name must stay a multi-run host on both phases",
             )
         }
     }
