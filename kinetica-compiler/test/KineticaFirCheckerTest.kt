@@ -608,8 +608,46 @@ class KineticaFirCheckerTest {
         messages.assertErrorMessages(
             multiRunMessage("errorBoundary", "forEach"),
             multiRunMessage("Badge", "map"),
-            multiRunMessage("each", "forEach"),
+            multiRunKeyedRegionMessage("each", "forEach"),
         )
+    }
+
+    @Test
+    fun multiRunKeyedConstructGetsHoistAdviceInsteadOfEachKeyedAdvice() {
+        // S2: when the flagged call IS the keyed construct, "Use each(...) or keyed(...)"
+        // is the construct the author already wrote — the advice must suggest hoisting
+        // the call out of the multi-run lambda or keying the OUTER repetition instead.
+        // (S2's other wrong-advice case — a `render` entry point — cannot arise anymore:
+        // entry points stopped being ordinal consumers in Task 4/F1, pinned by
+        // renderEntryPointInsideRepeatCompilesAndRuns.)
+        val messages = harness.compileExpectingErrors(
+            mapOf(
+                "main.kt" to """
+                    package app
+
+                    import io.heapy.kinetica.ComponentScope
+                    import io.heapy.kinetica.TextNode
+                    import io.heapy.kinetica.UiComponent
+
+                    @UiComponent
+                    fun ComponentScope.Fan(rows: List<String>) {
+                        rows.forEach { row ->
+                            keyed(row) {
+                                emit(TextNode(value = row))
+                            }
+                        }
+                    }
+                """,
+            ),
+        )
+
+        messages.assertSingleErrorEquals(multiRunKeyedRegionMessage("keyed", "forEach"))
+        messages.filter { it.severity.isError }.forEach { message ->
+            assertTrue(
+                "Use each(items, key = ...)" !in message.message,
+                "A keyed construct must not be advised to use each/keyed: ${message.message}",
+            )
+        }
     }
 
     @Test
@@ -2304,6 +2342,11 @@ class KineticaFirCheckerTest {
     private fun multiRunMessage(call: String, host: String): String =
         "Kinetica call '$call' cannot use a compiler-assigned ordinal inside the multi-run '$host' lambda. " +
             "Use each(items, key = ...) or keyed(...) for repeated rendering."
+
+    private fun multiRunKeyedRegionMessage(call: String, host: String): String =
+        "Kinetica call '$call' cannot use a compiler-assigned ordinal inside the multi-run '$host' lambda. " +
+            "The call already keys its own content; hoist it out of the multi-run lambda, " +
+            "or key the outer repetition with keyed(...)."
 
     private fun explicitKeyMessage(call: String, consequence: String): String =
         "'$call' with an explicit 'key' argument cannot use compiler-assigned ordinals: " +

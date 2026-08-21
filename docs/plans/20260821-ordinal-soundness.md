@@ -928,19 +928,45 @@
 - Modify: `kinetica-compiler/src/KineticaFirExtension.kt`
 - Modify: `kinetica-compiler/test/KineticaFirCheckerTest.kt`
 
-- [ ] write failing tests asserting message content: when the flagged call IS
+- [x] write failing tests asserting message content: when the flagged call IS
       `each`/`keyed`, the message must not advise "Use each(...) or keyed(...)";
       when the consumer is an entry point idiom, advice must fit
-- [ ] implement the mechanism: the template lives in `KineticaFirErrorRenderers.MAP`
+      (note: `multiRunKeyedConstructGetsHoistAdviceInsteadOfEachKeyedAdvice` — flagged
+      `keyed` inside `forEach`, with an explicit no-default-advice assertion — plus the
+      flipped `each` expectation in `multiRunRegionAndComponentCallsAreReported`; both
+      red before the fix. The entry-point half of S2 can no longer produce a message at
+      all: Task 4/F1 made entry points non-consumers, so rule F never fires on
+      `render { … }` — pinned by the existing `renderEntryPointInsideRepeatCompilesAndRuns`
+      and `renderEntryPointInsideAssertFailsWithCompiles`; there is no advice left to fix)
+- [x] implement the mechanism: the template lives in `KineticaFirErrorRenderers.MAP`
       in `KineticaFirExtension.kt` and `CALL_IN_MULTI_RUN_LAMBDA` is a
       `KtDiagnosticFactory2<String, String>` with a fixed per-factory template —
       either add a third rendered parameter carrying the advice string, or split into
       separate factories per advice shape; pick one and record the choice here
-- [ ] make the advice depend on the flagged callee: slot call → suggest `each`/`keyed`;
+      (decision: third rendered parameter — the factory is now
+      `KtDiagnosticFactory3<String, String, String>` via `error3` and the template ends
+      in `{2}`; the report site picks the advice string. Mirrors Task 10's
+      UNSUPPORTED_EXPLICIT_KEY rendered-consequence mechanism, keeps ONE factory so the
+      F14 suppression set tracks nothing new, and leaves every default-advice message
+      pin byte-identical; parallel factories would split rule F's identity over wording)
+- [x] make the advice depend on the flagged callee: slot call → suggest `each`/`keyed`;
       `each`/`keyed` themselves → suggest hoisting out of the loop or keying the outer
       construct
-- [ ] verify all existing message-matching tests updated consistently
-- [ ] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 17
+      (selector: `facts.isLoopSafeRegion` — all four loop-safe regions
+      (`keyed`/`suspendKeyed`/`each`/`lazyEach`) key their own content, so all four get
+      "hoist it out of the multi-run lambda, or key the outer repetition with
+      keyed(...)"; slot calls, component calls, and non-loop-safe regions such as
+      `errorBoundary` keep the each/keyed advice, which fits them — wrapping in
+      each/keyed is exactly their migration)
+- [x] verify all existing message-matching tests updated consistently
+      (the shared `multiRunMessage` helper already carried the default advice verbatim,
+      so its 29 call sites needed no edits; only the flagged-`each` line moved to the
+      new `multiRunKeyedRegionMessage` helper, and KineticaIrFrameCompileTest's two
+      contains-assertions match the message prefix before the advice — unaffected)
+- [x] run `./kotlin test -m kinetica-compiler --platform jvm` - must pass before task 17
+      (141/141 green: 140 prior + 1 new; message wording cannot change whether a
+      consumer compiles, so no mavenLocal republish is needed and no new Task 19
+      fallout is possible)
 
 ### Task 17: Move the component-lambda probe behind the cheap guard (S4)
 
