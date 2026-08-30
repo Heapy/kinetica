@@ -3,7 +3,7 @@
 #   ./kotlin package -m docs-site
 #   node scripts/bundle-docs.mjs
 #   docs/docker-build.sh
-FROM eclipse-temurin:21-jre
+FROM bellsoft/liberica-runtime-container:jre-25-slim-glibc
 
 WORKDIR /app
 COPY docs-site.jar /app/docs-site.jar
