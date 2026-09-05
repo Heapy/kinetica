@@ -1,0 +1,15 @@
+tasks:
+  installCompiler:
+    action: !io.heapy.kinetica.buildplugin.installCompilerToMavenLocal
+      compilerJar:
+        from: ../../kinetica-compiler
+        kind: jar
+      group: io.heapy.kinetica
+      artifact: kinetica-compiler
+      version: 0.4.0
+      stampDir: ${taskOutputDir}
+
+generated:
+  sources:
+    - language: kotlin
+      directory: ${tasks.installCompiler.action.stampDir}

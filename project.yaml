@@ -17,6 +17,7 @@ modules:
   - ./kinetica-runtime
   - ./kinetica-test
   - ./kinetica-theme
+  - ./plugins/kinetica-compiler-local
   - ./samples/annotated
   - ./samples/annotated-js
   - ./samples/browser-bench
@@ -34,3 +35,6 @@ modules:
   - ./samples/server-components-client
   - ./samples/server-components-shared
   - ./samples/todo
+
+plugins:
+  - //plugins/kinetica-compiler-local

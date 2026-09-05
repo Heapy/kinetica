@@ -1,5 +1,11 @@
 # Agent guidance
 
+Before changing `kinetica-compiler`, read the
+[compiler plugin development guide](docs/compiler-plugin-development.md). It explains the
+plugin pipeline, the direct-JAR compiler test harness, the `kinetica-compiler-local` build
+plugin that installs the current compiler JAR into `mavenLocal` during every Kotlin Toolchain
+build, and when a manual publication is still required.
+
 ## Invariant: FIR/IR policy must stay shared (kinetica-compiler)
 
 The FIR checker (`KineticaFirExtension.kt`) must predict exactly what the IR

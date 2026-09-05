@@ -10,6 +10,9 @@ settings:
       - id: io.heapy.kinetica.compiler
         dependency: io.heapy.kinetica:kinetica-compiler:0.4.0
 
+plugins:
+  kinetica-compiler-local: enabled
+
 repositories:
   # Serves two roles: the compiler plugin is consumed from here, and published modules can be
   # staged here with `./kotlin publish mavenLocal` to inspect a publication before Central.

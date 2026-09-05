@@ -1,0 +1,6 @@
+# Deliberately does not apply common.module-template.yaml: that template attaches the Kinetica
+# compiler plugin, and this module is what makes that artifact available.
+product: jvm/amper-plugin
+
+pluginInfo:
+  id: kinetica-compiler-local
