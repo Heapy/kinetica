@@ -29,6 +29,7 @@ modules:
   - ./samples/browser-tests
   - ./samples/browser-todo
   - ./samples/game-of-life-model
+  - ./samples/harmon-native
   - ./samples/native-counter
   - ./samples/native-counter-gtk
   - ./samples/server-components

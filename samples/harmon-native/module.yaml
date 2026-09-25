@@ -1,0 +1,16 @@
+product:
+  type: macos/app
+  platforms: [macosArm64]
+
+apply:
+  - ../../common.module-template.yaml
+
+settings:
+  native:
+    entryPoint: io.heapy.kinetica.samples.harmon.main
+
+dependencies:
+  - ../../kinetica-runtime
+  - ../../kinetica-appkit
+
+description: "Native Harmon live process monitor with an optional deterministic sample mode."

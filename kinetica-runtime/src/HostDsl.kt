@@ -156,6 +156,13 @@ public fun ComponentScope.button(
 public fun ComponentScope.hostEvent(ordinal: Int = -1, onEvent: () -> Unit): String =
     registerHostEvent(ordinal) { onEvent() }
 
+/** Registers a renderer event carrying a payload of [A]. The host must dispatch that type. */
+public fun <A> ComponentScope.hostEvent(ordinal: Int = -1, onEvent: (A) -> Unit): String =
+    registerHostEvent(ordinal) { payload ->
+        @Suppress("UNCHECKED_CAST")
+        onEvent(payload as A)
+    }
+
 public fun ComponentScope.hostEventBlock(ordinal: Int = -1, block: EventScope.() -> Unit): String {
     if (ordinal < 0) throw MissingKineticaPluginException("host event")
     return frameEvent(ordinal, EVENT_ROLE_PRIMARY) {
