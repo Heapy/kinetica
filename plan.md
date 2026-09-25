@@ -1,5 +1,9 @@
 # Kinetica plan — KNT tickets
 
+Current native macOS capabilities, measured limitations and next milestones are recorded in
+[the macOS status](docs/native-macos-status.md). Older native ticket descriptions below retain
+their historical implementation context.
+
 Renderer-perf, soundness and spec backlog. The K5/K6 review-fix stream (KNT-0001–0022 plus the
 review-surfaced KNT-0032) fully landed 2026-07-07 via the codex-TDD pipeline, squashed into
 `39692ea` (per-ticket commits preserved on `frame-ordinals-pre-rebase-backup`); the ticket

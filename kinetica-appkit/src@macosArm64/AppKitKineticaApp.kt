@@ -12,8 +12,14 @@ import io.heapy.kinetica.render.MountedNode
 import io.heapy.kinetica.render.Reconciler
 import kotlin.concurrent.atomics.AtomicBoolean
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ObjCAction
+import kotlinx.serialization.json.Json
 import platform.AppKit.NSBezelStyleRounded
+import platform.AppKit.NSColor
+import platform.AppKit.NSFont
+import platform.AppKit.NSLayoutAttributeWidth
+import platform.AppKit.NSLayoutConstraint
 import platform.AppKit.NSButton
 import platform.AppKit.NSControl
 import platform.AppKit.NSStackView
@@ -29,6 +35,10 @@ import platform.AppKit.leadingAnchor
 import platform.AppKit.topAnchor
 import platform.AppKit.trailingAnchor
 import platform.AppKit.translatesAutoresizingMaskIntoConstraints
+import platform.AppKit.widthAnchor
+import platform.AppKit.heightAnchor
+import platform.AppKit.setContentHuggingPriority
+import platform.Foundation.NSEdgeInsetsMake
 import platform.Foundation.NSNotification
 import platform.Foundation.NSSelectorFromString
 import platform.darwin.NSObject
@@ -59,10 +69,12 @@ public class AppKitKineticaApp(
     private val reconciler = Reconciler(AppKitHostAdapter(dispatcher))
     private var mountedRoot: MountedNode<NSView>? = null
     private var pinnedRoot: NSView? = null
+    private var disposed = false
     private val mainHopScheduled = AtomicBoolean(false)
     private val invalidationRegistration = runtime.onInvalidation { scheduleMainThreadRender() }
 
     public fun render() {
+        check(!disposed) { "AppKit renderer is disposed" }
         val tree = runtime.render(scope, content).tree
         val focusedIdentifier = captureFocusIdentifier()
         val previous = mountedRoot
@@ -83,6 +95,8 @@ public class AppKitKineticaApp(
     }
 
     public fun dispose() {
+        if (disposed) return
+        disposed = true
         invalidationRegistration.dispose()
         mountedRoot?.let { mounted -> reconciler.unmount(mounted, contentView) }
         mountedRoot = null
@@ -97,7 +111,7 @@ public class AppKitKineticaApp(
         if (!mainHopScheduled.compareAndSet(expectedValue = false, newValue = true)) return
         dispatch_async(dispatch_get_main_queue()) {
             mainHopScheduled.store(false)
-            if (runtime.hasPendingInvalidation) {
+            if (!disposed && runtime.hasPendingInvalidation) {
                 renderUntilSettled()
             }
         }
@@ -162,6 +176,9 @@ public class AppKitKineticaApp(
 internal class AppKitHostAdapter(
     private val dispatcher: AppKitEventDispatcher,
 ) : HostAdapter<NSView> {
+    private val outlineEvents = mutableMapOf<AppKitOutlineTable, String>()
+    private val outlineModels = mutableMapOf<AppKitOutlineTable, String>()
+    private val sizeConstraints = mutableMapOf<Pair<NSView, String>, NSLayoutConstraint>()
 
     override fun createHost(node: HostNode): NSView {
         val view: NSView = when (node.tag) {
@@ -171,13 +188,28 @@ internal class AppKitHostAdapter(
                     else NSUserInterfaceLayoutOrientationHorizontal,
                 )
                 setSpacing(8.0)
+                setDetachesHiddenViews(false)
+                if (node.tag == "column") setAlignment(NSLayoutAttributeWidth)
             }
             "button" -> makeButton(node)
             "checkbox" -> makeCheckbox(node)
             "textInput" -> makeTextField(node)
+            "appkit:label" -> makeLabel(node.props["value"].orEmpty())
+            "appkit:spacer" -> NSView().apply {
+                setContentHuggingPriority(1f, NSUserInterfaceLayoutOrientationHorizontal)
+            }
+            OUTLINE_TABLE_TAG -> {
+                lateinit var table: AppKitOutlineTable
+                table = AppKitOutlineTable { event ->
+                    outlineEvents[table]?.let { dispatcher.dispatch(it, event) }
+                }
+                bindOutline(table, node)
+                table
+            }
             else -> NSView()
         }
         view.translatesAutoresizingMaskIntoConstraints = false
+        for ((name, value) in node.props) setProp(view, name, value, node)
         return view
     }
 
@@ -195,6 +227,21 @@ internal class AppKitHostAdapter(
                 if (field.stringValue != value) field.setStringValue(value)
             }
             "placeholder" -> (view as? NSTextField)?.setPlaceholderString(value)
+            "spacing" -> (view as? NSStackView)?.setSpacing(value.toDouble())
+            "padding" -> (view as? NSStackView)?.let { stack ->
+                val inset = value.toDouble()
+                stack.setEdgeInsets(NSEdgeInsetsMake(inset, inset, inset, inset))
+            }
+            "fontSize" -> (view as? NSTextField)?.setFont(NSFont.systemFontOfSize(value.toDouble()))
+            "secondary" -> (view as? NSTextField)?.setTextColor(if (value == "true") NSColor.secondaryLabelColor else NSColor.labelColor)
+            "width", "height", "minWidth", "minHeight" -> {
+                sizeConstraints.remove(view to name)?.setActive(false)
+                val anchor = if (name == "width" || name == "minWidth") view.widthAnchor else view.heightAnchor
+                val constraint = if (name.startsWith("min")) anchor.constraintGreaterThanOrEqualToConstant(value.toDouble())
+                    else anchor.constraintEqualToConstant(value.toDouble())
+                constraint.setActive(true)
+                sizeConstraints[view to name] = constraint
+            }
             "event:onClick", "event:onToggle", "event:onSubmit" ->
                 (view as? NSControl)?.let { control -> dispatcher.registerAction(control, value) }
             "event:onInput" ->
@@ -208,15 +255,27 @@ internal class AppKitHostAdapter(
             "checked" -> (view as? NSButton)?.setState(0)
             "value" -> (view as? NSTextField)?.setStringValue("")
             "placeholder" -> (view as? NSTextField)?.setPlaceholderString(null)
-            "event:onClick", "event:onToggle", "event:onSubmit", "event:onInput" ->
-                (view as? NSControl)?.let(dispatcher::unregister)
+            "spacing" -> (view as? NSStackView)?.setSpacing(8.0)
+            "padding" -> (view as? NSStackView)?.setEdgeInsets(NSEdgeInsetsMake(0.0, 0.0, 0.0, 0.0))
+            "fontSize" -> (view as? NSTextField)?.setFont(NSFont.systemFontOfSize(13.0))
+            "secondary" -> (view as? NSTextField)?.setTextColor(NSColor.labelColor)
+            "width", "height", "minWidth", "minHeight" -> sizeConstraints.remove(view to name)?.setActive(false)
+            "event:onClick", "event:onToggle", "event:onSubmit" ->
+                (view as? NSControl)?.let(dispatcher::unregisterAction)
+            "event:onInput" -> (view as? NSTextField)?.let(dispatcher::unregisterInput)
         }
     }
 
     override fun applySemantics(view: NSView, semantics: Semantics?, nativeTag: String) {
         view.setIdentifier(semantics?.testTag)
+        view.setAccessibilityIdentifier(semantics?.testTag)
         view.setAccessibilityLabel(semantics?.label)
-        view.setAccessibilityRole(appKitAccessibilityRoleFor(semantics?.role, nativeTag))
+        if (view is AppKitOutlineTable) {
+            view.outline.setAccessibilityIdentifier(semantics?.testTag)
+            view.outline.setAccessibilityLabel(semantics?.label)
+        } else {
+            view.setAccessibilityRole(appKitAccessibilityRoleFor(semantics?.role, nativeTag))
+        }
     }
 
     override fun insert(container: NSView, child: NSView, before: NSView?) {
@@ -242,6 +301,7 @@ internal class AppKitHostAdapter(
     override fun foldsChildren(tag: String): Boolean = tag in LEAF_WIDGET_TAGS
 
     override fun updateFoldedContent(view: NSView, node: HostNode) {
+        if (view is AppKitOutlineTable) bindOutline(view, node)
         if (node.tag == "button") {
             (view as? NSButton)?.setTitle(foldedCaption(node))
         }
@@ -267,7 +327,23 @@ internal class AppKitHostAdapter(
     }
 
     override fun teardownHost(view: NSView, node: HostNode) {
+        for (name in listOf("width", "height", "minWidth", "minHeight")) sizeConstraints.remove(view to name)?.setActive(false)
         (view as? NSControl)?.let(dispatcher::unregister)
+        if (view is AppKitOutlineTable) {
+            outlineEvents.remove(view)
+            outlineModels.remove(view)
+            view.dispose()
+        }
+    }
+
+    private fun bindOutline(view: AppKitOutlineTable, node: HostNode) {
+        val eventId = node.props["event:onOutline"]
+        if (eventId == null) outlineEvents.remove(view) else outlineEvents[view] = eventId
+        val encoded = requireNotNull(node.props["model"]) { "Outline table model is required" }
+        if (outlineModels[view] != encoded) {
+            view.update(Json.decodeFromString<OutlineTableModel>(encoded))
+            outlineModels[view] = encoded
+        }
     }
 
     private fun makeLabel(text: String): NSTextField {
@@ -325,19 +401,27 @@ internal class AppKitHostAdapter(
         Role.Image -> "AXImage"
         Role.Dialog -> "AXSheet"
         Role.None -> null
-        null -> null
+        null -> when (nativeTag) {
+            "button" -> "AXButton"
+            "checkbox" -> "AXCheckBox"
+            "textInput" -> "AXTextField"
+            "text", "appkit:label" -> "AXStaticText"
+            "column", "row" -> "AXGroup"
+            else -> null
+        }
     }
 }
 
 /** Tags whose text is represented by widget state rather than a child view. */
-private val LEAF_WIDGET_TAGS: Set<String> = setOf("button", "checkbox", "textInput")
+private val LEAF_WIDGET_TAGS: Set<String> = setOf("button", "checkbox", "textInput", "appkit:label", "appkit:spacer", OUTLINE_TABLE_TAG)
 
 /** Shared action target and text-field delegate; each dispatch drains renders synchronously. */
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 internal class AppKitEventDispatcher(
     private val runtime: KineticaRuntime,
     private val renderUntilSettled: () -> Unit,
 ) : NSObject(), NSTextFieldDelegateProtocol {
+    private var active = true
 
     @Suppress("unused")
     @ObjCAction
@@ -366,18 +450,34 @@ internal class AppKitEventDispatcher(
     }
 
     fun unregister(control: NSControl) {
+        unregisterAction(control)
+        if (control is NSTextField) unregisterInput(control)
+    }
+
+    fun unregisterAction(control: NSControl) {
         actionBindings.remove(control)
-        if (control is NSTextField) {
-            inputBindings.remove(control)
-            field(control)
+        if (control.target === this) {
+            control.target = null
+            control.action = null
         }
     }
 
-    private fun field(control: NSTextField) {
+    fun unregisterInput(control: NSTextField) {
+        inputBindings.remove(control)
         if (control.delegate === this) control.delegate = null
     }
 
+    fun dispatch(eventId: String, payload: Any?) {
+        // Finish the native selection/expansion notification before reconciling its widget.
+        dispatch_async(dispatch_get_main_queue()) {
+            if (!active) return@dispatch_async
+            runtime.dispatch(eventId, payload)
+            renderUntilSettled()
+        }
+    }
+
     fun reset() {
+        active = false
         actionBindings.clear()
         inputBindings.clear()
     }

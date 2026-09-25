@@ -40,17 +40,22 @@ PORT=8080 ./kotlin run -m docs-site
 
 See [`docs/README.md`](docs/README.md).
 
+For native desktop development, see the [macOS status and next milestones](docs/native-macos-status.md).
+
 ## Repository map
 
 | Path | Contents |
 |------|----------|
 | `kinetica-runtime` | core: cells, node tree, effects, resources, boundaries, journal, server components |
 | `kinetica-browser` | retained-mode DOM renderer (keyed LIS diffing, event delegation) |
+| `kinetica-render-core` | shared native reconciler and LIS helper; the browser retains its own DOM reconciler |
+| `kinetica-appkit` | Apple Silicon AppKit renderer, including a native outline table with reusable cells |
 | `kinetica-router` / `-forms` / `-motion` / `-data` / `-persist` / `-theme` / `-markdown` | first-party batteries |
 | `kinetica-test` | headless component test harness |
 | `kinetica-compiler` | K2 compiler plugin — mandatory: frame/slot ordinals, skip transform, FIR authoring rules, server/client boundary |
 | `kinetica-gradle-plugin` | `io.heapy.kinetica` for Gradle consumers: applies the compiler plugin to every compilation, `kinetica { }` options, version-matched runtime dependencies |
 | `samples/` | browser apps, four-way Game of Life comparison, server-components demo, annotated (compiler-plugin) sample |
+| [`samples/harmon-native`](samples/harmon-native/README.md) | native Harmon live monitor and a deterministic 1,000-process sample mode |
 | `docs/` | the documentation site + Docker packaging |
 | `examples/gradle-ssr` | standalone Gradle 9.7 consumer of the released artifacts: SSR + island hydration + the SEO metadata that goes with it |
 | `bench/` | Unified benchmark runner (`node bench/run.mjs`) plus js-framework-benchmark harness vs React/Preact/Vue/Svelte/vanilla/Compose HTML — 13 keyed-table ops, GC accounting, scaling curves, sustained updates, deep-tree suite, memory/leak probes ([guide](bench/README.md)) |
