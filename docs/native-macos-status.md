@@ -95,11 +95,12 @@ journaling; code inspection found no app-specific unbounded render history.
 
 ## Validation recorded for this milestone
 
-Local validation used Kotlin Toolchain **0.12.2** with Kotlin **2.4.10**. The existing local
-`kotlin`/`kotlin.bat` launcher upgrade is separate from this milestone. A compatibility check
-with the committed 0.12.1 launcher stopped before compilation because the downloaded archive
-did not match its pinned checksum. Its checksum check was not bypassed; 0.12.1 compatibility
-and clean-checkout bootstrap remain unverified.
+Local validation used Kotlin Toolchain **0.12.2** with Kotlin **2.4.10**. The launcher follow-up
+on 2026-09-26 pins that tested Toolchain version in both `kotlin` and `kotlin.bat`; the local
+version command and matching wrapper pins were verified. An earlier compatibility check
+with 0.12.1 stopped before compilation because the downloaded archive did not match its
+pinned checksum. Its checksum check was not bypassed. Fresh-cache bootstrap and Windows
+launcher execution have not been revalidated in this follow-up.
 
 - Native AppKit and Harmon tests passed, including the complete Kinetica-to-AppKit pipeline.
 - The typed host-event test passed on JVM, JS and macOS; native runtime checks also passed.
