@@ -10,6 +10,7 @@ dependencies:
 
 settings:
   jvm:
+    release: 25
     mainClass: docs.site.MainKt
 
 description: "Kinetica documentation site — markdown content server-rendered by the framework itself."
