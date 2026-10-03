@@ -13,6 +13,7 @@ import org.jetbrains.kotlin.gradle.plugin.KotlinTarget
 import org.jetbrains.kotlin.gradle.plugin.KotlinTargetsContainer
 import org.jetbrains.kotlin.gradle.plugin.SubpluginArtifact
 import org.jetbrains.kotlin.gradle.plugin.SubpluginOption
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 /**
  * Applies the Kinetica K2 compiler plugin to every Kotlin compilation of the project and, unless
@@ -77,6 +78,13 @@ public class KineticaGradlePlugin : KotlinCompilerPluginSupportPlugin {
         // or metadata compilation is a hard error there, so a multiplatform module that opts in
         // gets it on its JVM compilations and nowhere else.
         val acceptsPsi = kotlinCompilation.platformType.isJvmLike()
+        if (acceptsPsi && extension.sourcePipeline.orNull == KineticaCoordinates.sourcePipelinePsi) {
+            // PSI replacements have synthetic source identities and registrations aggregate
+            // the entire module. A dirty-files-only run retains obsolete classes/metadata.
+            kotlinCompilation.compileTaskProvider.configure { task ->
+                (task as KotlinCompile).incremental = false
+            }
+        }
         if (!acceptsPsi && extension.sourcePipeline.orNull == KineticaCoordinates.sourcePipelinePsi) {
             project.logger.info(
                 "Kinetica: sourcePipeline=psi not passed to ${kotlinCompilation.name} of target " +
