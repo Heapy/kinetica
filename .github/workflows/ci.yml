@@ -88,6 +88,8 @@ jobs:
 
       - uses: ./.github/actions/setup-kinetica
         with:
+          # docs-site targets Java 25, matching its production container.
+          java-version: "25"
           # A cache hit only runs Node/Java verification against finished artifacts. Avoid
           # restoring the ~1 GB Kotlin Toolchain cache when no Kotlin command runs.
           setup-kotlin: ${{ steps.browser-build-cache.outputs.cache-hit != 'true' }}
