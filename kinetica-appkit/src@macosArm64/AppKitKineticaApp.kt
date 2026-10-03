@@ -1,11 +1,5 @@
 package io.heapy.kinetica.appkit
 
-import kotlinx.cinterop.CValue
-import kotlinx.cinterop.useContents
-import platform.AppKit.NSSecureTextField
-import platform.AppKit.currentEditor
-import platform.Foundation.NSMakeRange
-import platform.Foundation.NSRange
 import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.HostNode
 import io.heapy.kinetica.KineticaRuntime
@@ -14,12 +8,16 @@ import io.heapy.kinetica.Semantics
 import io.heapy.kinetica.TextNode
 import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.render.HostAdapter
+import io.heapy.kinetica.render.HostWidget
+import io.heapy.kinetica.render.HostWidgetFactory
 import io.heapy.kinetica.render.MountedNode
 import io.heapy.kinetica.render.Reconciler
 import kotlin.concurrent.atomics.AtomicBoolean
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ObjCAction
+import kotlinx.cinterop.CValue
+import kotlinx.cinterop.useContents
 import kotlinx.serialization.json.Json
 import platform.AppKit.NSBezelStyleRounded
 import platform.AppKit.NSColor
@@ -29,6 +27,7 @@ import platform.AppKit.NSLayoutConstraint
 import platform.AppKit.NSButton
 import platform.AppKit.NSControl
 import platform.AppKit.NSStackView
+import platform.AppKit.NSSecureTextField
 import platform.AppKit.NSSwitchButton
 import platform.AppKit.NSTextField
 import platform.AppKit.NSTextFieldDelegateProtocol
@@ -37,6 +36,7 @@ import platform.AppKit.NSUserInterfaceLayoutOrientationHorizontal
 import platform.AppKit.NSUserInterfaceLayoutOrientationVertical
 import platform.AppKit.NSView
 import platform.AppKit.bottomAnchor
+import platform.AppKit.currentEditor
 import platform.AppKit.leadingAnchor
 import platform.AppKit.topAnchor
 import platform.AppKit.trailingAnchor
@@ -46,6 +46,8 @@ import platform.AppKit.heightAnchor
 import platform.AppKit.setContentHuggingPriority
 import platform.Foundation.NSEdgeInsetsMake
 import platform.Foundation.NSNotification
+import platform.Foundation.NSMakeRange
+import platform.Foundation.NSRange
 import platform.Foundation.NSSelectorFromString
 import platform.darwin.NSObject
 import platform.darwin.dispatch_async
@@ -53,11 +55,17 @@ import platform.darwin.dispatch_get_main_queue
 
 /** The top-level wrapper lets the compiler number [content] into a region frame. */
 @OptIn(ExperimentalForeignApi::class)
+public fun renderAppKitApp(contentView: NSView, runtime: KineticaRuntime,
+    content: @UiComponent ComponentScope.() -> Unit): AppKitKineticaApp =
+    renderAppKitApp(contentView, runtime, emptyMap(), content)
+
+@OptIn(ExperimentalForeignApi::class)
 public fun renderAppKitApp(
     contentView: NSView,
     runtime: KineticaRuntime = KineticaRuntime(debug = true),
+    hostWidgets: Map<String, HostWidgetFactory<NSView>> = emptyMap(),
     content: @UiComponent ComponentScope.() -> Unit,
-): AppKitKineticaApp = AppKitKineticaApp(contentView, runtime, content).also { it.renderUntilSettled() }
+): AppKitKineticaApp = AppKitKineticaApp(contentView, runtime, hostWidgets, content).also { it.renderUntilSettled() }
 
 /**
  * Retained AppKit renderer with per-widget bindings and coalesced main-queue invalidations.
@@ -68,11 +76,15 @@ public fun renderAppKitApp(
 public class AppKitKineticaApp(
     private val contentView: NSView,
     private val runtime: KineticaRuntime = KineticaRuntime(debug = true),
+    hostWidgets: Map<String, HostWidgetFactory<NSView>> = emptyMap(),
     private val content: @UiComponent ComponentScope.() -> Unit,
 ) {
+    public constructor(contentView: NSView, runtime: KineticaRuntime,
+        content: @UiComponent ComponentScope.() -> Unit) : this(contentView, runtime, emptyMap(), content)
     private val scope = ComponentScope(runtime)
     private val dispatcher = AppKitEventDispatcher(runtime, ::renderUntilSettled)
-    private val reconciler = Reconciler(AppKitHostAdapter(dispatcher))
+    private val adapter = AppKitHostAdapter(dispatcher, hostWidgets)
+    private val reconciler = Reconciler(adapter)
     private var mountedRoot: MountedNode<NSView>? = null
     private var pinnedRoot: NSView? = null
     private var disposed = false
@@ -98,6 +110,13 @@ public class AppKitKineticaApp(
         while (runtime.hasPendingInvalidation) {
             render()
         }
+    }
+
+    /** Focus a retained control or custom host by its stable semantic test tag. */
+    public fun focus(testTag: String): Boolean {
+        if (disposed) return false
+        val target = findViewByIdentifier(contentView, testTag) ?: return false
+        return adapter.focus(target)
     }
 
     public fun dispose() {
@@ -194,15 +213,31 @@ private data class FocusSnapshot(
 @OptIn(ExperimentalForeignApi::class)
 internal class AppKitHostAdapter(
     private val dispatcher: AppKitEventDispatcher,
+    factories: Map<String, HostWidgetFactory<NSView>> = emptyMap(),
 ) : HostAdapter<NSView> {
+    private val factories = factories.toMap()
+    private val customWidgets = mutableMapOf<NSView, HostWidget<NSView>>()
+    internal fun focus(view: NSView): Boolean = customWidgets[view]?.requestFocus() == true ||
+        view.window?.makeFirstResponder(view) == true
     private val outlineEvents = mutableMapOf<AppKitOutlineTable, String>()
     private val outlineModels = mutableMapOf<AppKitOutlineTable, String>()
     private val sizeConstraints = mutableMapOf<Pair<NSView, String>, NSLayoutConstraint>()
 
     override fun canReuseHost(previous: HostNode, next: HostNode): Boolean =
-        previous.tag != "textInput" || (previous.props["type"] == "password") == (next.props["type"] == "password")
+        if (previous.tag in factories) previous.key == next.key
+        else previous.tag != "textInput" || (previous.props["type"] == "password") == (next.props["type"] == "password")
 
     override fun createHost(node: HostNode): NSView {
+        factories[node.tag]?.let { factory ->
+            require(node.children.isEmpty()) { "Custom host ${node.tag} must be a leaf" }
+            val widget = factory.create(node)
+            try {
+                widget.update(node)
+                widget.view.translatesAutoresizingMaskIntoConstraints = false
+                customWidgets[widget.view] = widget
+                return widget.view
+            } catch (failure: Throwable) { widget.dispose(); throw failure }
+        }
         val view: NSView = when (node.tag) {
             "column", "row" -> NSStackView().apply {
                 setOrientation(
@@ -242,6 +277,7 @@ internal class AppKitHostAdapter(
     }
 
     override fun setProp(view: NSView, name: String, value: String, node: HostNode) {
+        if (view in customWidgets) return
         when (name) {
             "enabled" -> (view as? NSControl)?.setEnabled(value != "false")
             "checked" -> (view as? NSButton)?.setState(if (value == "true") 1 else 0)
@@ -272,6 +308,7 @@ internal class AppKitHostAdapter(
     }
 
     override fun removeProp(view: NSView, name: String, node: HostNode) {
+        if (view in customWidgets) return
         when (name) {
             "enabled" -> (view as? NSControl)?.setEnabled(true)
             "checked" -> (view as? NSButton)?.setState(0)
@@ -292,6 +329,7 @@ internal class AppKitHostAdapter(
         view.setIdentifier(semantics?.testTag)
         view.setAccessibilityIdentifier(semantics?.testTag)
         view.setAccessibilityLabel(semantics?.label)
+        if (view in customWidgets && semantics?.role == null) return
         if (view is AppKitOutlineTable) {
             view.outline.setAccessibilityIdentifier(semantics?.testTag)
             view.outline.setAccessibilityLabel(semantics?.label)
@@ -320,9 +358,13 @@ internal class AppKitHostAdapter(
         child.removeFromSuperview()
     }
 
-    override fun foldsChildren(tag: String): Boolean = tag in LEAF_WIDGET_TAGS
+    override fun foldsChildren(tag: String): Boolean = tag in LEAF_WIDGET_TAGS || tag in factories
 
     override fun updateFoldedContent(view: NSView, node: HostNode) {
+        customWidgets[view]?.let {
+            require(node.children.isEmpty()) { "Custom host ${node.tag} must be a leaf" }
+            it.update(node)
+        }
         if (view is AppKitOutlineTable) bindOutline(view, node)
         if (node.tag == "button") {
             (view as? NSButton)?.setTitle(foldedCaption(node))
@@ -349,6 +391,7 @@ internal class AppKitHostAdapter(
     }
 
     override fun teardownHost(view: NSView, node: HostNode) {
+        customWidgets.remove(view)?.dispose()
         for (name in listOf("width", "height", "minWidth", "minHeight")) sizeConstraints.remove(view to name)?.setActive(false)
         (view as? NSControl)?.let(dispatcher::unregister)
         if (view is AppKitOutlineTable) {
@@ -450,14 +493,14 @@ internal class AppKitEventDispatcher(
     fun clicked(sender: NSControl) {
         val eventId = actionBindings[sender] ?: return
         runtime.dispatch(eventId)
-        renderUntilSettled()
+        if (active) renderUntilSettled()
     }
 
     override fun controlTextDidChange(obj: NSNotification) {
         val field = obj.`object` as? NSTextField ?: return
         val eventId = inputBindings[field] ?: return
         runtime.dispatch(eventId, field.stringValue)
-        renderUntilSettled()
+        if (active) renderUntilSettled()
     }
 
     fun registerAction(control: NSControl, eventId: String) {
@@ -498,7 +541,7 @@ internal class AppKitEventDispatcher(
         dispatch_async(dispatch_get_main_queue()) {
             if (!active) return@dispatch_async
             runtime.dispatch(eventId, payload)
-            renderUntilSettled()
+            if (active) renderUntilSettled()
         }
     }
 

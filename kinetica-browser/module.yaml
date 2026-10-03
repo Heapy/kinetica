@@ -8,6 +8,6 @@ apply:
 
 dependencies:
   - ../kinetica-runtime: exported
-  - ../kinetica-render-core
+  - ../kinetica-render-core: exported
 
 description: "Browser DOM renderer and browser UI test helpers for Kinetica applications."
