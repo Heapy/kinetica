@@ -3,19 +3,15 @@
 package io.heapy.kinetica.samples.harmon
 
 import io.heapy.kinetica.*
-import io.heapy.kinetica.appkit.AppKitKineticaApp
 import io.heapy.kinetica.appkit.OutlineTableEvent
 import io.heapy.kinetica.appkit.outlineTable
-import io.heapy.kinetica.appkit.renderAppKitApp
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import platform.AppKit.*
-import platform.Foundation.NSMakeRect
-import platform.Foundation.NSMakeSize
-import platform.Foundation.NSNotification
-import platform.Foundation.NSSelectorFromString
-import platform.darwin.NSObject
+import platform.darwin.dispatch_async
+import platform.darwin.dispatch_get_main_queue
 
 class MonitorSession(private val source: LiveSource? = null) {
     val isLive = source != null
@@ -23,7 +19,14 @@ class MonitorSession(private val source: LiveSource? = null) {
     val connection = store(ConnectionInfo(ConnectionStatus.Connecting, "Connecting to Harmon…"))
     private var windowVisible = true
     private var applicationVisible = true
-    private val live = source?.let { LiveConnection(it,
+    private var sourceClosed = false
+    private var running: Job? = null
+    private var stopping = false
+    private val ownedSource = source?.let { delegate -> object : LiveSource {
+        override suspend fun fetch(): LivePayload = delegate.fetch()
+        override fun close() { if (!sourceClosed) { sourceClosed = true; delegate.close() } }
+    } }
+    private val live = ownedSource?.let { LiveConnection(it,
         onSnapshot = { state.value = state.value.withSnapshot(it) }, onConnection = { connection.value = it }) }
 
     fun setFrozen(frozen: Boolean) {
@@ -36,18 +39,36 @@ class MonitorSession(private val source: LiveSource? = null) {
     private fun updateActivity() { live?.setActive(windowVisible && applicationVisible && !state.value.frozen) }
 
     suspend fun run() = withContext(Dispatchers.Main) {
-        if (live != null) {
-            updateActivity()
-            live.run()
-        } else {
-            while (true) {
-                delay(1_000)
-                val latest = state.value
-                if (windowVisible && applicationVisible && !latest.frozen && latest.snapshot.status == SampleStatus.Ready) {
-                    state.value = latest.nextSample()
+        if (stopping) return@withContext
+        check(running == null) { "A monitor session may have only one polling effect" }
+        running = currentCoroutineContext()[Job]
+        try {
+            if (live != null) {
+                updateActivity()
+                live.run()
+            } else {
+                while (true) {
+                    delay(1_000)
+                    val latest = state.value
+                    if (windowVisible && applicationVisible && !latest.frozen && latest.snapshot.status == SampleStatus.Ready) {
+                        state.value = latest.nextSample()
+                    }
                 }
             }
+        } finally {
+            running = null
+            ownedSource?.close()
         }
+    }
+
+    /** Completes after the polling coroutine and its Foundation transport have stopped. */
+    fun close(completed: () -> Unit) {
+        stopping = true
+        setWindowVisible(false)
+        val task = running
+        if (task == null) { ownedSource?.close(); completed(); return }
+        task.invokeOnCompletion { dispatch_async(dispatch_get_main_queue()) { completed() } }
+        task.cancel()
     }
 }
 
@@ -135,75 +156,13 @@ fun ComponentScope.HarmonMonitor(session: MonitorSession) {
     }
 }
 
-private class MonitorWindowDelegate(
-    private val session: MonitorSession,
-    private val renderer: AppKitKineticaApp,
-) : NSObject(), NSWindowDelegateProtocol, NSApplicationDelegateProtocol {
-    override fun windowWillClose(notification: NSNotification) {
-        dispose()
-        NSApplication.sharedApplication().terminate(null)
-    }
-    override fun windowDidMiniaturize(notification: NSNotification) { session.setWindowVisible(false) }
-    override fun windowDidDeminiaturize(notification: NSNotification) { session.setWindowVisible(true) }
-    override fun applicationDidHide(notification: NSNotification) { session.setApplicationVisible(false) }
-    override fun applicationDidUnhide(notification: NSNotification) { session.setApplicationVisible(true) }
-    override fun applicationWillTerminate(notification: NSNotification) { dispose() }
-    fun dispose() {
-        session.setWindowVisible(false)
-        renderer.dispose()
-    }
-}
-
 fun main(arguments: Array<String>) {
-    val application = NSApplication.sharedApplication()
-    application.setActivationPolicy(NSApplicationActivationPolicy.NSApplicationActivationPolicyRegular)
-    installMenu(application)
-    val window = NSWindow(
-        contentRect = NSMakeRect(0.0, 0.0, 1120.0, 720.0),
-        styleMask = NSWindowStyleMaskTitled or NSWindowStyleMaskClosable or NSWindowStyleMaskMiniaturizable or NSWindowStyleMaskResizable,
-        backing = NSBackingStoreBuffered,
-        defer = false,
-    )
-    window.title = "Harmon — Native Preview"
-    window.setMinSize(NSMakeSize(900.0, 500.0))
-    window.setReleasedWhenClosed(false)
     val sample = "--sample" in arguments
+    val frozen = "--frozen" in arguments
     val endpoint = arguments.firstOrNull { it.startsWith("--endpoint-file=") }?.substringAfter('=')
-    val session = MonitorSession(if (sample) null else LocalLiveSource(endpoint ?: defaultEndpointPath()))
-    if ("--frozen" in arguments) session.setFrozen(true)
-    val renderer = renderAppKitApp(window.contentView!!, runtime = KineticaRuntime(debug = false)) { HarmonMonitor(session) }
-    val delegate = MonitorWindowDelegate(session, renderer)
-    window.delegate = delegate
-    application.delegate = delegate
-    window.center()
-    window.makeKeyAndOrderFront(null)
-    application.activateIgnoringOtherApps(true)
-    try {
-        application.run()
-    } finally {
-        // This use after run() keeps AppKit's weak delegate alive until shutdown.
-        delegate.dispose()
-        window.delegate = null
-        application.delegate = null
-    }
-}
-
-private fun installMenu(application: NSApplication) {
-    val menu = NSMenu()
-    val appMenu = NSMenuItem()
-    appMenu.submenu = NSMenu().apply {
-        addItemWithTitle("Hide Harmon Preview", NSSelectorFromString("hide:"), "h")
-        addItemWithTitle("Quit Harmon Preview", NSSelectorFromString("terminate:"), "q")
-    }
-    menu.addItem(appMenu)
-    val edit = NSMenuItem()
-    edit.submenu = NSMenu("Edit").apply {
-        addItemWithTitle("Undo", NSSelectorFromString("undo:"), "z")
-        addItemWithTitle("Cut", NSSelectorFromString("cut:"), "x")
-        addItemWithTitle("Copy", NSSelectorFromString("copy:"), "c")
-        addItemWithTitle("Paste", NSSelectorFromString("paste:"), "v")
-        addItemWithTitle("Select All", NSSelectorFromString("selectAll:"), "a")
-    }
-    menu.addItem(edit)
-    application.mainMenu = menu
+    HarmonApplication(newSession = {
+        MonitorSession(if (sample) null else LocalLiveSource(endpoint ?: defaultEndpointPath())).also {
+            if (frozen) it.setFrozen(true)
+        }
+    }).run()
 }
