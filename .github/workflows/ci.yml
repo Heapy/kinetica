@@ -42,6 +42,7 @@ jobs:
             -m kinetica-compiler \
             -m kinetica-gradle-plugin \
             -m kinetica-runtime \
+            -m kinetica-application \
             -m kinetica-markdown \
             -m kinetica-router \
             -m kinetica-forms \
@@ -235,6 +236,7 @@ jobs:
           ./kotlin test --platform macosArm64 \
             -m kinetica-runtime \
             -m kinetica-render-core \
+            -m kinetica-application \
             -m kinetica-appkit \
             -m harmon-native \
             -m kinetica-test \

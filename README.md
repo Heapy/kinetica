@@ -49,7 +49,8 @@ For native desktop development, see the [macOS status and next milestones](docs/
 | `kinetica-runtime` | core: cells, node tree, effects, resources, boundaries, journal, server components |
 | `kinetica-browser` | retained-mode DOM renderer (keyed LIS diffing, event delegation) |
 | `kinetica-render-core` | shared native reconciler and LIS helper; the browser retains its own DOM reconciler |
-| `kinetica-appkit` | Apple Silicon AppKit renderer, including a native outline table with reusable cells |
+| [`kinetica-application`](kinetica-application/README.md) | Shared commands, menus, window descriptions and asynchronous resource lifetime |
+| `kinetica-appkit` | Apple Silicon application/window/tab host and component renderer, including native outline tables and choices |
 | `kinetica-router` / `-forms` / `-motion` / `-data` / `-persist` / `-theme` / `-markdown` | first-party batteries |
 | `kinetica-test` | headless component test harness |
 | `kinetica-compiler` | K2 compiler plugin — mandatory: frame/slot ordinals, skip transform, FIR authoring rules, server/client boundary |

@@ -10,6 +10,11 @@ Matching tag/key pairs retain the widget across updates; a new key creates a new
 Unmounting disposes each instance once. `HostWidget.requestFocus()` can forward focus to an
 internal editor, and the renderer's `focus(testTag)` locates the host by its semantic tag.
 
+For a complete application, use `AppKitApplication.openWindow` to own the renderer,
+window/tab lifecycle, menus, shortcuts and focus. See the
+[application shell guide](../kinetica-application/README.md). `renderAppKitApp` remains
+available for embedding components in an existing AppKit application.
+
 ## Choices
 
 `appKitChoice(value, options, onChange)` renders a controlled native `NSPopUpButton`.

@@ -1,0 +1,12 @@
+product:
+  type: kmp/lib
+  platforms: [jvm, js, macosArm64]
+
+apply:
+  - //common.module-template.yaml
+  - //publish.module-template.yaml
+
+dependencies:
+  - //kinetica-runtime: exported
+
+description: "Platform-independent application commands, window descriptions and asynchronous close coordination."
