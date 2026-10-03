@@ -5,6 +5,13 @@ agent's authenticated local live API. The app stays here while Kinetica evolves,
 move into Harmon without releasing Kinetica first. An explicit sample mode remains available.
 The app does not install, start, stop, or reconfigure Harmon services.
 
+The [Kinetica application shell](../../kinetica-application/README.md) owns its native
+windows, tabs, menus, command routing and focus. Cmd+N opens an independent monitor;
+Cmd+T adds one to the active tab group. Cmd+Shift+[ / ] changes tabs, Cmd+W closes the
+active tab, Cmd+F focuses search and Cmd+Q waits for polling/transport cleanup before quit.
+Each monitor retains independent filters and frozen state. Hidden tabs, minimized windows
+and a hidden application suspend polling; showing them resumes the same session.
+
 ## Build and run
 
 On an Apple Silicon Mac with the Xcode command-line tools installed, from the repository root:
