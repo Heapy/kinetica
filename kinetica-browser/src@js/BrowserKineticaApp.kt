@@ -503,6 +503,7 @@ public class BrowserKineticaApp(
             name == "value" && tag == "textInput" -> (element as HTMLInputElement).value = ""
             name == "checked" && tag == "checkbox" -> (element as HTMLInputElement).checked = false
             name == "enabled" -> element.removeAttribute("disabled")
+            name == "type" && tag == "textInput" -> element.setAttribute("type", "text")
             name == "placeholder" && tag == "textInput" -> element.removeAttribute("placeholder")
             name == "direction" -> element.removeAttribute("dir")
             name == "style" && (tag == "row" || tag == "column") -> {}

@@ -6,6 +6,7 @@ import io.heapy.kinetica.Semantics
 import io.heapy.kinetica.TextNode
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotSame
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -105,6 +106,65 @@ private fun row(key: String, text: String = key): HostNode =
     HostNode(tag = "row", key = key, children = listOf(TextNode(text)))
 
 class ReconcilerTest {
+    @Test
+    fun adapterCanReplaceSameTagHostWhenWidgetTypeChanges() {
+        val delegate = MockAdapter()
+        val adapter = object : HostAdapter<TestView> by delegate {
+            override fun canReuseHost(previous: HostNode, next: HostNode): Boolean =
+                previous.props["type"] == next.props["type"]
+        }
+        val root = TestView("root")
+        val reconciler = Reconciler(adapter)
+        val text = HostNode("textInput", props = mapOf("value" to "secret"))
+        val mounted = reconciler.mount(text, root)
+        val original = root.children.single()
+        delegate.clear()
+
+        val password = text.copy(props = mapOf("type" to "password", "value" to "secret"))
+        val replacement = reconciler.patch(mounted, password, root)
+
+        assertNotSame(original, root.children.single())
+        assertEquals("secret", root.children.single().props["value"])
+        assertEquals(listOf("create:textInput", "insert:textInput", "teardown:textInput", "remove:textInput"), delegate.ops)
+        delegate.clear()
+        assertSame(replacement, reconciler.patch(replacement, password, root))
+        assertEquals(listOf("sync:secret"), delegate.ops)
+    }
+
+    @Test
+    fun keyedReorderReplacesIncompatibleHostAndRetainsNeighbors() {
+        val delegate = MockAdapter()
+        val adapter = object : HostAdapter<TestView> by delegate {
+            override fun canReuseHost(previous: HostNode, next: HostNode): Boolean =
+                previous.props["type"] == next.props["type"]
+        }
+        val root = TestView("root")
+        val reconciler = Reconciler(adapter)
+        val input = HostNode("textInput", key = "input", props = mapOf("value" to "secret"))
+        val tree = HostNode("column", children = listOf(row("before"), input, row("after")))
+        val mounted = reconciler.mount(tree, root)
+        val column = root.children.single()
+        val (before, original, after) = column.children.toList()
+        delegate.clear()
+
+        reconciler.patch(
+            mounted,
+            tree.copy(children = listOf(
+                row("after"),
+                input.copy(props = mapOf("type" to "password", "value" to "secret")),
+                row("before"),
+            )),
+            root,
+        )
+
+        assertSame(after, column.children[0])
+        assertNotSame(original, column.children[1])
+        assertEquals("password", column.children[1].props["type"])
+        assertSame(before, column.children[2])
+        assertEquals(1, delegate.creates())
+        assertEquals(1, delegate.ops.count { it == "teardown:textInput" })
+    }
+
     @Test
     fun mountBuildsTheWidgetTreeInOrder() {
         val adapter = MockAdapter()

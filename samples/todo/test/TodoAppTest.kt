@@ -52,7 +52,7 @@ class TodoAppTest {
         assertEquals("0 left", (root.node(hasText("0 left")).node as TextNode).value)
         root.assertHtmlSnapshot(
             """
-            <column><row direction="Ltr"><textInput value="" placeholder="What needs doing?"></textInput><button enabled="true">Add</button></row><row direction="Ltr">0 left<button enabled="false">All</button><button enabled="true">Active</button><button enabled="true">Done</button></row></column>
+            <column><row direction="Ltr"><input type="text" value="" placeholder="What needs doing?"><button enabled="true">Add</button></row><row direction="Ltr">0 left<button enabled="false">All</button><button enabled="true">Active</button><button enabled="true">Done</button></row></column>
             """,
         )
     }

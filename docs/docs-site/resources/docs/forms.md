@@ -19,8 +19,8 @@ val password = field(form, "password", initial = { "" }) { value ->
     required().validate(value)
 }
 
-textInput(email, placeholder = "Email")        // bound input: writes + touches the field
-textInput(password, placeholder = "Password")
+textInput(email, placeholder = "Email", type = TextInputType.Email, autocomplete = "username")
+textInput(password, placeholder = "Password", type = TextInputType.Password, autocomplete = "current-password")
 
 if (form.errors().isNotEmpty()) {
     each(form.errors().entries.toList(), key = { it.key }) { (name, message) ->
@@ -32,6 +32,11 @@ if (form.errors().isNotEmpty()) {
 A validator is `suspend (T) -> String?` — return an error message or null. Because validation is
 `suspend`, a uniqueness check against a server is the same shape as `required()`. Combine
 validators with `validators(a, b, …)` — first failure wins.
+
+Both `textInput` overloads accept `type` and `autocomplete` and still write through the field
+or property binding. Import `io.heapy.kinetica.TextInputType`; its default is `Text`.
+Use `autocomplete = "new-password"` when creating a password. Autocomplete is a browser hint;
+field validation continues to use the supplied validators.
 
 ## Field state is reactive
 
@@ -81,5 +86,5 @@ For quick cases there is a `textInput` overload bound to any `var` via property 
 
 ```kotlin
 var query by state { "" }
-textInput(::query, placeholder = "Search")
+textInput(::query, placeholder = "Search", type = TextInputType.Search)
 ```

@@ -41,3 +41,9 @@ points. These are AppKit-specific host properties, not a portable styling API.
 
 Semantic test tags become native accessibility identifiers. Native controls retain their
 default accessibility roles when the component supplies no explicit role.
+
+`textInput(type = TextInputType.Password)` uses `NSSecureTextField`. Switching between password
+and other types replaces the native field and restores focus and selection through its test
+tag or input-event binding. Untagged fields without an `onInput` binding have no focus-restoration
+identity. Other text input types use ordinary `NSTextField`; HTML `autocomplete` hints are
+browser-only.

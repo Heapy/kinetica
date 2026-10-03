@@ -11,6 +11,9 @@ import io.heapy.kinetica.TextNode
 public interface HostAdapter<V : Any> {
     public fun createHost(node: HostNode): V
 
+    /** Whether a same-tag host can update in place; false replaces the widget and its bindings. */
+    public fun canReuseHost(previous: HostNode, next: HostNode): Boolean = true
+
     public fun createText(node: TextNode): V
 
     public fun setText(view: V, node: TextNode)

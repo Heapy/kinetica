@@ -47,8 +47,12 @@ class BrowserMappingTest {
     @Test
     fun detectsInputTypesWithReadableTextSelection() {
         assertTrue(browserInputTypeSupportsTextSelection("text"))
+        assertTrue(browserInputTypeSupportsTextSelection("password"))
         assertTrue(browserInputTypeSupportsTextSelection("SEARCH"))
+        assertTrue(browserInputTypeSupportsTextSelection("tel"))
+        assertTrue(browserInputTypeSupportsTextSelection("url"))
         assertTrue(browserInputTypeSupportsTextSelection(""))
+        assertFalse(browserInputTypeSupportsTextSelection("email"))
         assertFalse(browserInputTypeSupportsTextSelection("checkbox"))
         assertFalse(browserInputTypeSupportsTextSelection("radio"))
         assertFalse(browserInputTypeSupportsTextSelection("button"))

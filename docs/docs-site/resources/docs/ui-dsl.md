@@ -32,6 +32,37 @@ like `javascript:` never reach the DOM, on the server serializer and the browser
 `key` gives a node a stable identity for [keyed reconciliation](/docs/lists-and-keys).
 `frameProps` binds [motion frame values](/docs/motion) to a node.
 
+## Text input types
+
+<!-- code: kinetica-runtime/src/TextInputType.kt, kinetica-runtime/src/HostDsl.kt (textInput) -->
+
+`textInput` accepts `type = TextInputType.Text` (the default), `Email`, `Password`, `Search`,
+`Telephone`, or `Url`. Each edits a controlled `String`; `Telephone` maps to HTML `type="tel"`.
+The optional `autocomplete` string is passed through to the browser, for example:
+
+```kotlin
+textInput(
+    value = password,
+    onInput = event<String> { password = it },
+    type = TextInputType.Password,
+    autocomplete = "current-password",
+)
+```
+
+Browser and native renderers mask `Password`. Other types use the native single-line editor;
+HTML keyboard, validation, and autocomplete hints are browser-specific. `toSafeHtml()` emits
+an `<input>` and omits its `value` for password fields. Masking does not remove the value from
+application state or serialized node trees.
+
+The added optional parameters preserve existing source calls but change the compiled function
+signatures. Rebuild consumers and use matching runtime and Forms artifact versions when upgrading.
+
+File, checkbox, radio, and other non-text controls need their own state/event contracts;
+they are not `TextInputType` values. For custom browser attributes on a text editor,
+`host("textInput", props = ...)` can use the existing public `hostEvent<String>` to bind
+`event:onInput`, alongside a controlled `value` prop. New event payloads and controlled
+properties for other widgets still require renderer support.
+
 ## Styling
 
 <!-- code: kinetica-browser/src@js/BrowserKineticaApp.kt (applyFlex) -->

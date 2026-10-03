@@ -75,7 +75,7 @@ class KineticaSnapshotTest {
         assertEquals("Committed: Hello", (root.node(hasText("Committed: Hello")).node as TextNode).value)
         root.assertHtmlSnapshot(
             """
-            <column><textInput value="" placeholder="Message"></textInput><button enabled="true">Commit</button>Committed: Hello</column>
+            <column><input type="text" value="" placeholder="Message"><button enabled="true">Commit</button>Committed: Hello</column>
             """,
         )
     }

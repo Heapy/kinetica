@@ -7,6 +7,7 @@ import io.heapy.kinetica.Semantics
 import io.heapy.kinetica.TemplateDefinition
 import io.heapy.kinetica.TemplateHole
 import io.heapy.kinetica.TemplateHoleKinds
+import io.heapy.kinetica.TextInputType
 import io.heapy.kinetica.TextNode
 import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.browser.mountKineticaApp
@@ -15,6 +16,9 @@ import io.heapy.kinetica.column
 import io.heapy.kinetica.derived
 import io.heapy.kinetica.each
 import io.heapy.kinetica.event
+import io.heapy.kinetica.forms.field
+import io.heapy.kinetica.forms.formState
+import io.heapy.kinetica.forms.textInput
 import io.heapy.kinetica.host
 import io.heapy.kinetica.hostEvent
 import io.heapy.kinetica.launchEffect
@@ -99,6 +103,35 @@ fun ComponentScope.AsyncFocusApp() {
             semantics = Semantics(role = Role.TextInput, testTag = "async-input", focusable = true),
         )
         text("Async: $status")
+    }
+}
+
+@UiComponent
+private fun ComponentScope.PasswordInputTestApp() {
+    val form = formState()
+    val password = field(form, name = "password", initial = { "" })
+    var revealed by state { false }
+    var count by state { 0 }
+
+    column {
+        textInput(
+            field = password,
+            type = if (revealed) TextInputType.Text else TextInputType.Password,
+            autocomplete = if (revealed) null else "current-password",
+            semantics = Semantics(testTag = "typed-password", focusable = true),
+        )
+        button(
+            onClick = event { revealed = !revealed },
+            semantics = Semantics(testTag = "password-reveal"),
+        ) {
+            text("Reveal")
+        }
+        button(
+            onClick = event { count += 1 },
+            semantics = Semantics(testTag = "password-counter"),
+        ) {
+            text("Count: $count")
+        }
     }
 }
 
@@ -284,6 +317,54 @@ fun main() {
         check("Committed: identity" in app.innerHtml())
         val after = app.elementByTestTag("commit")
         check(after.asDynamic().__identityMarker == 42) { "commit button was recreated instead of patched" }
+    }
+    runBrowserTest(results, "password input preserves value focus and selection through type changes") {
+        val root = isolatedRoot()
+        val passwordApp = mountKineticaApp(root) {
+            PasswordInputTestApp()
+        }
+        try {
+            val input = passwordApp.elementByTestTag("typed-password") as HTMLInputElement
+            check(input.type == "password")
+            check(input.getAttribute("autocomplete") == "current-password")
+
+            passwordApp.inputTestTag("typed-password", "secret-value")
+            input.focus()
+            input.setSelectionRange(2, 6)
+            passwordApp.clickTestTag("password-counter")
+
+            check(passwordApp.elementByTestTag("password-counter").textContent == "Count: 1")
+            check(input.value == "secret-value")
+            check(input.type == "password")
+            check(document.activeElement === input)
+            check(input.selectionStart == 2 && input.selectionEnd == 6)
+
+            passwordApp.clickTestTag("password-reveal")
+
+            check(passwordApp.elementByTestTag("typed-password") === input)
+            check(input.type == "text")
+            check(input.getAttribute("autocomplete") == null)
+            check(input.value == "secret-value")
+            check(document.activeElement === input)
+            check(input.selectionStart == 2 && input.selectionEnd == 6)
+
+            passwordApp.clickTestTag("password-reveal")
+
+            check(passwordApp.elementByTestTag("typed-password") === input)
+            check(input.type == "password")
+            check(input.getAttribute("autocomplete") == "current-password")
+            check(input.value == "secret-value")
+            check(document.activeElement === input)
+            check(input.selectionStart == 2 && input.selectionEnd == 6)
+
+            input.value = "uncommitted-dom-drift"
+            passwordApp.clickTestTag("password-counter")
+            check(input.value == "secret-value")
+            check(input.type == "password")
+        } finally {
+            passwordApp.dispose()
+            root.remove()
+        }
     }
     runBrowserTest(results, "single text fast path keeps DOM text node identity") {
         val root = isolatedRoot()

@@ -6,6 +6,7 @@ import gtk4.GtkButton
 import gtk4.GtkCheckButton
 import gtk4.GtkEditable
 import gtk4.GtkEntry
+import gtk4.GtkInputPurpose
 import gtk4.GtkLabel
 import gtk4.GtkOrientation
 import gtk4.GtkWidget
@@ -25,6 +26,8 @@ import gtk4.gtk_editable_get_text
 import gtk4.gtk_editable_set_text
 import gtk4.gtk_entry_new
 import gtk4.gtk_entry_set_placeholder_text
+import gtk4.gtk_entry_set_input_purpose
+import gtk4.gtk_entry_set_visibility
 import gtk4.gtk_label_new
 import gtk4.gtk_label_set_text
 import gtk4.gtk_widget_get_prev_sibling
@@ -154,6 +157,7 @@ internal class GtkHostAdapter(
                 }
             }
             "placeholder" -> gtk_entry_set_placeholder_text(view.reinterpret<GtkEntry>(), value)
+            "type" -> if (node.tag == "textInput") setEntryType(view, value)
             "event:onClick" -> dispatcher.register(view, value, signal = "clicked")
             "event:onToggle" -> dispatcher.register(view, value, signal = "toggled")
             "event:onInput" -> dispatcher.register(view, value, signal = "changed")
@@ -171,6 +175,7 @@ internal class GtkHostAdapter(
                 gtk_editable_set_text(view.reinterpret<GtkEditable>(), "")
             }
             "placeholder" -> gtk_entry_set_placeholder_text(view.reinterpret<GtkEntry>(), null)
+            "type" -> if (node.tag == "textInput") setEntryType(view, null)
             "event:onClick" -> dispatcher.unregister(view, signal = "clicked")
             "event:onToggle" -> dispatcher.unregister(view, signal = "toggled")
             "event:onInput" -> dispatcher.unregister(view, signal = "changed")
@@ -261,6 +266,7 @@ internal class GtkHostAdapter(
 
     private fun makeEntry(node: HostNode): GtkWidgetPtr {
         val entry = gtk_entry_new()!!
+        setEntryType(entry, node.props["type"])
         dispatcher.suppressed {
             gtk_editable_set_text(entry.reinterpret<GtkEditable>(), node.props["value"].orEmpty())
         }
@@ -270,6 +276,18 @@ internal class GtkHostAdapter(
         node.props["event:onInput"]?.let { eventId -> dispatcher.register(entry, eventId, signal = "changed") }
         node.props["event:onSubmit"]?.let { eventId -> dispatcher.register(entry, eventId, signal = "activate") }
         return entry
+    }
+
+    private fun setEntryType(view: GtkWidgetPtr, type: String?) {
+        val entry = view.reinterpret<GtkEntry>()
+        gtk_entry_set_visibility(entry, if (type == "password") 0 else 1)
+        gtk_entry_set_input_purpose(entry, when (type) {
+            "password" -> GtkInputPurpose.GTK_INPUT_PURPOSE_PASSWORD
+            "email" -> GtkInputPurpose.GTK_INPUT_PURPOSE_EMAIL
+            "tel" -> GtkInputPurpose.GTK_INPUT_PURPOSE_PHONE
+            "url" -> GtkInputPurpose.GTK_INPUT_PURPOSE_URL
+            else -> GtkInputPurpose.GTK_INPUT_PURPOSE_FREE_FORM
+        })
     }
 
     private fun foldedCaption(node: HostNode): String =
