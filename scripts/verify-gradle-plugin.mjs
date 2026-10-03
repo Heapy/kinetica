@@ -76,9 +76,9 @@ try {
       "kinetica-runtime",
       "kinetica-browser",
       "kinetica-test",
-    ]).join(",");
-    const published = run("./kotlin", ["publish", "mavenLocal", "-m", modules]);
-    check(published.status === 0, `published ${modules.split(",").length} modules to mavenLocal`);
+    ]);
+    const published = run("./kotlin", ["publish", "mavenLocal", ...modules.flatMap(module => ["-m", module])]);
+    check(published.status === 0, `published ${modules.length} modules to mavenLocal`);
     const marker = run(join(repoRoot, "scripts", "gradle-plugin-marker.sh"), []);
     check(marker.status === 0, "wrote the io.heapy.kinetica.gradle.plugin marker");
   }
