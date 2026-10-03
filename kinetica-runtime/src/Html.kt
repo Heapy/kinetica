@@ -45,17 +45,30 @@ private fun StringBuilder.appendSafeHtml(node: Node) {
 }
 
 private fun StringBuilder.appendHostNode(node: HostNode) {
-    val tagName = node.tag.takeIf(::isSafeHtmlName) ?: "div"
+    val isTextInput = node.tag == "textInput"
+    val tagName = if (isTextInput) "input" else node.tag.takeIf(::isSafeHtmlName) ?: "div"
+    val inputType = if (isTextInput) {
+        node.props.entries.firstOrNull { (name, _) -> name.equals("type", ignoreCase = true) }?.value ?: "text"
+    } else {
+        null
+    }
+    val isPassword = inputType.equals("password", ignoreCase = true)
     append('<')
     append(tagName)
-    if (tagName != node.tag) {
+    if (tagName != node.tag && !isTextInput) {
         appendAttribute("data-kinetica-tag", node.tag)
     }
+    inputType?.let { type -> appendAttribute("type", type) }
     node.props
-        .filter { (name, value) -> isPublicHtmlAttribute(name, value) }
+        .filter { (name, value) ->
+            isPublicHtmlAttribute(name, value) &&
+                !(isTextInput && name.equals("type", ignoreCase = true)) &&
+                !(isPassword && name.equals("value", ignoreCase = true))
+        }
         .forEach { (name, value) -> appendAttribute(name, value) }
     node.key?.let { key -> appendAttribute("data-kinetica-key", key) }
     append('>')
+    if (isTextInput) return
     node.children.forEach(::appendSafeHtml)
     append("</")
     append(tagName)

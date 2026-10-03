@@ -4,6 +4,7 @@ import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.MutableCell
 import io.heapy.kinetica.Role
 import io.heapy.kinetica.Semantics
+import io.heapy.kinetica.TextInputType
 import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.state
 import io.heapy.kinetica.store
@@ -194,6 +195,8 @@ public fun ComponentScope.textInput(
     placeholder: String? = null,
     semantics: Semantics? = Semantics(role = Role.TextInput, focusable = true),
     key: Any? = field.name,
+    type: TextInputType = TextInputType.Text,
+    autocomplete: String? = null,
 ) {
     textInput(
         value = field.value.value,
@@ -201,6 +204,8 @@ public fun ComponentScope.textInput(
         placeholder = placeholder,
         semantics = semantics,
         key = key,
+        type = type,
+        autocomplete = autocomplete,
     )
 }
 
@@ -210,6 +215,8 @@ public fun ComponentScope.textInput(
     placeholder: String? = null,
     semantics: Semantics? = Semantics(role = Role.TextInput, focusable = true),
     key: Any? = value.name,
+    type: TextInputType = TextInputType.Text,
+    autocomplete: String? = null,
 ) {
     textInput(
         value = value.get(),
@@ -217,6 +224,8 @@ public fun ComponentScope.textInput(
         placeholder = placeholder,
         semantics = semantics,
         key = key,
+        type = type,
+        autocomplete = autocomplete,
     )
 }
 

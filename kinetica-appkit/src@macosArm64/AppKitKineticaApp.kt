@@ -1,5 +1,11 @@
 package io.heapy.kinetica.appkit
 
+import kotlinx.cinterop.CValue
+import kotlinx.cinterop.useContents
+import platform.AppKit.NSSecureTextField
+import platform.AppKit.currentEditor
+import platform.Foundation.NSMakeRange
+import platform.Foundation.NSRange
 import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.HostNode
 import io.heapy.kinetica.KineticaRuntime
@@ -76,7 +82,7 @@ public class AppKitKineticaApp(
     public fun render() {
         check(!disposed) { "AppKit renderer is disposed" }
         val tree = runtime.render(scope, content).tree
-        val focusedIdentifier = captureFocusIdentifier()
+        val focus = captureFocus()
         val previous = mountedRoot
         mountedRoot = if (previous == null) {
             reconciler.mount(tree, contentView)
@@ -84,7 +90,7 @@ public class AppKitKineticaApp(
             reconciler.patch(previous, tree, contentView)
         }
         pinRootIfChanged()
-        restoreFocus(focusedIdentifier)
+        restoreFocus(focus)
     }
 
     public fun renderUntilSettled() {
@@ -139,20 +145,25 @@ public class AppKitKineticaApp(
         is MountedNode.Empty<NSView> -> null
     }
 
-    /**
-     * Identifier (the `testTag` semantics) of the currently focused widget. Text fields focus
-     * through their window-shared field editor (an [NSTextView] whose delegate is the field), so
-     * the responder is unwrapped first.
-     */
-    private fun captureFocusIdentifier(): String? =
-        focusedView()?.identifier
+    private fun captureFocus(): FocusSnapshot? {
+        val view = focusedView() ?: return null
+        val field = view as? NSTextField
+        return FocusSnapshot(view, view.identifier, field?.let(dispatcher::inputEventId), field?.currentEditor()?.selectedRange)
+    }
 
-    private fun restoreFocus(identifier: String?) {
-        if (identifier == null) return
+    private fun restoreFocus(focus: FocusSnapshot?) {
+        if (focus == null || focusedView() == focus.view) return
         val window = contentView.window ?: return
-        if (focusedView()?.identifier == identifier) return
-        val target = findViewByIdentifier(contentView, identifier) ?: return
-        window.makeFirstResponder(target)
+        val target = focus.identifier?.let { findViewByIdentifier(contentView, it) }
+            ?: focus.inputEventId?.let(dispatcher::inputField)
+            ?: return
+        if (!window.makeFirstResponder(target)) return
+        val field = target as? NSTextField ?: return
+        focus.selection?.useContents {
+            val start = location.coerceAtMost(field.stringValue.length.toULong())
+            val selectionLength = length.coerceAtMost(field.stringValue.length.toULong() - start)
+            field.currentEditor()?.setSelectedRange(NSMakeRange(start, selectionLength))
+        }
     }
 
     private fun focusedView(): NSView? =
@@ -173,12 +184,23 @@ public class AppKitKineticaApp(
 }
 
 @OptIn(ExperimentalForeignApi::class)
+private data class FocusSnapshot(
+    val view: NSView,
+    val identifier: String?,
+    val inputEventId: String?,
+    val selection: CValue<NSRange>?,
+)
+
+@OptIn(ExperimentalForeignApi::class)
 internal class AppKitHostAdapter(
     private val dispatcher: AppKitEventDispatcher,
 ) : HostAdapter<NSView> {
     private val outlineEvents = mutableMapOf<AppKitOutlineTable, String>()
     private val outlineModels = mutableMapOf<AppKitOutlineTable, String>()
     private val sizeConstraints = mutableMapOf<Pair<NSView, String>, NSLayoutConstraint>()
+
+    override fun canReuseHost(previous: HostNode, next: HostNode): Boolean =
+        previous.tag != "textInput" || (previous.props["type"] == "password") == (next.props["type"] == "password")
 
     override fun createHost(node: HostNode): NSView {
         val view: NSView = when (node.tag) {
@@ -359,7 +381,7 @@ internal class AppKitHostAdapter(
     }
 
     private fun makeTextField(node: HostNode): NSTextField {
-        return NSTextField().apply {
+        return (if (node.props["type"] == "password") NSSecureTextField() else NSTextField()).apply {
             setStringValue(node.props["value"].orEmpty())
             node.props["placeholder"]?.let { setPlaceholderString(it) }
             node.props["event:onInput"]?.let { eventId -> dispatcher.registerInput(this, eventId) }
@@ -448,6 +470,10 @@ internal class AppKitEventDispatcher(
         inputBindings[field] = eventId
         field.delegate = this
     }
+
+    fun inputEventId(field: NSTextField): String? = inputBindings[field]
+
+    fun inputField(eventId: String): NSTextField? = inputBindings.entries.firstOrNull { it.value == eventId }?.key
 
     fun unregister(control: NSControl) {
         unregisterAction(control)

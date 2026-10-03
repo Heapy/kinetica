@@ -8,6 +8,7 @@ import io.heapy.kinetica.Node
 import io.heapy.kinetica.Role
 import io.heapy.kinetica.Semantics
 import io.heapy.kinetica.TemplateNode
+import io.heapy.kinetica.TextInputType
 import io.heapy.kinetica.TextNode
 import io.heapy.kinetica.materialize
 import io.heapy.kinetica.text
@@ -41,12 +42,16 @@ class FormsSmokeTest {
                 field = title,
                 placeholder = "Title",
                 semantics = Semantics(role = Role.TextInput, focusable = true, testTag = "title"),
+                type = TextInputType.Password,
+                autocomplete = "new-password",
             )
             text("dirty=${form.isDirty}")
         }.tree
 
         val firstInput = render().findHostByTag("textInput")
         assertEquals("", firstInput.props.getValue("value"))
+        assertEquals("password", firstInput.props["type"])
+        assertEquals("new-password", firstInput.props["autocomplete"])
         assertFalse(form.isDirty)
         assertFalse(form.isValid)
         assertFalse(form.isValidating)
@@ -56,6 +61,7 @@ class FormsSmokeTest {
         runtime.dispatch(firstInput.props.getValue("event:onInput"), "hi")
         val shortInput = render().findHostByTag("textInput")
         assertEquals("hi", shortInput.props.getValue("value"))
+        assertEquals("password", shortInput.props["type"])
         assertTrue(form.isDirty)
         assertTrue(title.isTouched)
         assertFalse(form.validate())
@@ -110,11 +116,15 @@ class FormsSmokeTest {
                     value = model::draft,
                     placeholder = "Draft",
                     semantics = Semantics(role = Role.TextInput, focusable = true, testTag = "draft"),
+                    type = TextInputType.Search,
+                    autocomplete = "off",
                 )
             }.tree.findHostByTag("textInput")
 
         val input = renderInput()
         assertEquals("", input.props.getValue("value"))
+        assertEquals("search", input.props["type"])
+        assertEquals("off", input.props["autocomplete"])
 
         runtime.dispatch(input.props.getValue("event:onInput"), "echo")
         val echoed = renderInput()
@@ -198,6 +208,8 @@ class FormsSmokeTest {
         val input = renderInput()
         assertEquals("", input.props.getValue("value"))
         assertEquals(null, input.props["placeholder"])
+        assertEquals(null, input.props["type"])
+        assertEquals(null, input.props["autocomplete"])
         assertEquals(Semantics(role = Role.TextInput, focusable = true), input.semantics)
 
         runtime.dispatch(input.props.getValue("event:onInput"), "defaulted")

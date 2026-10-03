@@ -21,7 +21,7 @@ public class Reconciler<V : Any>(
     public fun mount(node: Node, container: V): MountedNode<V> =
         mountChild(node.materializeDeep(), container, before = null)
 
-    /** Returns [previous] when its root kind matches, otherwise the replacement root. */
+    /** Returns [previous] when its root can be reused, otherwise the replacement root. */
     public fun patch(previous: MountedNode<V>, next: Node, container: V): MountedNode<V> =
         patchChild(previous, next.materializeDeep(), container, endAnchor = null)
 
@@ -66,7 +66,8 @@ public class Reconciler<V : Any>(
         container: V,
         endAnchor: V?,
     ): MountedNode<V> = when {
-        previous is MountedNode.Host<V> && next is HostNode && previous.node.tag == next.tag ->
+        previous is MountedNode.Host<V> && next is HostNode && previous.node.tag == next.tag &&
+            adapter.canReuseHost(previous.node, next) ->
             patchHost(previous, next)
         previous is MountedNode.Text<V> && next is TextNode ->
             patchText(previous, next)
@@ -287,7 +288,8 @@ public class Reconciler<V : Any>(
 
     private fun hasSamePatchTarget(mounted: MountedNode<V>, next: Node): Boolean = when (mounted) {
         is MountedNode.Host<V> ->
-            next is HostNode && mounted.node.tag == next.tag && mounted.node.key == next.reconcileKey
+            next is HostNode && mounted.node.tag == next.tag && mounted.node.key == next.reconcileKey &&
+                adapter.canReuseHost(mounted.node, next)
         is MountedNode.Text<V> -> next is TextNode
         is MountedNode.Fragment<V> -> next is FragmentNode
         is MountedNode.Empty<V> -> next is ClientRef

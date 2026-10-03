@@ -178,14 +178,24 @@ public fun ComponentScope.textInput(
     semantics: Semantics? = Semantics(role = Role.TextInput, focusable = true),
     key: Any? = null,
     ordinal: Int = -1,
+    type: TextInputType = TextInputType.Text,
+    autocomplete: String? = null,
 ) {
-    val buffer = arrayOfNulls<String>(8)
+    val buffer = arrayOfNulls<String>(12)
     var count = 0
     buffer[count++] = "value"
     buffer[count++] = value
     if (placeholder != null) {
         buffer[count++] = "placeholder"
         buffer[count++] = placeholder
+    }
+    if (type != TextInputType.Text) {
+        buffer[count++] = "type"
+        buffer[count++] = type.htmlValue
+    }
+    if (autocomplete != null) {
+        buffer[count++] = "autocomplete"
+        buffer[count++] = autocomplete
     }
     if (onInput != null) {
         buffer[count++] = "event:onInput"

@@ -294,7 +294,7 @@ jobs:
       - name: Install GTK4 dev headers
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev
+          sudo apt-get install -y libgtk-4-dev xvfb
 
       - name: Publish compiler plugin
         run: ./kotlin publish mavenLocal -m kinetica-compiler
@@ -306,6 +306,9 @@ jobs:
 
       - name: Render-core native tests (linuxX64)
         run: ./kotlin test --platform linuxX64 -m kinetica-render-core
+
+      - name: GTK widget tests (linuxX64)
+        run: xvfb-run -a ./kotlin test --platform linuxX64 -m kinetica-gtk
 
       # CI has no display; compilation and linking are the GTK renderer smoke test.
       - name: Build native GTK sample (linuxX64)
