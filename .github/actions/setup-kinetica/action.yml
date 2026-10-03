@@ -2,6 +2,10 @@ name: Setup Kinetica toolchain
 description: JDK, Node and the Kotlin Toolchain caches for building this repo.
 
 inputs:
+  java-version:
+    description: JDK used to run Gradle and packaged JVM applications.
+    required: false
+    default: "21"
   setup-kotlin:
     description: Restore the Kotlin Toolchain caches; cached-artifact consumers can skip it.
     required: false
@@ -13,7 +17,7 @@ runs:
     - uses: actions/setup-java@v5
       with:
         distribution: temurin
-        java-version: "21"
+        java-version: ${{ inputs.java-version }}
 
     - uses: actions/setup-node@v6
       with:
