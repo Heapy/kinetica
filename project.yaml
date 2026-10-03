@@ -3,6 +3,7 @@ modules:
   - ./docs/docs-client
   - ./docs/docs-site
   - ./kinetica-appkit
+  - ./kinetica-application
   - ./kinetica-browser
   - ./kinetica-compiler
   - ./kinetica-data

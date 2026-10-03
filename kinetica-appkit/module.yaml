@@ -12,6 +12,7 @@ settings:
       - kotlin.concurrent.atomics.ExperimentalAtomicApi
 
 dependencies:
+  - ../kinetica-application: exported
   - ../kinetica-runtime: exported
   - ../kinetica-render-core: exported
 
