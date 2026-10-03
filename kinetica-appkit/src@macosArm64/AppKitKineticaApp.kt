@@ -20,6 +20,7 @@ import kotlinx.cinterop.CValue
 import kotlinx.cinterop.useContents
 import kotlinx.serialization.json.Json
 import platform.AppKit.NSBezelStyleRounded
+import platform.AppKit.NSAccessibilityPopUpButtonRole
 import platform.AppKit.NSColor
 import platform.AppKit.NSFont
 import platform.AppKit.NSLayoutAttributeWidth
@@ -221,6 +222,7 @@ internal class AppKitHostAdapter(
         view.window?.makeFirstResponder(view) == true
     private val outlineEvents = mutableMapOf<AppKitOutlineTable, String>()
     private val outlineModels = mutableMapOf<AppKitOutlineTable, String>()
+    private val choiceEvents = mutableMapOf<AppKitChoice, String>()
     private val sizeConstraints = mutableMapOf<Pair<NSView, String>, NSLayoutConstraint>()
 
     override fun canReuseHost(previous: HostNode, next: HostNode): Boolean =
@@ -262,6 +264,12 @@ internal class AppKitHostAdapter(
                 }
                 bindOutline(table, node)
                 table
+            }
+            CHOICE_TAG -> {
+                lateinit var choice: AppKitChoice
+                choice = AppKitChoice { value -> choiceEvents[choice]?.let { dispatcher.dispatch(it, value) } }
+                bindChoice(choice, node)
+                choice
             }
             else -> NSView()
         }
@@ -330,6 +338,10 @@ internal class AppKitHostAdapter(
         view.setAccessibilityIdentifier(semantics?.testTag)
         view.setAccessibilityLabel(semantics?.label)
         if (view in customWidgets && semantics?.role == null) return
+        if (view is AppKitChoice && semantics?.role == null) {
+            view.setAccessibilityRole(NSAccessibilityPopUpButtonRole)
+            return
+        }
         if (view is AppKitOutlineTable) {
             view.outline.setAccessibilityIdentifier(semantics?.testTag)
             view.outline.setAccessibilityLabel(semantics?.label)
@@ -366,15 +378,17 @@ internal class AppKitHostAdapter(
             it.update(node)
         }
         if (view is AppKitOutlineTable) bindOutline(view, node)
+        if (view is AppKitChoice) bindChoice(view, node)
         if (node.tag == "button") {
             (view as? NSButton)?.setTitle(foldedCaption(node))
         }
     }
 
-    override fun isControlledTag(tag: String): Boolean = tag == "textInput" || tag == "checkbox"
+    override fun isControlledTag(tag: String): Boolean = tag == "textInput" || tag == "checkbox" || tag == CHOICE_TAG
 
     override fun syncControlledState(view: NSView, node: HostNode) {
         when (node.tag) {
+            CHOICE_TAG -> bindChoice(view as AppKitChoice, node)
             "textInput" -> {
                 val field = view as? NSTextField ?: return
                 val value = node.props["value"].orEmpty()
@@ -399,6 +413,13 @@ internal class AppKitHostAdapter(
             outlineModels.remove(view)
             view.dispose()
         }
+        if (view is AppKitChoice) { choiceEvents.remove(view); view.dispose() }
+    }
+
+    private fun bindChoice(view: AppKitChoice, node: HostNode) {
+        val event = node.props["event:onChoice"]
+        if (event == null) choiceEvents.remove(view) else choiceEvents[view] = event
+        view.update(node.props.getValue("value"), Json.decodeFromString(node.props.getValue("options")))
     }
 
     private fun bindOutline(view: AppKitOutlineTable, node: HostNode) {
@@ -478,7 +499,7 @@ internal class AppKitHostAdapter(
 }
 
 /** Tags whose text is represented by widget state rather than a child view. */
-private val LEAF_WIDGET_TAGS: Set<String> = setOf("button", "checkbox", "textInput", "appkit:label", "appkit:spacer", OUTLINE_TABLE_TAG)
+private val LEAF_WIDGET_TAGS: Set<String> = setOf("button", "checkbox", "textInput", "appkit:label", "appkit:spacer", OUTLINE_TABLE_TAG, CHOICE_TAG)
 
 /** Shared action target and text-field delegate; each dispatch drains renders synchronously. */
 @OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
