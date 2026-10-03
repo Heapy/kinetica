@@ -10,6 +10,13 @@ Matching tag/key pairs retain the widget across updates; a new key creates a new
 Unmounting disposes each instance once. `HostWidget.requestFocus()` can forward focus to an
 internal editor, and the renderer's `focus(testTag)` locates the host by its semantic tag.
 
+## Choices
+
+`appKitChoice(value, options, onChange)` renders a controlled native `NSPopUpButton`.
+Each `ChoiceOption` has a stable value and display label. Reflect the delivered value
+into state; changing labels or order preserves selection by value. Events are delivered
+after the native action finishes. Disposal removes its callback and native target.
+
 ## Outline tables
 
 `ComponentScope.outlineTable(model, onEvent = …)` renders a native `NSOutlineView` in a scroll
