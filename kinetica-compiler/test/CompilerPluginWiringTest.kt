@@ -21,6 +21,35 @@ import kotlin.test.assertTrue
 
 class CompilerPluginWiringTest {
     @Test
+    fun psiPipelineEmitsTransformedAndGeneratedClasses() = verifyPsiClassEmission(null)
+
+    @Test
+    fun psiPipelineEmitsTransformedAndGeneratedClassesInAFragment() = verifyPsiClassEmission("jvm")
+
+    private fun verifyPsiClassEmission(fragment: String?) {
+        KineticaCompilationHarness().compile(
+            sources = mapOf("app/Main.kt" to """
+                package app
+                import io.heapy.kinetica.*
+                import io.heapy.kinetica.generated.KineticaGeneratedPreviews
+
+                @Preview("Screen")
+                @UiComponent
+                fun Screen() {
+                    text("hello")
+                }
+
+                fun previewName(): String = KineticaGeneratedPreviews.single().displayName
+            """),
+            sourcePipeline = "psi",
+            sourceFragment = fragment,
+        ).use { compiled ->
+            assertEquals("Screen", compiled.loadClass("app.MainKt").getMethod("previewName").invoke(null))
+            assertNotNull(compiled.loadClass("io.heapy.kinetica.generated.KineticaPreviewsKt"))
+        }
+    }
+
+    @Test
     @OptIn(CompilerConfiguration.Internals::class)
     fun commandLineProcessorSelectsPsiSourcePipeline() {
         val configuration = CompilerConfiguration().apply {

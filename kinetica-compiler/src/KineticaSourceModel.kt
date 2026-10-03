@@ -2,9 +2,12 @@ package io.heapy.kinetica.compiler
 
 import org.jetbrains.kotlin.config.CommonConfigurationKeys
 import org.jetbrains.kotlin.config.CompilerConfiguration
+import org.jetbrains.kotlin.config.hmppModuleStructure
 import org.jetbrains.kotlin.extensions.ProcessSourcesBeforeCompilingExtension
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtPsiFactory
+import org.jetbrains.kotlin.resolve.multiplatform.hmppModuleName
+import org.jetbrains.kotlin.resolve.multiplatform.isCommonSource
 
 public data class KineticaCompilerPluginConfiguration(
     val moduleId: String,
@@ -954,13 +957,24 @@ public class KineticaProcessSourcesExtension(
         val transformedFiles = sources.mapIndexed { index, source ->
             val transformed = transformedSources.getValue(sourceFiles[index].path)
             if (transformed.changed) {
-                psiFactory.createPhysicalFile(source.name, transformed.text)
+                psiFactory.createPhysicalFile(source.name, transformed.text).also { replacement ->
+                    // FIR groups PSI files by these markers, not their virtual paths. Losing
+                    // them silently drops rewritten sources from fragment-based compilations.
+                    replacement.hmppModuleName = source.hmppModuleName
+                    replacement.isCommonSource = source.isCommonSource
+                }
             } else {
                 source
             }
         }
+        // Registrations describe the whole compilation and may reference platform types.
+        // Put them in the leaf fragment, which can see all refined source fragments.
+        val leafModule = configuration.hmppModuleStructure?.modules?.lastOrNull()?.name
         val generatedFiles = generatedSources.map { source ->
-            psiFactory.createPhysicalFile(source.path.substringAfterLast('/'), source.text)
+            psiFactory.createPhysicalFile(source.path.substringAfterLast('/'), source.text).also { generated ->
+                generated.hmppModuleName = leafModule
+                generated.isCommonSource = false
+            }
         }
         return transformedFiles + generatedFiles
     }
