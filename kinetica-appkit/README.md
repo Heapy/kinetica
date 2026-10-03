@@ -4,6 +4,12 @@
 thread, retain its returned renderer, and call `dispose()` when its window closes. Store
 invalidations coalesce onto the main queue; native rendering and disposal belong on that queue.
 
+Register `HostWidgetFactory<NSView>` instances through `hostWidgets` to embed an external
+surface. Its host node must have no framework children: the widget owns its native subtree.
+Matching tag/key pairs retain the widget across updates; a new key creates a new instance.
+Unmounting disposes each instance once. `HostWidget.requestFocus()` can forward focus to an
+internal editor, and the renderer's `focus(testTag)` locates the host by its semantic tag.
+
 ## Outline tables
 
 `ComponentScope.outlineTable(model, onEvent = …)` renders a native `NSOutlineView` in a scroll

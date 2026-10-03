@@ -16,6 +16,9 @@ import io.heapy.kinetica.TemplateNode
 import io.heapy.kinetica.TextNode
 import io.heapy.kinetica.UiComponent
 import io.heapy.kinetica.materializeDeep
+import io.heapy.kinetica.materialize
+import io.heapy.kinetica.render.HostWidget
+import io.heapy.kinetica.render.HostWidgetFactory
 import io.heapy.kinetica.reconcileKey
 import io.heapy.kinetica.render.LongestIncreasingSubsequenceScratch
 import io.heapy.kinetica.render.longestIncreasingSubsequenceIndices
@@ -34,12 +37,18 @@ import org.w3c.dom.events.Event
 public class BrowserKineticaApp(
     private val rootElement: Element,
     private val runtime: KineticaRuntime = KineticaRuntime(debug = true),
+    hostWidgets: Map<String, HostWidgetFactory<Element>> = emptyMap(),
     private val content: @UiComponent ComponentScope.() -> Unit,
 ) {
+    private val hostWidgets = hostWidgets.toMap()
+    /** Retains the positional constructor used before custom host registration was added. */
+    public constructor(rootElement: Element, runtime: KineticaRuntime,
+        content: @UiComponent ComponentScope.() -> Unit) : this(rootElement, runtime, emptyMap(), content)
     private val scope = ComponentScope(runtime)
     private var currentTree: Node? = null
     private var mountedRoot: Mounted? = null
     private var clientRefCount = 0
+    private var customHostCount = 0
     private val keyedPatchScratchPool = ArrayList<KeyedPatchScratchFrame>(KEYED_PATCH_SCRATCH_DEPTH)
     private val templatePrototypes = HashMap<String, TemplatePrototype>()
 
@@ -101,6 +110,7 @@ public class BrowserKineticaApp(
 
     public fun dispose() {
         DelegatedEventTypes.forEach { type -> rootElement.removeEventListener(type, delegatedListener) }
+        mountedRoot?.let(::detach)
         clearRoot()
         mountedRoot = null
         clientRefCount = 0
@@ -219,8 +229,9 @@ public class BrowserKineticaApp(
         render(restoredFocus = null)
     }
 
-    private fun mount(node: Node, parent: Element, anchor: DomNode?, path: String): Mounted =
-        when (node) {
+    private fun mount(input: Node, parent: Element, anchor: DomNode?, path: String): Mounted {
+        val node = expandCustomTemplate(input)
+        return when (node) {
             is FragmentNode -> {
                 val children = mutableListOf<Mounted>()
                 node.children.forEachIndexed { index, child ->
@@ -235,8 +246,40 @@ public class BrowserKineticaApp(
             is TextNode -> mountText(node, parent, anchor, path)
             is ClientRef -> mountClientRef(node, parent, anchor, path)
         }
+    }
+
+    // Custom leaves must never be instantiated in a template prototype or cloned without their
+    // lifecycle. Materialize only templates containing registered tags; ordinary templates keep
+    // their existing fast path. The registry is fixed for this renderer's lifetime.
+    private fun expandCustomTemplate(node: Node): Node =
+        if (hostWidgets.isNotEmpty() && node is TemplateNode && containsCustomHost(node.definition.skeleton)) node.materialize() else node
+
+    private fun containsCustomHost(node: Node): Boolean = when (node) {
+        is HostNode -> node.tag in hostWidgets || node.children.any(::containsCustomHost)
+        is FragmentNode -> node.children.any(::containsCustomHost)
+        is TemplateNode -> containsCustomHost(node.definition.skeleton)
+        else -> false
+    }
 
     private fun mountHost(node: HostNode, parent: Element, anchor: DomNode?, path: String): MountedHost {
+        hostWidgets[node.tag]?.let { factory ->
+            require(node.children.isEmpty()) { "Custom host ${node.tag} must be a leaf" }
+            val widget = factory.create(node)
+            val element = widget.view
+            try {
+                widget.update(node)
+                node.semantics.applyTo(element, node.tag)
+                node.key?.let { element.setAttribute(DATA_KINETICA_KEY, it) }
+                val mounted = MountedHost(node, element, mutableListOf(), widget)
+                element.asDynamic().__kinetica = mounted
+                parent.insertBefore(element, anchor)
+                customHostCount++
+                return mounted
+            } catch (failure: Throwable) {
+                widget.dispose()
+                throw failure
+            }
+        }
         val element = browserDocument.createElement(browserTagNameFor(node.tag))
         if (runtime.debug) {
             element.setAttribute(DATA_KINETICA_TAG, node.tag)
@@ -264,7 +307,7 @@ public class BrowserKineticaApp(
                 }
             }
             "textInput" -> {
-                element.setAttribute("type", "text")
+                element.setAttribute("type", node.props["type"] ?: "text")
                 element.applyPublicProps(node)
                 val input = element as HTMLInputElement
                 input.value = node.props["value"].orEmpty()
@@ -340,12 +383,14 @@ public class BrowserKineticaApp(
         return MountedClientRef(node, element)
     }
 
-    private fun patch(mounted: Mounted, next: Node, parent: Element, path: String): Mounted {
+    private fun patch(mounted: Mounted, input: Node, parent: Element, path: String): Mounted {
+        val next = expandCustomTemplate(input)
         if (mounted.currentNode === next && !mounted.containsControlledInputHost) {
             return mounted
         }
         return when {
-            mounted is MountedHost && next is HostNode && mounted.hostNode.tag == next.tag -> {
+            mounted is MountedHost && next is HostNode && mounted.hostNode.tag == next.tag &&
+                (mounted.widget == null || mounted.hostNode.key == next.key) -> {
                 patchHost(mounted, next, path)
                 mounted
             }
@@ -408,6 +453,11 @@ public class BrowserKineticaApp(
             } else {
                 element.removeAttribute(DATA_KINETICA_KEY)
             }
+        }
+        mounted.widget?.let { widget ->
+            require(next.children.isEmpty()) { "Custom host ${next.tag} must be a leaf" }
+            widget.update(next)
+            return
         }
         if (previous.props != next.props) {
             patchProps(element, next.tag, previous.props, next.props)
@@ -978,7 +1028,8 @@ public class BrowserKineticaApp(
         }
     }
 
-    private fun hasSamePatchTarget(mounted: Mounted, next: Node): Boolean {
+    private fun hasSamePatchTarget(mounted: Mounted, input: Node): Boolean {
+        val next = expandCustomTemplate(input)
         val oldKey = mounted.reconcileKey()
         val newKey = next.reconcileKey
         if (oldKey != null || newKey != null) {
@@ -1327,12 +1378,12 @@ public class BrowserKineticaApp(
     }
 
     private fun clearOwnedChildren(parent: Element, mounted: MutableList<Mounted>) {
-        if (clientRefCount > 0) {
+        if (clientRefCount > 0 || customHostCount > 0) {
             mounted.forEach(::detach)
         }
         mounted.clear()
         // The DOM subtree is discarded wholesale, so __kinetica/template-event expandos
-        // are GC-collectable with it; clientRefCount is the only app-lifetime bookkeeping.
+        // are GC-collectable with it; custom widgets have already released external resources.
         parent.textContent = ""
     }
 
@@ -1340,6 +1391,7 @@ public class BrowserKineticaApp(
         when (mounted) {
             is MountedHost -> {
                 mounted.children.forEach(::detach)
+                mounted.widget?.let { it.dispose(); customHostCount-- }
                 mounted.element.asDynamic().__kinetica = null
             }
             is MountedTemplate -> detachTemplate(mounted)
@@ -1429,6 +1481,7 @@ private class MountedHost(
     var hostNode: HostNode,
     val element: Element,
     val children: MutableList<Mounted>,
+    val widget: HostWidget<Element>? = null,
 ) : Mounted() {
     override val currentNode: Node get() = hostNode
     override var containsControlledInputHost: Boolean = false
@@ -1651,21 +1704,31 @@ public data class BrowserUiSnapshot(
     val treeJson: String,
 )
 
+public fun mountKineticaApp(root: Element, runtime: KineticaRuntime,
+    content: @UiComponent ComponentScope.() -> Unit): BrowserKineticaApp =
+    mountKineticaApp(root, runtime, emptyMap(), content)
+
+public fun mountKineticaApp(selector: String, runtime: KineticaRuntime,
+    content: @UiComponent ComponentScope.() -> Unit): BrowserKineticaApp =
+    mountKineticaApp(selector, runtime, emptyMap(), content)
+
 public fun mountKineticaApp(
     root: Element,
     runtime: KineticaRuntime = KineticaRuntime(debug = true),
+    hostWidgets: Map<String, HostWidgetFactory<Element>> = emptyMap(),
     content: @UiComponent ComponentScope.() -> Unit,
 ): BrowserKineticaApp =
-    BrowserKineticaApp(root, runtime, content).also { app -> app.render() }
+    BrowserKineticaApp(root, runtime, hostWidgets, content).also { app -> app.render() }
 
 public fun mountKineticaApp(
     selector: String,
     runtime: KineticaRuntime = KineticaRuntime(debug = true),
+    hostWidgets: Map<String, HostWidgetFactory<Element>> = emptyMap(),
     content: @UiComponent ComponentScope.() -> Unit,
 ): BrowserKineticaApp {
     val root = browserDocument.querySelector(selector)
         ?: error("No element matches selector: $selector")
-    return mountKineticaApp(root, runtime, content)
+    return mountKineticaApp(root, runtime, hostWidgets, content)
 }
 
 public fun assertBrowserSnapshotEquals(
