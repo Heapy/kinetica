@@ -33,6 +33,8 @@ internal class KineticaCompilationHarness {
         transforms: String = "on",
         checks: String = "off",
         irTransformOrder: String = "template-first",
+        sourcePipeline: String = "lightTree",
+        sourceFragment: String? = null,
         disableFirCheckersForTesting: Boolean = false,
     ): CompiledKineticaModule {
         val previousTransformOrder = System.getProperty(KINETICA_IR_TRANSFORM_ORDER_PROPERTY)
@@ -42,7 +44,7 @@ internal class KineticaCompilationHarness {
             } else {
                 System.setProperty(KINETICA_IR_TRANSFORM_ORDER_PROPERTY, irTransformOrder)
             }
-            compileInternal(sources, moduleName, transforms, checks, disableFirCheckersForTesting)
+            compileInternal(sources, moduleName, transforms, checks, disableFirCheckersForTesting, sourcePipeline, sourceFragment)
         } finally {
             restoreSystemProperty(KINETICA_IR_TRANSFORM_ORDER_PROPERTY, previousTransformOrder)
         }
@@ -120,13 +122,15 @@ internal class KineticaCompilationHarness {
         transforms: String,
         checks: String,
         disableFirCheckersForTesting: Boolean = false,
+        sourcePipeline: String = "lightTree",
+        sourceFragment: String? = null,
     ): InternalCompilationResult {
         val previousDisable = System.getProperty(KINETICA_DISABLE_FIR_CHECKERS_PROPERTY)
         if (disableFirCheckersForTesting) {
             System.setProperty(KINETICA_DISABLE_FIR_CHECKERS_PROPERTY, KINETICA_DISABLE_FIR_CHECKERS_TOKEN)
         }
         try {
-            return compileWithCli(sources, moduleName, transforms, checks)
+            return compileWithCli(sources, moduleName, transforms, checks, sourcePipeline, sourceFragment)
         } finally {
             if (disableFirCheckersForTesting) {
                 restoreSystemProperty(KINETICA_DISABLE_FIR_CHECKERS_PROPERTY, previousDisable)
@@ -139,6 +143,8 @@ internal class KineticaCompilationHarness {
         moduleName: String,
         transforms: String,
         checks: String,
+        sourcePipeline: String,
+        sourceFragment: String?,
     ): InternalCompilationResult {
         val root = createTempDirectory(prefix = "kinetica-compile-")
         createdTempRoots += root.toFile()
@@ -155,6 +161,12 @@ internal class KineticaCompilationHarness {
             val arguments = K2JVMCompilerArguments().apply {
                 freeArgs = listOf(sourceRoot.toString())
                 destination = outputDir.toString()
+                if (sourceFragment != null) {
+                    freeArgs = sources.keys.map { sourceRoot.resolve(it).toString() }
+                    multiPlatform = true
+                    fragments = arrayOf(sourceFragment)
+                    fragmentSources = sources.keys.map { "$sourceFragment:${sourceRoot.resolve(it)}" }.toTypedArray()
+                }
                 // The classpath is passed explicitly; without these the CLI probes a
                 // non-existent kotlin-home and logs STRONG_WARNINGs per compilation.
                 noStdlib = true
@@ -166,6 +178,7 @@ internal class KineticaCompilationHarness {
                     "plugin:${KineticaCompilerContract.pluginId}:${KineticaCompilerContract.optionModuleId}=$moduleName",
                     "plugin:${KineticaCompilerContract.pluginId}:${KineticaCompilerContract.optionTransforms}=$transforms",
                     "plugin:${KineticaCompilerContract.pluginId}:${KineticaCompilerContract.optionChecks}=$checks",
+                    "plugin:${KineticaCompilerContract.pluginId}:${KineticaCompilerContract.optionSourcePipeline}=$sourcePipeline",
                 )
             }
             val exitCode = K2JVMCompiler().exec(collector, Services.EMPTY, arguments)
