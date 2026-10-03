@@ -26,6 +26,7 @@ dependencies:
   # the newest redistribution and sets the supported floor: Gradle 8.11+, 9.x included.
   - dev.gradleplugins:gradle-api:8.11.1: compile-only
   - org.jetbrains.kotlin:kotlin-gradle-plugin-api:2.4.10: compile-only
+  - org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.10: compile-only
 
 test-dependencies:
   - dev.gradleplugins:gradle-api:8.11.1

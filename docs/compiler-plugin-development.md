@@ -43,7 +43,12 @@ service loading -> CLI options -> optional PSI source processing -> FIR checks -
    `KineticaCommandLineProcessor` and `KineticaCompilerRegistrar` from the plugin JAR.
 2. `KineticaCommandLineProcessor` reads `moduleId`, source-set names, `transforms`,
    `sourcePipeline`, and `checks` into the Kotlin compiler configuration. The default
-   pipeline is `lightTree`; `sourcePipeline=psi` is JVM-only.
+   pipeline is `lightTree`; `sourcePipeline=psi` is JVM-only. PSI rewriting requires a
+   full source set on each compilation: the Gradle plugin disables Kotlin incremental
+   compilation for these tasks. Kotlin Toolchain consumers must set
+   `settings.kotlin.compileIncrementally: false`, as the `annotated` sample does.
+   Normal task up-to-date checks still apply; the default `lightTree` pipeline remains
+   incremental.
 3. With the PSI pipeline, `KineticaProcessSourcesExtension` extracts the Kinetica source
    model, reports source diagnostics, rewrites scope-free component sources, and adds
    generated registrations before normal compilation.

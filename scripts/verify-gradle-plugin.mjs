@@ -1,7 +1,7 @@
 // Requires JAVA_HOME with JDK 17+; ./kotlin's provisioned JDK is not exported. The fixtures cover
 // marker resolution, runtime compiler transforms, and FIR rejection on JVM and JS.
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,6 +14,8 @@ const gradlew = join(repoRoot, "examples", "gradle-ssr", "gradlew");
 const negativeSource = join(fixture, "negative", "SlotOutsideComponent.kt");
 const negativeTarget = join(fixture, "src", "commonMain", "kotlin", "fixture", "SlotOutsideComponent.kt");
 let negativeCopied = false;
+const jvmSource = join(jvmFixture, "src", "main", "kotlin", "fixture", "Counter.kt");
+let originalJvmSource;
 
 const publish = !process.argv.includes("--no-publish");
 
@@ -129,6 +131,13 @@ try {
     "the second run reuses that entry instead of discarding it",
   );
 
+  // Exercise an actual edit without clean or --rerun: PSI-generated declarations must
+  // not collide with the previous compilation's classes or aggregate registrations.
+  originalJvmSource = readFileSync(jvmSource, "utf8");
+  writeFileSync(jvmSource, `${originalJvmSource}\n// PSI consumer edit regression.\n`);
+  const editedJvm = run(gradlew, jvmArgs.filter(arg => arg !== "--rerun"), { capture: true });
+  check(editedJvm.status === 0, "the PSI JVM fixture rebuilds after a source edit without cleaning");
+
   copyFileSync(negativeSource, negativeTarget);
   negativeCopied = true;
   // Once per backend: a plugin that silently stops running on one of them still compiles valid
@@ -142,6 +151,7 @@ try {
     );
   }
 } finally {
+  if (originalJvmSource !== undefined) writeFileSync(jvmSource, originalJvmSource);
   if (negativeCopied) rmSync(negativeTarget, { force: true });
 }
 
