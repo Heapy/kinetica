@@ -2,7 +2,7 @@
   "maxGrowthPct": 10,
   "entries": {
     "kinetica/browser-bench-js": 271914,
-    "kinetica/docs-client-bundle": 126554,
+    "kinetica/docs-client-bundle": 139359,
     "kinetica/docs-client-js": 396211,
     "kinetica/server-components-client-bundle": 122938,
     "kinetica/server-components-client-js": 375247,
