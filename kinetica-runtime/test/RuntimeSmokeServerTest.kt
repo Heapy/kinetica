@@ -223,13 +223,6 @@ class RuntimeSmokeServerTest {
         val stream = decodedNode.toServerRenderStream(manifest)
         assertIs<ServerRenderChunk.Tree>(transport.decodeChunk(transport.encodeChunk(stream.first())))
         assertIs<ServerRenderChunk.End>(transport.decodeChunk(transport.encodeChunk(stream.last())))
-        assertEquals(stream.first(), transport.decodeSignedChunk(transport.encodeSignedChunk(stream.first())))
-        val tamperedSignedChunk = transport
-            .encodeSignedChunk(stream.first())
-            .replace("sku-1", "sku-2")
-        assertFailsWith<IllegalArgumentException> {
-            transport.decodeSignedChunk(tamperedSignedChunk)
-        }
 
         val request = ServerActionRequest(
             actionId = "cart.add",
@@ -260,19 +253,6 @@ class RuntimeSmokeServerTest {
             ServerRenderChunk.Tree(sequence = 7, node = node.materialize()),
             transport.decodeChunk(encoded),
         )
-    }
-
-    @Test
-    fun serverTransportEncodeSignedChunkMaterializesTemplateNodesBeforeHashing() {
-        val transport = KineticaServerTransport()
-        val node = serverBoundaryTemplateNode(text = "Signed")
-        val normalized = ServerRenderChunk.Tree(sequence = 8, node = node.materialize())
-
-        val encoded = transport.encodeSignedChunk(ServerRenderChunk.Tree(sequence = 8, node = node))
-
-        assertEquals(1, encoded.countOccurrences("static-skeleton-marker"))
-        assertFalse("\"type\":\"template\"" in encoded, encoded)
-        assertEquals(normalized, transport.decodeSignedChunk(encoded))
     }
 
     @Test
@@ -320,12 +300,6 @@ class RuntimeSmokeServerTest {
             transport.decodeActionResponse(transport.encodeActionResponse(ServerActionResponse.Failure("try again"))),
         )
 
-        val signed = SignedServerRenderChunk(
-            chunk = ServerRenderChunk.End(sequence = 5),
-            integrity = IntegrityHash(algorithm = "manual", value = "hash"),
-        )
-        assertEquals("manual", signed.integrity.algorithm)
-        assertEquals("hash", signed.integrity.value)
         assertEquals("csrf", CsrfToken("csrf").value)
 
         val entry = JournalEntry(sequence = 1, kind = JournalKind.Event, message = "clicked")

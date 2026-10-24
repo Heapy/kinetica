@@ -145,18 +145,6 @@ public data class CapabilityToken(val value: String)
 public data class CsrfToken(val value: String)
 
 @Serializable
-public data class IntegrityHash(
-    val algorithm: String,
-    val value: String,
-)
-
-@Serializable
-public data class SignedServerRenderChunk(
-    val chunk: ServerRenderChunk,
-    val integrity: IntegrityHash,
-)
-
-@Serializable
 public data class ServerActionRequest(
     val actionId: String,
     val payload: JsonElement,
@@ -402,30 +390,6 @@ public class KineticaServerTransport(
     public fun decodeChunk(value: String): ServerRenderChunk =
         json.decodeFromString(ServerRenderChunk.serializer(), value)
 
-    public fun integrityForChunk(chunk: ServerRenderChunk): IntegrityHash =
-        integrityForPayload(encodeMaterializedChunk(chunk.materializeDeep()))
-
-    public fun encodeSignedChunk(chunk: ServerRenderChunk): String {
-        val materialized = chunk.materializeDeep()
-        return json.encodeToString(
-            SignedServerRenderChunk.serializer(),
-            SignedServerRenderChunk(
-                chunk = materialized,
-                integrity = integrityForPayload(encodeMaterializedChunk(materialized)),
-            ),
-        )
-    }
-
-    public fun decodeSignedChunk(value: String): ServerRenderChunk {
-        val signed = json.decodeFromString(SignedServerRenderChunk.serializer(), value)
-        val materialized = signed.chunk.materializeDeep()
-        val expected = integrityForPayload(encodeMaterializedChunk(materialized))
-        require(signed.integrity == expected) {
-            "Server render chunk integrity mismatch: expected $expected, got ${signed.integrity}."
-        }
-        return materialized
-    }
-
     public fun encodeHydrationPlan(plan: HydrationPlan): String =
         json.encodeToString(plan.materializeDeep())
 
@@ -443,12 +407,6 @@ public class KineticaServerTransport(
 
     public fun decodeActionResponse(value: String): ServerActionResponse =
         json.decodeFromString(ServerActionResponse.serializer(), value)
-
-    private fun integrityForPayload(payload: String): IntegrityHash =
-        IntegrityHash(
-            algorithm = INTEGRITY_ALGORITHM,
-            value = fnv1a64(payload.encodeToByteArray()).toHex64(),
-        )
 
     private fun encodeMaterializedChunk(chunk: ServerRenderChunk): String =
         json.encodeToString(ServerRenderChunk.serializer(), chunk)
@@ -621,11 +579,6 @@ public fun Node.collectClientIslands(): List<ClientIsland> {
     return islands
 }
 
-private const val INTEGRITY_ALGORITHM = "fnv1a64"
-private const val FNV_64_OFFSET_BASIS: Long = -3750763034362895579L
-private const val FNV_64_PRIME: Long = 1099511628211L
-private const val HEX = "0123456789abcdef"
-
 private sealed interface ServerRenderDeferredResult {
     data class Ready(
         val path: List<Int>,
@@ -644,21 +597,3 @@ private fun List<Int>.toServerBoundaryId(): String =
     } else {
         joinToString(separator = ".", prefix = "boundary.")
     }
-
-private fun fnv1a64(bytes: ByteArray): Long {
-    var hash = FNV_64_OFFSET_BASIS
-    bytes.forEach { byte ->
-        hash = (hash xor (byte.toLong() and 0xffL)) * FNV_64_PRIME
-    }
-    return hash
-}
-
-private fun Long.toHex64(): String {
-    var value = this
-    val chars = CharArray(16)
-    for (index in 15 downTo 0) {
-        chars[index] = HEX[(value and 0x0fL).toInt()]
-        value = value ushr 4
-    }
-    return chars.concatToString()
-}
