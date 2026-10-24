@@ -213,7 +213,14 @@ public fun <I, O> serverActionStub(
                         retryable = false,
                     )
                 } else {
-                    val input = json.decodeFromJsonElement(inputSerializer, payload)
+                    val input = try {
+                        json.decodeFromJsonElement(inputSerializer, payload)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        // Decoding can also fail in an input DTO's constructor or init block.
+                        return ServerActionResponse.Failure("Invalid server action payload.")
+                    }
                     val output = handler(input)
                     ServerActionResponse.Success(
                         payload = json.encodeToJsonElement(outputSerializer, output),
