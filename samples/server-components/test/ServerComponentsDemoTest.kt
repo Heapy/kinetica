@@ -176,6 +176,37 @@ class ServerComponentsDemoTest {
     }
 
     @Test
+    fun invalidCartInputsDoNotChangeState() = withDemoServer { baseUrl ->
+        fun send(input: AddToCartInput): ServerActionResponse = postAction(
+            baseUrl,
+            ServerActionRequest(
+                actionId = ADD_TO_CART_ACTION_ID,
+                payload = KineticaJson.encodeToJsonElement(input),
+                token = CapabilityToken(DEMO_CAPABILITY_TOKEN),
+                csrfToken = CsrfToken(DEMO_CSRF_TOKEN),
+            ),
+        )
+
+        for (quantity in listOf(Int.MIN_VALUE, -1, 0, 1000, Int.MAX_VALUE)) {
+            assertEquals(
+                ServerActionResponse.Failure("quantity must be in 1..999."),
+                send(AddToCartInput("sku", quantity)),
+            )
+        }
+        for (id in listOf("", "   ", "x".repeat(129))) {
+            assertEquals(
+                ServerActionResponse.Failure("productId must be 1..128 characters."),
+                send(AddToCartInput(id, 1)),
+            )
+        }
+        for ((quantity, expectedCount) in listOf(1 to 1, 999 to 1000)) {
+            val success = assertIs<ServerActionResponse.Success>(send(AddToCartInput("x".repeat(128), quantity)))
+            val result = KineticaJson.decodeFromJsonElement<AddToCartResult>(success.payload)
+            assertEquals(expectedCount, result.cartCount)
+        }
+    }
+
+    @Test
     fun actionsEnforceBodyLimitBeforeInvokingHandler() {
         for (chunked in listOf(false, true)) {
             withDemoServer { baseUrl ->

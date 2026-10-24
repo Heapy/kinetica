@@ -6,6 +6,7 @@ import app.servercomponents.shared.AddToCartInput
 import app.servercomponents.shared.AddToCartResult
 import app.servercomponents.shared.DEMO_CAPABILITY_TOKEN
 import app.servercomponents.shared.DEMO_CSRF_TOKEN
+import app.servercomponents.shared.validationError
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import io.heapy.kinetica.ClientComponentManifest
@@ -17,6 +18,7 @@ import io.heapy.kinetica.KineticaRuntime
 import io.heapy.kinetica.KineticaServerActionDispatcher
 import io.heapy.kinetica.KineticaServerTransport
 import io.heapy.kinetica.ServerActionRegistration
+import io.heapy.kinetica.ServerActionRejection
 import io.heapy.kinetica.ServerRenderDeferredSubtree
 import io.heapy.kinetica.TextNode
 import io.heapy.kinetica.dispatchHttp
@@ -84,6 +86,7 @@ class DocsServer(
                 inputSerializer = AddToCartInput.serializer(),
                 outputSerializer = AddToCartResult.serializer(),
             ) { input ->
+                input.validationError()?.let { throw ServerActionRejection(it) }
                 cartCount += input.quantity
                 AddToCartResult(
                     message = "Added ${input.quantity} of ${input.productId}",
