@@ -172,7 +172,9 @@ class DocsServer(
                 else -> exchange.respondText(status = 404, contentType = "text/plain", body = "Not found: $path")
             }
         } catch (error: Throwable) {
-            exchange.respondText(status = 500, contentType = "text/plain", body = error.stackTraceToString())
+            // TODO: Replace with kotomi-logger
+            error.printStackTrace()
+            exchange.respondText(status = 500, contentType = "text/plain", body = "Internal server error.")
         }
     }
 

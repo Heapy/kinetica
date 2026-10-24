@@ -143,6 +143,7 @@ class DocsServerTest {
             HttpResponse.BodyHandlers.ofString(),
         )
         assertEquals(500, malformedAction.statusCode())
+        assertEquals("Internal server error.", malformedAction.body())
 
         val favicon = getResponse("$baseUrl/favicon.ico")
         assertEquals(204, favicon.statusCode())
