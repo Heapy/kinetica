@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertSame
 
 class ServerActionHttpTest {
     private val transport = KineticaServerTransport()
@@ -62,11 +63,31 @@ class ServerActionHttpTest {
     }
 
     @Test
-    fun malformedEnvelopePropagatesToServerErrorHandler() = runTest {
-        assertFailsWith<SerializationException> {
-            dispatcher.dispatchHttp(transport, "{}")
+    fun malformedEnvelopesAreRejectedWithoutDispatching() = runTest {
+        for (body in listOf("", "{", "{}", "[]", "null")) {
+            val response = dispatcher.dispatchHttp(transport, body)
+
+            assertEquals(400, response.status, "Body: $body")
+            assertEquals(
+                ServerActionResponse.Failure("Malformed server action request."),
+                transport.decodeActionResponse(response.body),
+            )
         }
         assertEquals(0, verifications)
         assertEquals(0, calls)
+    }
+
+    @Test
+    fun serializationFaultDuringDispatchStillPropagatesToServerErrorHandler() = runTest {
+        val fault = SerializationException("Verifier storage failed")
+        val brokenDispatcher = KineticaServerActionDispatcher(
+            stubs = emptyList(),
+            verifyCapabilityToken = { throw fault },
+        )
+
+        val thrown = assertFailsWith<SerializationException> {
+            brokenDispatcher.dispatchHttp(transport, transport.encodeActionRequest(request))
+        }
+        assertSame(fault, thrown)
     }
 }

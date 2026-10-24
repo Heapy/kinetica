@@ -142,8 +142,13 @@ class DocsServerTest {
                 .build(),
             HttpResponse.BodyHandlers.ofString(),
         )
-        assertEquals(500, malformedAction.statusCode())
-        assertEquals("Internal server error.", malformedAction.body())
+        assertEquals(400, malformedAction.statusCode())
+        assertEquals(
+            ServerActionResponse.Failure("Malformed server action request."),
+            transport.decodeActionResponse(malformedAction.body()),
+        )
+        assertTrue(malformedAction.headers().firstValue("Content-Type").orElse("").startsWith("application/json"))
+        assertEquals("no-store", malformedAction.headers().firstValue("Cache-Control").orElse(""))
 
         val favicon = getResponse("$baseUrl/favicon.ico")
         assertEquals(204, favicon.statusCode())

@@ -1,5 +1,7 @@
 package io.heapy.kinetica
 
+import kotlinx.serialization.SerializationException
+
 /** Default byte limit for server-action request bodies. */
 public const val DEFAULT_MAX_SERVER_ACTION_BODY_BYTES: Int = 64 * 1024
 
@@ -11,8 +13,9 @@ public class ServerActionHttpResponse(
 
 /**
  * Pass a size-bounded request [body], or `null` when the reader rejected an oversized body.
- * Oversized bodies produce 413 without dispatching; dispatched actions produce 200, including
- * action failures. Decode errors and unexpected faults propagate to the server's error handler.
+ * Oversized bodies produce 413 and malformed request envelopes produce 400 without dispatching.
+ * Dispatched actions produce 200, including action failures. Unexpected faults propagate to the
+ * server's error handler.
  * Serve the result as `application/json` with `Cache-Control: no-store`.
  */
 public suspend fun KineticaServerActionDispatcher.dispatchHttp(
@@ -25,7 +28,14 @@ public suspend fun KineticaServerActionDispatcher.dispatchHttp(
             body = transport.encodeActionResponse(ServerActionResponse.Failure("Request body too large.")),
         )
     }
-    val request = transport.decodeActionRequest(body)
+    val request = try {
+        transport.decodeActionRequest(body)
+    } catch (_: SerializationException) {
+        return ServerActionHttpResponse(
+            status = 400,
+            body = transport.encodeActionResponse(ServerActionResponse.Failure("Malformed server action request.")),
+        )
+    }
     return ServerActionHttpResponse(
         status = 200,
         body = transport.encodeActionResponse(dispatch(request)),
