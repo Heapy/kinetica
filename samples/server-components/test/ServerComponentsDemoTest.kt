@@ -118,12 +118,22 @@ class ServerComponentsDemoTest {
             HttpResponse.BodyHandlers.ofString(),
         )
         assertEquals(400, malformedAction.statusCode())
+        assertSecurityHeaders(malformedAction)
         assertEquals(
             ServerActionResponse.Failure("Malformed server action request."),
             transport.decodeActionResponse(malformedAction.body()),
         )
         assertTrue(malformedAction.headers().firstValue("Content-Type").orElse("").startsWith("application/json"))
         assertEquals("no-store", malformedAction.headers().firstValue("Cache-Control").orElse(""))
+    }
+
+    @Test
+    fun pagesAssetsAndNotFoundResponsesIncludeSecurityHeaders() = withDemoServer { baseUrl ->
+        for ((path, status) in listOf("/" to 200, "/client.mjs" to 200, "/missing" to 404)) {
+            val response = getResponse("$baseUrl$path")
+            assertEquals(status, response.statusCode(), path)
+            assertSecurityHeaders(response)
+        }
     }
 
     @Test
@@ -238,6 +248,7 @@ class ServerComponentsDemoTest {
 
                 val rejected = send(atLimit + " ")
                 assertEquals(413, rejected.statusCode(), "chunked=$chunked")
+                assertSecurityHeaders(rejected)
                 assertTrue(rejected.headers().firstValue("Content-Type").orElse("").startsWith("application/json"))
                 assertEquals(
                     ServerActionResponse.Failure("Request body too large."),
@@ -259,6 +270,7 @@ class ServerComponentsDemoTest {
         val response = getResponse("$baseUrl/client.mjs")
 
         assertEquals(500, response.statusCode())
+        assertSecurityHeaders(response)
         assertEquals("Internal server error.", response.body())
     }
 
@@ -287,6 +299,12 @@ class ServerComponentsDemoTest {
         } finally {
             server.stop()
         }
+    }
+
+    private fun assertSecurityHeaders(response: HttpResponse<*>) {
+        assertEquals("nosniff", response.headers().firstValue("X-Content-Type-Options").orElse(""))
+        assertEquals("DENY", response.headers().firstValue("X-Frame-Options").orElse(""))
+        assertEquals("no-referrer", response.headers().firstValue("Referrer-Policy").orElse(""))
     }
 
     private fun withDemoServer(block: (String) -> Unit) {

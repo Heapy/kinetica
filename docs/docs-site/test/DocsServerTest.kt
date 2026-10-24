@@ -60,6 +60,7 @@ class DocsServerTest {
         val etag = css.headers().firstValue("ETag").orElseThrow()
         val cached = getBytes(baseUrl, cssPath, headers = mapOf("If-None-Match" to etag))
         assertEquals(304, cached.statusCode())
+        assertSecurityHeaders(cached)
         val wildcardCached = getBytes(baseUrl, cssPath, headers = mapOf("If-None-Match" to "*"))
         assertEquals(304, wildcardCached.statusCode())
 
@@ -143,6 +144,7 @@ class DocsServerTest {
             HttpResponse.BodyHandlers.ofString(),
         )
         assertEquals(400, malformedAction.statusCode())
+        assertSecurityHeaders(malformedAction)
         assertEquals(
             ServerActionResponse.Failure("Malformed server action request."),
             transport.decodeActionResponse(malformedAction.body()),
@@ -152,7 +154,17 @@ class DocsServerTest {
 
         val favicon = getResponse("$baseUrl/favicon.ico")
         assertEquals(204, favicon.statusCode())
+        assertSecurityHeaders(favicon)
         assertEquals("no-store", favicon.headers().firstValue("Cache-Control").orElse(""))
+    }
+
+    @Test
+    fun pagesAssetsAndNotFoundResponsesIncludeSecurityHeaders() = withDocsServer { baseUrl ->
+        for ((path, status) in listOf("/" to 200, "/assets/site.css" to 200, "/missing" to 404)) {
+            val response = getResponse("$baseUrl$path")
+            assertEquals(status, response.statusCode(), path)
+            assertSecurityHeaders(response)
+        }
     }
 
     @Test
@@ -189,6 +201,7 @@ class DocsServerTest {
 
         val java = postDemoStack(baseUrl, cookie, """{"language": "Java"}""")
         assertEquals(500, java.statusCode())
+        assertSecurityHeaders(java)
         assertTrue("java.lang.NullPointerException" in java.body())
 
         val javascript = postDemoStack(baseUrl, cookie, """{"language": "JavaScript"}""")
@@ -228,6 +241,7 @@ class DocsServerTest {
 
         val rejected = postDemoStack(baseUrl, cookie, atLimit.replace("Раст", "Руби") + " ")
         assertEquals(413, rejected.statusCode())
+        assertSecurityHeaders(rejected)
         assertEquals("Request body too large.", rejected.body())
         assertEquals("""{"languages":["Kotlin","Раст"]}""", getDemoStack(baseUrl, cookie).body())
     }
@@ -359,6 +373,12 @@ class DocsServerTest {
         assertTrue("<title>A &lt; B &amp; C</title>" in html)
         assertTrue("href=\"/site.css?x=&lt;\"" in html)
         assertTrue("src=\"/docs-client.mjs?x=&amp;\"" in html)
+    }
+
+    private fun assertSecurityHeaders(response: HttpResponse<*>) {
+        assertEquals("nosniff", response.headers().firstValue("X-Content-Type-Options").orElse(""))
+        assertEquals("DENY", response.headers().firstValue("X-Frame-Options").orElse(""))
+        assertEquals("no-referrer", response.headers().firstValue("Referrer-Policy").orElse(""))
     }
 
     private fun withDocsServer(

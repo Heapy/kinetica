@@ -15,6 +15,7 @@ import io.heapy.kinetica.ClientRef
 import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.FragmentNode
 import io.heapy.kinetica.KineticaRuntime
+import io.heapy.kinetica.KineticaSecurityHeaders
 import io.heapy.kinetica.KineticaServerActionDispatcher
 import io.heapy.kinetica.KineticaServerTransport
 import io.heapy.kinetica.ServerActionRegistration
@@ -110,6 +111,7 @@ class DocsServer(
     val boundPort: Int get() = http.address.port
 
     private fun route(exchange: HttpExchange) {
+        KineticaSecurityHeaders.forEach { (name, value) -> exchange.responseHeaders.set(name, value) }
         val path = exchange.requestURI.path
         try {
             when {

@@ -18,6 +18,7 @@ import io.heapy.kinetica.CsrfToken
 import io.heapy.kinetica.FragmentNode
 import io.heapy.kinetica.KineticaJson
 import io.heapy.kinetica.KineticaRuntime
+import io.heapy.kinetica.KineticaSecurityHeaders
 import io.heapy.kinetica.KineticaServerActionDispatcher
 import io.heapy.kinetica.KineticaServerTransport
 import io.heapy.kinetica.ServerActionRegistration
@@ -160,6 +161,7 @@ internal class ServerComponentsDemoServer(
         get() = http.address.port
 
     private fun route(exchange: HttpExchange) {
+        KineticaSecurityHeaders.forEach { (name, value) -> exchange.responseHeaders.set(name, value) }
         try {
             when {
                 exchange.requestMethod == "GET" && exchange.requestURI.path == "/" -> {
