@@ -23,8 +23,10 @@ import io.heapy.kinetica.ServerActionRegistration
 import io.heapy.kinetica.ServerActionRequest
 import io.heapy.kinetica.ServerRenderDeferredSubtree
 import io.heapy.kinetica.TextNode
+import io.heapy.kinetica.dispatchHttp
 import io.heapy.kinetica.host
 import io.heapy.kinetica.hydrationPlan
+import io.heapy.kinetica.readBoundedRequestBody
 import io.heapy.kinetica.serverActionStub
 import io.heapy.kinetica.text
 import io.heapy.kinetica.toSafeHtml
@@ -183,10 +185,7 @@ internal class ServerComponentsDemoServer(
                     )
                 }
                 exchange.requestMethod == "POST" && exchange.requestURI.path == "/actions/$ADD_TO_CART_ACTION_ID" -> {
-                    exchange.respondText(
-                        contentType = "application/json",
-                        body = dispatchAction(exchange.requestBody.readAllBytes().decodeToString()),
-                    )
+                    respondAction(exchange)
                 }
                 else -> exchange.respondText(
                     status = 404,
@@ -310,11 +309,13 @@ internal class ServerComponentsDemoServer(
                 }
         }
 
-    private fun dispatchAction(body: String): String =
-        runBlocking {
-            val request = transport.decodeActionRequest(body)
-            transport.encodeActionResponse(dispatcher.dispatch(request))
+    private fun respondAction(exchange: HttpExchange) {
+        val body = readBoundedRequestBody(exchange.requestBody)
+        val response = runBlocking {
+            dispatcher.dispatchHttp(transport, body)
         }
+        exchange.respondText(status = response.status, contentType = "application/json", body = response.body)
+    }
 
     private fun clientBundle(): String {
         val bundle = clientBundleRoot().resolve("server-components-client.mjs")

@@ -171,6 +171,54 @@ class ServerComponentsDemoTest {
     }
 
     @Test
+    fun actionsEnforceBodyLimitBeforeInvokingHandler() {
+        for (chunked in listOf(false, true)) {
+            withDemoServer { baseUrl ->
+                val request = ServerActionRequest(
+                    actionId = ADD_TO_CART_ACTION_ID,
+                    payload = KineticaJson.encodeToJsonElement(AddToCartInput("лицензия", 1)),
+                    token = CapabilityToken(DEMO_CAPABILITY_TOKEN),
+                    csrfToken = CsrfToken(DEMO_CSRF_TOKEN),
+                )
+                val json = transport.encodeActionRequest(request)
+                val atLimit = json + " ".repeat(64 * 1024 - json.encodeToByteArray().size)
+
+                fun send(body: String): HttpResponse<String> {
+                    val bytes = body.encodeToByteArray()
+                    val publisher = if (chunked) {
+                        HttpRequest.BodyPublishers.ofInputStream { bytes.inputStream() }
+                    } else {
+                        HttpRequest.BodyPublishers.ofByteArray(bytes)
+                    }
+                    return http.send(
+                        HttpRequest.newBuilder(URI.create("$baseUrl/actions/$ADD_TO_CART_ACTION_ID"))
+                            .version(HttpClient.Version.HTTP_1_1)
+                            .header("Content-Type", "application/json")
+                            .POST(publisher)
+                            .build(),
+                        HttpResponse.BodyHandlers.ofString(),
+                    )
+                }
+
+                val rejected = send(atLimit + " ")
+                assertEquals(413, rejected.statusCode(), "chunked=$chunked")
+                assertTrue(rejected.headers().firstValue("Content-Type").orElse("").startsWith("application/json"))
+                assertEquals(
+                    ServerActionResponse.Failure("Request body too large."),
+                    transport.decodeActionResponse(rejected.body()),
+                )
+
+                for ((index, body) in listOf(atLimit, atLimit.dropLast(1)).withIndex()) {
+                    val accepted = send(body)
+                    assertEquals(200, accepted.statusCode(), "chunked=$chunked")
+                    val result = transport.decodeActionResponse(accepted.body()).successResult()
+                    assertEquals(index + 1, result.cartCount, "oversized requests must not modify the cart")
+                }
+            }
+        }
+    }
+
+    @Test
     fun httpServerReportsMissingClientBundleAsServerError() = withDemoServer(createClientBundle = false) { baseUrl ->
         val response = getResponse("$baseUrl/client.mjs")
 

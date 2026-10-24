@@ -19,8 +19,10 @@ import io.heapy.kinetica.KineticaServerTransport
 import io.heapy.kinetica.ServerActionRegistration
 import io.heapy.kinetica.ServerRenderDeferredSubtree
 import io.heapy.kinetica.TextNode
+import io.heapy.kinetica.dispatchHttp
 import io.heapy.kinetica.host
 import io.heapy.kinetica.hydrationPlan
+import io.heapy.kinetica.readBoundedRequestBody
 import io.heapy.kinetica.serverActionStub
 import io.heapy.kinetica.text
 import io.heapy.kinetica.toSafeHtml
@@ -164,10 +166,7 @@ class DocsServer(
                     exchange.respondText(contentType = "application/x-ndjson", body = renderStreamBody())
 
                 exchange.requestMethod == "POST" && path == "/actions/$ADD_TO_CART_ACTION_ID" ->
-                    exchange.respondText(
-                        contentType = "application/json",
-                        body = dispatchAction(exchange.requestBody.readAllBytes().decodeToString()),
-                    )
+                    respondAction(exchange)
 
                 else -> exchange.respondText(status = 404, contentType = "text/plain", body = "Not found: $path")
             }
@@ -272,9 +271,12 @@ class DocsServer(
             .joinToString(separator = "\n", postfix = "\n") { chunk -> transport.encodeChunk(chunk) }
     }
 
-    private fun dispatchAction(body: String): String = runBlocking {
-        val request = transport.decodeActionRequest(body)
-        transport.encodeActionResponse(dispatcher.dispatch(request))
+    private fun respondAction(exchange: HttpExchange) {
+        val body = readBoundedRequestBody(exchange.requestBody)
+        val response = runBlocking {
+            dispatcher.dispatchHttp(transport, body)
+        }
+        exchange.respondText(status = response.status, contentType = "application/json", body = response.body)
     }
 
     private val demoSessions = object : LinkedHashMap<String, DemoStackSession>(16, 0.75f, true) {
@@ -288,8 +290,8 @@ class DocsServer(
     }
 
     private fun respondDemoStackSubmission(exchange: HttpExchange) {
-        val bodyBytes = exchange.requestBody.readNBytes(MaxDemoRequestBodyBytes + 1)
-        if (bodyBytes.size > MaxDemoRequestBodyBytes) {
+        val body = readBoundedRequestBody(exchange.requestBody)
+        if (body == null) {
             exchange.respondText(
                 status = 413,
                 contentType = "text/plain",
@@ -298,7 +300,6 @@ class DocsServer(
             return
         }
         val session = demoSession(exchange)
-        val body = bodyBytes.decodeToString()
         val language = runCatching {
             Json.parseToJsonElement(body).jsonObject["language"]?.jsonPrimitive?.content
         }.getOrNull()?.trim()
@@ -478,7 +479,6 @@ private const val DemoSessionCookie = "kinetica-demo-session"
 private const val MaxDemoSessions = 1000
 private const val MaxDemoStackSize = 12
 private const val MaxDemoLanguageLength = 40
-private const val MaxDemoRequestBodyBytes = 64 * 1024
 
 private const val JavaFailureBody =
     "java.lang.NullPointerException: Cannot invoke \"Language.modernFeatures()\" because \"java\" is null"
