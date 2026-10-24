@@ -341,11 +341,12 @@ private fun JsonElement.matches(kind: JsonValueKind): Boolean =
         JsonValueKind.Null -> this is JsonNull
     }
 
+/** Both token verifiers must be supplied to accept actions; omitted verifiers reject requests. */
 public class KineticaServerActionDispatcher(
     stubs: List<ServerActionStub>,
     private val json: Json = KineticaJson,
-    private val verifyCapabilityToken: (CapabilityToken) -> Boolean = { true },
-    private val verifyCsrfToken: (CsrfToken?) -> Boolean = { true },
+    private val verifyCapabilityToken: (CapabilityToken) -> Boolean = { false },
+    private val verifyCsrfToken: (CsrfToken?) -> Boolean = { false },
 ) {
     private val stubsByActionId: Map<String, ServerActionStub> =
         stubs.associateBy { stub -> stub.registration.actionId }

@@ -102,6 +102,11 @@ and CSRF tokens are checked by the dispatcher; handler exceptions return a gener
 message (no stack-trace leaks); `invalidates` keys plug into the
 [resource loop](/docs/resources) on the client.
 
+Supply both token verifiers: an omitted verifier rejects every request. The generated
+`kineticaGeneratedServerActionDispatcher(verifyCapabilityToken, verifyCsrfToken)` factory
+requires both arguments. It replaces the generated `KineticaGeneratedServerActionDispatcher`
+property; update usages to construct the dispatcher with your application's verifiers.
+
 ## The manifest
 
 <!-- code: kinetica-runtime/src/ServerComponents.kt (ClientComponentManifest, ClientComponentRegistration), kinetica-runtime/src/Annotations.kt (ClientComponent, ServerAction) -->
