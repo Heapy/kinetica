@@ -82,7 +82,7 @@ class DocsServerTest {
             .startsWith("text/plain"))
         val missingAsset = getResponse("$baseUrl/docs-client/missing.mjs")
         assertEquals(404, missingAsset.statusCode())
-        assertTrue("Missing bundle asset missing.mjs" in missingAsset.body())
+        assertEquals("Asset not found.", missingAsset.body())
 
         val gameOfLifePage = get("$baseUrl/docs/game-of-life")
         assertTrue("Game of Life, four ways" in gameOfLifePage)
@@ -93,7 +93,7 @@ class DocsServerTest {
             .firstValue("Content-Type").orElse("").startsWith("application/json"))
         val missingGame = getResponse("$baseUrl/game-of-life/no-such-app/")
         assertEquals(404, missingGame.statusCode())
-        assertTrue("Missing Game of Life asset" in missingGame.body())
+        assertEquals("Asset not found.", missingGame.body())
 
         val demo = get("$baseUrl/examples/server-components")
         assertTrue("id=\"kinetica-hydration-plan\"" in demo)
@@ -153,6 +153,22 @@ class DocsServerTest {
         val favicon = getResponse("$baseUrl/favicon.ico")
         assertEquals(204, favicon.statusCode())
         assertEquals("no-store", favicon.headers().firstValue("Cache-Control").orElse(""))
+    }
+
+    @Test
+    fun missingAssetsReturnGenericNotFoundResponses() = withDocsServer { baseUrl ->
+        for (path in listOf(
+            "/docs-client/missing.mjs",
+            "/sc-client/missing.mjs",
+            "/bench/missing.json",
+            "/game-of-life/no-such-app/",
+        )) {
+            val response = getResponse("$baseUrl$path")
+            assertEquals(404, response.statusCode(), path)
+            assertEquals("Asset not found.", response.body(), path)
+            assertTrue(response.headers().firstValue("Content-Type").orElse("").startsWith("text/plain"))
+            assertEquals("no-store", response.headers().firstValue("Cache-Control").orElse(""))
+        }
     }
 
     @Test

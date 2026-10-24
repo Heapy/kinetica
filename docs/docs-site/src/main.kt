@@ -393,10 +393,8 @@ class DocsServer(
     ) {
         val asset = bundleAsset(preferredRoot, fallbackRoot, relative)
         if (asset == null) {
-            exchange.respondText(
-                status = 404,
-                contentType = "text/plain",
-                body = "Missing bundle asset $relative under $bundlesDir. Build with node scripts/bundle-docs.mjs, or set KINETICA_BUNDLES_DIR.",
+            exchange.respondMissingAsset(
+                "Missing bundle asset $relative under $bundlesDir. Build with node scripts/bundle-docs.mjs, or set KINETICA_BUNDLES_DIR.",
             )
             return
         }
@@ -414,10 +412,8 @@ class DocsServer(
         }
         val asset = bundleCandidate("_bench_dist", relative)
         if (asset == null) {
-            exchange.respondText(
-                status = 404,
-                contentType = "text/plain",
-                body = "Missing bench asset $relative under $bundlesDir. Build with node scripts/bundle-bench-static.mjs, or set KINETICA_BUNDLES_DIR.",
+            exchange.respondMissingAsset(
+                "Missing bench asset $relative under $bundlesDir. Build with node scripts/bundle-bench-static.mjs, or set KINETICA_BUNDLES_DIR.",
             )
             return
         }
@@ -434,10 +430,8 @@ class DocsServer(
         }
         val asset = bundleCandidate("_game-of-life_dist", relative)
         if (asset == null) {
-            exchange.respondText(
-                status = 404,
-                contentType = "text/plain",
-                body = "Missing Game of Life asset $relative under $bundlesDir. Build with node scripts/build-game-of-life.mjs, or set KINETICA_BUNDLES_DIR.",
+            exchange.respondMissingAsset(
+                "Missing Game of Life asset $relative under $bundlesDir. Build with node scripts/build-game-of-life.mjs, or set KINETICA_BUNDLES_DIR.",
             )
             return
         }
@@ -561,6 +555,12 @@ private fun HttpExchange.respondStaticAsset(asset: StaticAsset) {
 
     sendResponseHeaders(200, responseBytes.size.toLong())
     responseBody.use { output -> output.write(responseBytes) }
+}
+
+private fun HttpExchange.respondMissingAsset(diagnostic: String) {
+    // TODO: Replace with kotomi-logger
+    System.err.println(diagnostic)
+    respondText(status = 404, contentType = "text/plain", body = "Asset not found.")
 }
 
 private fun HttpExchange.respondText(
