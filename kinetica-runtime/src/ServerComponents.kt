@@ -185,6 +185,12 @@ public interface ServerActionStub {
  */
 public class ServerActionRejection(override val message: String) : RuntimeException(message)
 
+/**
+ * Decodes a schema-validated input and invokes [handler]. The handler must validate business rules
+ * and authorize the caller's access to the requested resource before changing state.
+ * [KineticaServerActionDispatcher]'s token checks do not provide per-action/resource authorization;
+ * calling the stub directly bypasses those token checks entirely.
+ */
 public fun <I, O> serverActionStub(
     registration: ServerActionRegistration,
     inputSerializer: KSerializer<I>,

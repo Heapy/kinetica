@@ -4,6 +4,7 @@ import kotlinx.serialization.Serializable
 
 public const val ADD_TO_CART_ACTION_ID: String = "cart.add"
 public const val ADD_TO_CART_COMPONENT_ID: String = "app.client.AddToCartButton"
+// Public demo values included in the client bundle, not authentication or CSRF protection.
 public const val DEMO_CAPABILITY_TOKEN: String = "demo-capability"
 public const val DEMO_CSRF_TOKEN: String = "demo-csrf"
 

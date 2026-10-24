@@ -111,6 +111,35 @@ Supply both token verifiers: an omitted verifier rejects every request. The gene
 requires both arguments. It replaces the generated `KineticaGeneratedServerActionDispatcher`
 property; update usages to construct the dispatcher with your application's verifiers.
 
+### Validation and authorization
+
+Schema validation and decoding check the payload's structure and Kotlin types, not all business
+rules. For example, `quantity: Int` can still be negative. Validate domain constraints inside the
+handler before changing state; use `ServerActionRejection` for a client-safe validation message.
+
+The dispatcher checks tokens before looking up the requested action. Its verifier callbacks receive
+only their respective tokens, not the action ID or payload. They do not automatically authorize
+access to a particular action or resource: the handler must check the caller's permissions using
+trusted application context. An action does not become inaccessible merely because it is absent
+from the current UI. Calling a `ServerActionStub` directly bypasses the dispatcher's token checks.
+
+The reference demos use fixed capability and CSRF tokens included in the client bundle. Anyone can
+read and reuse them; they are demonstration values, not authentication or CSRF protection.
+Applications must provide their own authentication, authorization, and CSRF protection. The
+capability token is sent by the client in `ServerActionRequest`; it is not a server-only secret.
+
+### HTTP integration
+
+`readBoundedRequestBody` caps JVM request bodies at 64 KiB by default. Pass its result to
+`dispatchHttp`: an oversized body produces HTTP 413, a malformed envelope produces 400, and a
+dispatched action produces 200 even when its result is `ServerActionResponse.Failure`.
+Serve these responses as `application/json` with `Cache-Control: no-store`. Unexpected faults
+propagate to the HTTP server; log their details server-side and return a generic error body.
+
+The reference servers apply `KineticaSecurityHeaders` and process requests on virtual threads.
+Neither virtual threads nor the byte limit imposes a request-read timeout; configure time and
+connection limits in your HTTP deployment as well.
+
 ## The manifest
 
 <!-- code: kinetica-runtime/src/ServerComponents.kt (ClientComponentManifest, ClientComponentRegistration), kinetica-runtime/src/Annotations.kt (ClientComponent, ServerAction) -->
