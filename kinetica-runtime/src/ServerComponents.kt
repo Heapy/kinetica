@@ -538,10 +538,13 @@ public suspend fun Node.toServerRenderStream(
                 results.close(cancelled)
                 throw cancelled
             } catch (error: Throwable) {
+                // Keep exception details in server diagnostics, not in the client-facing stream.
+                // TODO: Replace with kotomi-logger
+                error.printStackTrace()
                 results.send(
                     ServerRenderDeferredResult.Failed(
                         boundaryId = subtree.boundaryId,
-                        message = error.message ?: error.toString(),
+                        message = "Server render failed.",
                     ),
                 )
             }
