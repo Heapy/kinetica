@@ -36,25 +36,29 @@ jobs:
 
       # One invocation shares project discovery and task scheduling across the JVM graph.
       - name: JVM test suite
-        run: |
-          set -euo pipefail
-          ./kotlin test --platform jvm \
-            -m kinetica-compiler \
-            -m kinetica-gradle-plugin \
-            -m kinetica-runtime \
-            -m kinetica-application \
-            -m kinetica-markdown \
-            -m kinetica-router \
-            -m kinetica-forms \
-            -m kinetica-motion \
-            -m kinetica-persist \
-            -m kinetica-theme \
-            -m kinetica-data \
-            -m kinetica-test \
-            -m server-components-shared \
-            -m server-components \
-            -m todo \
-            -m game-of-life-model
+        uses: Heapy/ktc-check@2f2dea35c8738d5c14446c56fe23da2d37aa1796 # v1.1.1
+        with:
+          checks: tests
+          platforms: jvm
+          build: false
+          command-timeout-minutes: 30
+          modules: |
+            kinetica-compiler
+            kinetica-gradle-plugin
+            kinetica-runtime
+            kinetica-application
+            kinetica-markdown
+            kinetica-router
+            kinetica-forms
+            kinetica-motion
+            kinetica-persist
+            kinetica-theme
+            kinetica-data
+            kinetica-test
+            server-components-shared
+            server-components
+            todo
+            game-of-life-model
 
       - name: Save JVM build outputs
         if: steps.jvm-build-cache.outputs.cache-hit != 'true'
@@ -219,35 +223,33 @@ jobs:
           path: build
           key: kinetica-macos-build-${{ runner.os }}-${{ hashFiles('.github/actions/setup-kinetica/action.yml', '.github/workflows/ci.yml', 'kotlin', 'project.yaml', 'common.module-template.yaml', '**/module.yaml', '**/plugin.yaml', '**/*.kt', '**/*.java', '**/resources/**', '**/testResources/**') }}
 
-      # The Kotlin/Native toolchain download is ~1 GB; key it by the Kotlin version pinned
-      # in the shared module template.
-      - name: Cache Kotlin/Native toolchain
-        uses: actions/cache@v5
-        with:
-          path: ~/.konan
-          key: kinetica-konan-${{ runner.os }}-${{ hashFiles('common.module-template.yaml') }}
-
       - uses: ./.github/actions/setup-kinetica
+        with:
+          cache-konan: true
 
       - name: Publish compiler plugin
         run: ./kotlin publish mavenLocal -m kinetica-compiler
 
       - name: Native test suite (macosArm64)
-        run: |
-          set -euo pipefail
-          ./kotlin test --platform macosArm64 \
-            -m kinetica-runtime \
-            -m kinetica-render-core \
-            -m kinetica-application \
-            -m kinetica-appkit \
-            -m harmon-native \
-            -m kinetica-test \
-            -m kinetica-forms \
-            -m kinetica-data \
-            -m kinetica-persist \
-            -m kinetica-router \
-            -m kinetica-motion \
-            -m kinetica-theme
+        uses: Heapy/ktc-check@2f2dea35c8738d5c14446c56fe23da2d37aa1796 # v1.1.1
+        with:
+          checks: tests
+          platforms: macosArm64
+          build: false
+          command-timeout-minutes: 40
+          modules: |
+            kinetica-runtime
+            kinetica-render-core
+            kinetica-application
+            kinetica-appkit
+            harmon-native
+            kinetica-test
+            kinetica-forms
+            kinetica-data
+            kinetica-persist
+            kinetica-router
+            kinetica-motion
+            kinetica-theme
 
       - name: Native Harmon HTTP transport contract
         run: python3 scripts/verify-harmon-live.py
@@ -285,15 +287,9 @@ jobs:
           path: build
           key: kinetica-linux-native-build-${{ runner.os }}-${{ hashFiles('.github/actions/setup-kinetica/action.yml', '.github/workflows/ci.yml', 'kotlin', 'project.yaml', 'common.module-template.yaml', '**/module.yaml', '**/plugin.yaml', '**/*.kt', '**/*.java', '**/resources/**', '**/testResources/**') }}
 
-      # The Kotlin/Native toolchain download is ~1 GB; key it by the Kotlin version pinned
-      # in the shared module template.
-      - name: Cache Kotlin/Native toolchain
-        uses: actions/cache@v5
-        with:
-          path: ~/.konan
-          key: kinetica-konan-linux-${{ hashFiles('common.module-template.yaml') }}
-
       - uses: ./.github/actions/setup-kinetica
+        with:
+          cache-konan: true
 
       - name: Install GTK4 dev headers
         run: |
@@ -309,7 +305,13 @@ jobs:
         run: ./kinetica-gtk/generate-def.sh
 
       - name: Render-core native tests (linuxX64)
-        run: ./kotlin test --platform linuxX64 -m kinetica-render-core
+        uses: Heapy/ktc-check@2f2dea35c8738d5c14446c56fe23da2d37aa1796 # v1.1.1
+        with:
+          checks: tests
+          platforms: linuxX64
+          modules: kinetica-render-core
+          build: false
+          command-timeout-minutes: 30
 
       - name: GTK widget tests (linuxX64)
         run: xvfb-run -a ./kotlin test --platform linuxX64 -m kinetica-gtk

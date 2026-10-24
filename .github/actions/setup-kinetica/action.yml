@@ -3,13 +3,18 @@ description: JDK, Node and the Kotlin Toolchain caches for building this repo.
 
 inputs:
   java-version:
-    description: JDK used to run Gradle and packaged JVM applications.
+    description: JDK used by Kotlin Toolchain, Gradle and packaged JVM applications.
     required: false
-    default: "21"
+    # Match the Toolchain's JDK so it can use JAVA_HOME without downloading another JDK.
+    default: "25"
   setup-kotlin:
-    description: Restore the Kotlin Toolchain caches; cached-artifact consumers can skip it.
+    description: Set up Kotlin Toolchain and its caches; cached-artifact consumers can skip it.
     required: false
     default: "true"
+  cache-konan:
+    description: Cache Kotlin/Native data for native builds.
+    required: false
+    default: "false"
 
 runs:
   using: composite
@@ -23,16 +28,9 @@ runs:
       with:
         node-version: "22"
 
-    # The ./kotlin wrapper provisions the CLI distribution, its JRE and the dependency cache
-    # into the toolchain's shared cache dir — one entry covers all of them. Only the OS-specific
-    # path exists on a given runner; the other is silently skipped.
-    - name: Cache Kotlin Toolchain state
+    - name: Set up Kotlin Toolchain
       if: inputs.setup-kotlin == 'true'
-      uses: actions/cache@v5
+      uses: Heapy/setup-ktc@e0a603c477110083db0b44f302deb188d4991ea0 # v1.1.0
       with:
-        path: |
-          ~/.cache/JetBrains/Kotlin
-          ~/Library/Caches/JetBrains/Kotlin
-        key: kinetica-kotlin-${{ runner.os }}-${{ hashFiles('kotlin', 'project.yaml', 'common.module-template.yaml', '**/module.yaml') }}
-        restore-keys: |
-          kinetica-kotlin-${{ runner.os }}-
+        version: auto
+        cache-konan: ${{ inputs.cache-konan }}
