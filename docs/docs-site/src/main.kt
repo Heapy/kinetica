@@ -43,6 +43,8 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
 import java.util.UUID
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.exists
 
 fun main(args: Array<String>) {
@@ -79,7 +81,7 @@ class DocsServer(
         )
     }
     private val transport = KineticaServerTransport()
-    private var cartCount = 0
+    private val cartCount = AtomicInteger(0)
     private val dispatcher = KineticaServerActionDispatcher(
         stubs = listOf(
             serverActionStub(
@@ -88,10 +90,10 @@ class DocsServer(
                 outputSerializer = AddToCartResult.serializer(),
             ) { input ->
                 input.validationError()?.let { throw ServerActionRejection(it) }
-                cartCount += input.quantity
+                val updatedCount = cartCount.addAndGet(input.quantity)
                 AddToCartResult(
                     message = "Added ${input.quantity} of ${input.productId}",
-                    cartCount = cartCount,
+                    cartCount = updatedCount,
                 )
             },
         ),
@@ -100,13 +102,18 @@ class DocsServer(
     )
     private val http = HttpServer.create(InetSocketAddress("0.0.0.0", port), 0)
 
+    private val executor = Executors.newVirtualThreadPerTaskExecutor()
+
     fun start() {
         http.createContext("/") { exchange -> route(exchange) }
-        http.executor = null
+        http.executor = executor
         http.start()
     }
 
-    fun stop(): Unit = http.stop(0)
+    fun stop() {
+        http.stop(0)
+        executor.shutdownNow()
+    }
 
     val boundPort: Int get() = http.address.port
 

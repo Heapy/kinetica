@@ -42,6 +42,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 
@@ -126,7 +128,7 @@ internal class ServerComponentsDemoServer(
     private val projectRoot: Path = Path.of("").toAbsolutePath(),
 ) {
     private val transport = KineticaServerTransport()
-    private var cartCount = 0
+    private val cartCount = AtomicInteger(0)
     private val dispatcher = KineticaServerActionDispatcher(
         stubs = listOf(
             serverActionStub(
@@ -135,10 +137,10 @@ internal class ServerComponentsDemoServer(
                 outputSerializer = AddToCartResult.serializer(),
             ) { input ->
                 input.validationError()?.let { throw ServerActionRejection(it) }
-                cartCount += input.quantity
+                val updatedCount = cartCount.addAndGet(input.quantity)
                 AddToCartResult(
                     message = "Added ${input.quantity} of ${input.productId}",
-                    cartCount = cartCount,
+                    cartCount = updatedCount,
                 )
             },
         ),
@@ -147,14 +149,17 @@ internal class ServerComponentsDemoServer(
     )
     private val http = HttpServer.create(InetSocketAddress("127.0.0.1", port), 0)
 
+    private val executor = Executors.newVirtualThreadPerTaskExecutor()
+
     fun start() {
         http.createContext("/") { exchange -> route(exchange) }
-        http.executor = null
+        http.executor = executor
         http.start()
     }
 
     fun stop() {
         http.stop(0)
+        executor.shutdownNow()
     }
 
     val boundPort: Int

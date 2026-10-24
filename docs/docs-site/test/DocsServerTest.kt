@@ -15,6 +15,10 @@ import io.heapy.kinetica.ServerRenderChunk
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
 import java.net.URI
+import java.net.Socket
+import java.time.Duration
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
@@ -156,6 +160,75 @@ class DocsServerTest {
         assertEquals(204, favicon.statusCode())
         assertSecurityHeaders(favicon)
         assertEquals("no-store", favicon.headers().firstValue("Cache-Control").orElse(""))
+    }
+
+    @Test
+    fun incompleteActionBodiesDoNotBlockOtherRequests() = withDocsServer { baseUrl ->
+        val uri = URI.create(baseUrl)
+        val sockets = mutableListOf<Socket>()
+        try {
+            val readers = (1..16).map {
+                val socket = Socket(uri.host, uri.port)
+                sockets.add(socket)
+                socket.soTimeout = 5_000
+                val output = socket.getOutputStream()
+                output.write(
+                    (
+                        "POST /actions/$ADD_TO_CART_ACTION_ID HTTP/1.1\r\n" +
+                            "Host: localhost\r\nContent-Length: 2\r\nExpect: 100-continue\r\n\r\n"
+                    ).toByteArray(Charsets.US_ASCII),
+                )
+                output.flush()
+                val input = socket.getInputStream().bufferedReader(Charsets.US_ASCII)
+                // Ensure every request is accepted before checking the independent GET.
+                assertEquals("HTTP/1.1 100 Continue", input.readLine())
+                while (!input.readLine().isNullOrEmpty()) { }
+                input
+            }
+
+            val response = http.send(
+                HttpRequest.newBuilder(URI.create("$baseUrl/healthz"))
+                    .timeout(Duration.ofSeconds(2)).GET().build(),
+                HttpResponse.BodyHandlers.ofString(),
+            )
+            assertEquals(200, response.statusCode())
+
+            sockets.zip(readers).forEach { (socket, input) ->
+                val output = socket.getOutputStream()
+                output.write("{}".toByteArray(Charsets.US_ASCII))
+                output.flush()
+                assertEquals("HTTP/1.1 400 Bad Request", input.readLine())
+            }
+        } finally {
+            sockets.forEach { it.close() }
+        }
+    }
+
+    @Test
+    fun concurrentCartActionsPreserveEveryIncrement() = withDocsServer { baseUrl ->
+        val body = transport.encodeActionRequest(ServerActionRequest(
+            actionId = ADD_TO_CART_ACTION_ID,
+            payload = KineticaJson.encodeToJsonElement(AddToCartInput("sku", 1)),
+            token = CapabilityToken(DEMO_CAPABILITY_TOKEN),
+            csrfToken = CsrfToken(DEMO_CSRF_TOKEN),
+        ))
+        val pending = (1..32).map {
+            http.sendAsync(
+                HttpRequest.newBuilder(URI.create("$baseUrl/actions/$ADD_TO_CART_ACTION_ID"))
+                    .header("Content-Type", "application/json")
+                    .timeout(Duration.ofSeconds(10))
+                    .POST(HttpRequest.BodyPublishers.ofString(body)).build(),
+                HttpResponse.BodyHandlers.ofString(),
+            )
+        }
+        CompletableFuture.allOf(*pending.toTypedArray()).get(10, TimeUnit.SECONDS)
+        val counts = pending.map { future ->
+            val response = future.join()
+            assertEquals(200, response.statusCode())
+            val success = assertIs<ServerActionResponse.Success>(transport.decodeActionResponse(response.body()))
+            KineticaJson.decodeFromJsonElement<AddToCartResult>(success.payload).cartCount
+        }
+        assertEquals((1..32).toList(), counts.sorted())
     }
 
     @Test
