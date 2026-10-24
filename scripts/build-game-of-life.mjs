@@ -120,6 +120,7 @@ for (const target of targets) {
   mkdirSync(targetDir, { recursive: true });
   copyFileSync(target.bundle, join(targetDir, "main.js"));
   copyFileSync(sharedCss, join(targetDir, "styles.css"));
+  writeFileSync(join(targetDir, "mount.js"), `${mountSnippet}\n`);
   writeFileSync(join(targetDir, "index.html"), `<!doctype html>
 <html lang="en">
 <head>
@@ -128,8 +129,7 @@ for (const target of targets) {
   <meta name="description" content="Conway's Game of Life implemented with ${target.label}.">
   <title>${target.label} · Conway’s Game of Life</title>
   <link rel="stylesheet" href="./styles.css">
-  <script>${mountSnippet}
-  </script>
+  <script src="./mount.js"></script>
 </head>
 <body>
   <div id="app"></div>

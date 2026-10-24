@@ -305,6 +305,11 @@ class ServerComponentsDemoTest {
         assertEquals("nosniff", response.headers().firstValue("X-Content-Type-Options").orElse(""))
         assertEquals("DENY", response.headers().firstValue("X-Frame-Options").orElse(""))
         assertEquals("no-referrer", response.headers().firstValue("Referrer-Policy").orElse(""))
+        assertEquals(
+            "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+                "img-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+            response.headers().firstValue("Content-Security-Policy").orElse(""),
+        )
     }
 
     private fun withDemoServer(block: (String) -> Unit) {

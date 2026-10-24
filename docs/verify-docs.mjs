@@ -223,6 +223,45 @@ try {
   await page.getByText(/Added 1 of runtime-license/).waitFor({ timeout: 10_000 });
   console.log("OK   server-components demo hydrates, streams, dispatches action");
 
+  for (const implementation of ["kinetica", "react", "compose-html", "vanilla"]) {
+    await page.goto(`${base}/game-of-life/${implementation}/`, { waitUntil: "networkidle" });
+    await page.locator('[data-testid="life-grid"]').waitFor({ timeout: 10_000 });
+    await page.waitForFunction(() => Number.isFinite(window.__mountMs), undefined, { timeout: 5_000 });
+    await page.locator('[data-testid="preset-glider"]').click();
+    await page.locator('[data-testid="step"]').click();
+    await page.waitForFunction(
+      () => document.querySelector('[data-testid="generation-value"]')?.textContent === "1",
+      undefined, { timeout: 5_000 },
+    );
+  }
+  await page.goto(`${base}/game-of-life/`, { waitUntil: "networkidle" });
+  console.log("OK   Game of Life apps and report work under CSP, mount timing is recorded");
+
+  // Keep the deliberate violation separate from the pages that must run without CSP errors.
+  const probe = await browser.newPage();
+  try {
+    await probe.goto(`${base}/`, { waitUntil: "networkidle" });
+    await probe.evaluate(() => {
+      window.__cspViolations = [];
+      document.addEventListener("securitypolicyviolation", (event) => {
+        window.__cspViolations.push({ directive: event.effectiveDirective, blocked: event.blockedURI });
+      });
+      const script = document.createElement("script");
+      script.textContent = "window.__inlineScriptRan = true";
+      document.body.append(script);
+    });
+    await probe.waitForFunction(
+      () => window.__cspViolations.some((event) => event.directive.startsWith("script-src") && event.blocked === "inline"),
+      undefined, { timeout: 5_000 },
+    );
+    if (await probe.evaluate(() => window.__inlineScriptRan === true)) {
+      throw new Error("CSP allowed an inline executable script");
+    }
+  } finally {
+    await probe.close();
+  }
+  console.log("OK   CSP blocks inline executable scripts");
+
   // the resource-fetch demo intentionally provokes a 500 from /demo/api/stack
   const realErrors = errors.filter(
     (e) => !e.includes("/demo/api/stack") && !e.includes("status of 500"),
