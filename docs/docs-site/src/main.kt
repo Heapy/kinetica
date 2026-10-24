@@ -286,8 +286,17 @@ class DocsServer(
     }
 
     private fun respondDemoStackSubmission(exchange: HttpExchange) {
+        val bodyBytes = exchange.requestBody.readNBytes(MaxDemoRequestBodyBytes + 1)
+        if (bodyBytes.size > MaxDemoRequestBodyBytes) {
+            exchange.respondText(
+                status = 413,
+                contentType = "text/plain",
+                body = "Request body too large.",
+            )
+            return
+        }
         val session = demoSession(exchange)
-        val body = exchange.requestBody.readAllBytes().decodeToString()
+        val body = bodyBytes.decodeToString()
         val language = runCatching {
             Json.parseToJsonElement(body).jsonObject["language"]?.jsonPrimitive?.content
         }.getOrNull()?.trim()
@@ -467,6 +476,7 @@ private const val DemoSessionCookie = "kinetica-demo-session"
 private const val MaxDemoSessions = 1000
 private const val MaxDemoStackSize = 12
 private const val MaxDemoLanguageLength = 40
+private const val MaxDemoRequestBodyBytes = 64 * 1024
 
 private const val JavaFailureBody =
     "java.lang.NullPointerException: Cannot invoke \"Language.modernFeatures()\" because \"java\" is null"

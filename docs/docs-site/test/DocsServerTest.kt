@@ -192,6 +192,45 @@ class DocsServerTest {
     }
 
     @Test
+    fun demoStackEnforcesBodyLimitInBytes() = withDocsServer { baseUrl ->
+        val fresh = getResponse("$baseUrl/demo/api/stack")
+        val cookie = fresh.headers().firstValue("Set-Cookie").orElseThrow().substringBefore(";")
+        val json = """{"language":"Раст"}"""
+        val atLimit = json + " ".repeat(64 * 1024 - json.encodeToByteArray().size)
+
+        for (body in listOf(atLimit.dropLast(1), atLimit)) {
+            val accepted = postDemoStack(baseUrl, cookie, body)
+            assertEquals(200, accepted.statusCode())
+            assertEquals("""{"languages":["Kotlin","Раст"]}""", accepted.body())
+        }
+
+        val rejected = postDemoStack(baseUrl, cookie, atLimit.replace("Раст", "Руби") + " ")
+        assertEquals(413, rejected.statusCode())
+        assertEquals("Request body too large.", rejected.body())
+        assertEquals("""{"languages":["Kotlin","Раст"]}""", getDemoStack(baseUrl, cookie).body())
+    }
+
+    @Test
+    fun demoStackRejectsOversizedChunkedBody() = withDocsServer { baseUrl ->
+        val fresh = getResponse("$baseUrl/demo/api/stack")
+        val cookie = fresh.headers().firstValue("Set-Cookie").orElseThrow().substringBefore(";")
+        val json = """{"language":"Rust"}"""
+        val body = json.padEnd(64 * 1024 + 1).encodeToByteArray()
+        val response = http.send(
+            HttpRequest.newBuilder(URI.create("$baseUrl/demo/api/stack"))
+                .version(HttpClient.Version.HTTP_1_1)
+                .header("Cookie", cookie)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofInputStream { body.inputStream() })
+                .build(),
+            HttpResponse.BodyHandlers.ofString(),
+        )
+
+        assertEquals(413, response.statusCode())
+        assertEquals("""{"languages":["Kotlin"]}""", getDemoStack(baseUrl, cookie).body())
+    }
+
+    @Test
     fun docsServerFallsBackToPackagedCssWhenGeneratedAssetIsMissing() = withDocsServer(
         createGeneratedCss = false,
     ) { baseUrl ->
