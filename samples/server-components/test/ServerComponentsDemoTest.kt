@@ -118,7 +118,7 @@ class ServerComponentsDemoTest {
             HttpResponse.BodyHandlers.ofString(),
         )
         assertEquals(500, malformedAction.statusCode())
-        assertTrue("ServerActionRequest" in malformedAction.body() || "actionId" in malformedAction.body())
+        assertEquals("Internal server error.", malformedAction.body())
     }
 
     @Test
@@ -175,7 +175,7 @@ class ServerComponentsDemoTest {
         val response = getResponse("$baseUrl/client.mjs")
 
         assertEquals(500, response.statusCode())
-        assertTrue("Missing Kotlin/JS client bundle" in response.body())
+        assertEquals("Internal server error.", response.body())
     }
 
     @Test

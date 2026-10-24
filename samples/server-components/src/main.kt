@@ -195,10 +195,12 @@ internal class ServerComponentsDemoServer(
                 )
             }
         } catch (error: Throwable) {
+            // TODO: Replace with kotomi-logger
+            error.printStackTrace()
             exchange.respondText(
                 status = 500,
                 contentType = "text/plain",
-                body = error.stackTraceToString(),
+                body = "Internal server error.",
             )
         }
     }
