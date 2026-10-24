@@ -102,6 +102,10 @@ and CSRF tokens are checked by the dispatcher; handler exceptions return a gener
 message (no stack-trace leaks); `invalidates` keys plug into the
 [resource loop](/docs/resources) on the client.
 
+For an expected business validation failure, a handler can throw `ServerActionRejection`.
+Its message is returned verbatim to the client, so it must contain only client-safe text.
+Other handler exceptions and output serialization failures still return a generic error.
+
 Supply both token verifiers: an omitted verifier rejects every request. The generated
 `kineticaGeneratedServerActionDispatcher(verifyCapabilityToken, verifyCsrfToken)` factory
 requires both arguments. It replaces the generated `KineticaGeneratedServerActionDispatcher`

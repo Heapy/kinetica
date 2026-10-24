@@ -190,6 +190,13 @@ public interface ServerActionStub {
     ): ServerActionResponse
 }
 
+/**
+ * An expected rejection thrown by an action handler, such as a business validation failure.
+ * [message] is returned verbatim to the client and must not contain secrets or internal details.
+ * Exceptions from decoding or encoding still produce generic failures.
+ */
+public class ServerActionRejection(override val message: String) : RuntimeException(message)
+
 public fun <I, O> serverActionStub(
     registration: ServerActionRegistration,
     inputSerializer: KSerializer<I>,
@@ -221,7 +228,11 @@ public fun <I, O> serverActionStub(
                         // Decoding can also fail in an input DTO's constructor or init block.
                         return ServerActionResponse.Failure("Invalid server action payload.")
                     }
-                    val output = handler(input)
+                    val output = try {
+                        handler(input)
+                    } catch (rejection: ServerActionRejection) {
+                        return ServerActionResponse.Failure(rejection.message)
+                    }
                     ServerActionResponse.Success(
                         payload = json.encodeToJsonElement(outputSerializer, output),
                         invalidated = registration.invalidates,
