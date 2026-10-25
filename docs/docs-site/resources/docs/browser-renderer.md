@@ -15,6 +15,11 @@ mountKineticaApp("#app", runtime = KineticaRuntime(debug = false)) {
 
 ## What a patch does
 
+For ordinary DOM hosts, `column`/`row` map to `div` and `textInput`/`checkbox` map to `input`.
+Other tag names are passed directly to `document.createElement`; invalid DOM names throw a native
+`InvalidCharacterError` instead of being silently replaced with `div`. Host tag names must come
+from trusted application code: valid names such as `script` are not blocked.
+
 <!-- code: kinetica-browser/src@js/BrowserKineticaApp.kt (patch, applyProp, patchKeyedChildren), kinetica-render-core/src/ListReconcile.kt (longestIncreasingSubsequenceIndices) -->
 
 - **Reference-equal subtrees are skipped in O(1).** If a subtree's `Node` is the *same object*

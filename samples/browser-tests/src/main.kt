@@ -2,6 +2,7 @@ package app.browser.tests
 
 import io.heapy.kinetica.ComponentScope
 import io.heapy.kinetica.HostNode
+import io.heapy.kinetica.KineticaRuntime
 import io.heapy.kinetica.Role
 import io.heapy.kinetica.Semantics
 import io.heapy.kinetica.TemplateDefinition
@@ -10,6 +11,7 @@ import io.heapy.kinetica.TemplateHoleKinds
 import io.heapy.kinetica.TextInputType
 import io.heapy.kinetica.TextNode
 import io.heapy.kinetica.UiComponent
+import io.heapy.kinetica.browser.BrowserKineticaApp
 import io.heapy.kinetica.browser.mountKineticaApp
 import io.heapy.kinetica.button
 import io.heapy.kinetica.column
@@ -270,6 +272,28 @@ fun main() {
     val results = document.querySelector("#results") ?: error("Missing #results")
     val app = mountKineticaApp("#fixture") {
         BrowserTestApp()
+    }
+
+    runBrowserTest(results, "invalid host tags surface native DOM errors") {
+        for (tag in listOf("", "9bad", "script>", "div class=x", "a/b")) {
+            val root = document.createElement("div")
+            val invalidApp = BrowserKineticaApp(root, runtime = KineticaRuntime(debug = false)) {
+                emit(HostNode(tag = tag))
+            }
+            try {
+                var failure: Throwable? = null
+                try {
+                    invalidApp.render()
+                } catch (error: Throwable) {
+                    failure = error
+                }
+                check(failure != null) { "Expected a DOM error for tag: $tag" }
+                check(failure.asDynamic().name == "InvalidCharacterError")
+                check(root.childNodes.length == 0) { "Invalid tag created a fallback element" }
+            } finally {
+                invalidApp.dispose()
+            }
+        }
     }
 
     runBrowserTest(results, "snapshot contains test tags") {

@@ -4,37 +4,16 @@ import io.heapy.kinetica.Role
 import io.heapy.kinetica.isSafeHtmlAttributeValue
 import io.heapy.kinetica.isValidHtmlName
 
+/**
+ * Maps Kinetica's layout/input aliases and otherwise preserves the host tag name.
+ * Native `document.createElement` rejects invalid names when the renderer mounts the element.
+ * Tag names must come from trusted application code; this is not an element allowlist.
+ */
 public fun browserTagNameFor(tag: String): String =
     when (tag) {
         "column", "row" -> "div"
         "textInput", "checkbox" -> "input"
-        "a",
-        "article",
-        "button",
-        "div",
-        "form",
-        "h1",
-        "h2",
-        "h3",
-        "img",
-        "input",
-        "label",
-        "li",
-        "main",
-        "nav",
-        "ol",
-        "p",
-        "section",
-        "span",
-        "table",
-        "tbody",
-        "td",
-        "th",
-        "thead",
-        "tr",
-        "ul",
-        -> tag
-        else -> cachedBrowserTagNameFor(tag)
+        else -> tag
     }
 
 public fun browserRoleFor(role: Role): String? =
@@ -89,19 +68,7 @@ private fun isPublicBrowserAttributeName(name: String): Boolean =
         }
     }
 
-private fun cachedBrowserTagNameFor(tag: String): String =
-    browserTagNameCache[tag]?.let { cached ->
-        cached
-    } ?: (tag.takeIf(::isValidHtmlName) ?: "div").also { browserTagName ->
-        if (browserTagNameCache.size < BROWSER_TAG_NAME_CACHE_MAX_SIZE) {
-            browserTagNameCache[tag] = browserTagName
-        }
-    }
-
-private const val BROWSER_TAG_NAME_CACHE_MAX_SIZE = 128
 private const val PUBLIC_ATTRIBUTE_NAME_CACHE_MAX_SIZE = 128
-
-private val browserTagNameCache = mutableMapOf<String, String>()
 
 private val publicAttributeNameCache = mutableMapOf(
     "aria-hidden" to true,

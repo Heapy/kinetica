@@ -28,7 +28,7 @@ try {
 }
 
 async function verifyBrowserTests() {
-  const expectedBrowserSelfTests = 16;
+  const expectedBrowserSelfTests = 17;
   const page = await newPage("browser-tests");
   await page.goto(`${baseUrl}/samples/browser-tests/web/index.html`, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(

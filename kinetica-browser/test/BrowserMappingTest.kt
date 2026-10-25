@@ -14,7 +14,14 @@ class BrowserMappingTest {
         assertEquals("input", browserTagNameFor("textInput"))
         assertEquals("input", browserTagNameFor("checkbox"))
         assertEquals("article", browserTagNameFor("article"))
-        assertEquals("div", browserTagNameFor("script>"))
+        assertEquals("script>", browserTagNameFor("script>"))
+    }
+
+    @Test
+    fun passesHostNamesToTheBrowserWithoutSubstitution() {
+        for (tag in listOf("my-widget", "MY-WIDGET", "script", "", "9bad", "div class=x", "a/b")) {
+            assertEquals(tag, browserTagNameFor(tag))
+        }
     }
 
     @Test
