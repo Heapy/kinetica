@@ -1205,7 +1205,7 @@ public class BrowserKineticaApp(
     ): DomNode? {
         var index = start
         while (index <= end) {
-            val dom = result[index]?.let(::firstDomOf)
+            val dom = result[index]?.firstDom
             if (dom != null) {
                 return dom
             }
@@ -1309,12 +1309,12 @@ public class BrowserKineticaApp(
         }
 
         val suffixAnchor: DomNode? =
-            if (newEnd + 1 <= next.lastIndex) result[newEnd + 1]?.let(::firstDomOf) ?: appendAnchor else appendAnchor
+            if (newEnd + 1 <= next.lastIndex) result[newEnd + 1]?.firstDom ?: appendAnchor else appendAnchor
 
         if (oldStart > oldEnd) {
             for (index in newEnd downTo newStart) {
                 val anchor =
-                    if (index + 1 <= next.lastIndex) result[index + 1]?.let(::firstDomOf) ?: suffixAnchor
+                    if (index + 1 <= next.lastIndex) result[index + 1]?.firstDom ?: suffixAnchor
                     else suffixAnchor
                 result[index] = mount(next[index], parent, anchor, childPathOf(parentPath, index))
             }
@@ -1352,7 +1352,7 @@ public class BrowserKineticaApp(
                     if (sourceOldIndex[middleIndex] < 0) {
                         val newIndex = newStart + middleIndex
                         val anchor =
-                            if (newIndex + 1 <= next.lastIndex) result[newIndex + 1]?.let(::firstDomOf) ?: suffixAnchor
+                            if (newIndex + 1 <= next.lastIndex) result[newIndex + 1]?.firstDom ?: suffixAnchor
                             else suffixAnchor
                         result[newIndex] = mount(next[newIndex], parent, anchor, childPathOf(parentPath, newIndex))
                     }
@@ -1367,7 +1367,7 @@ public class BrowserKineticaApp(
                 for (middleIndex in middleCount - 1 downTo 0) {
                     val newIndex = newStart + middleIndex
                     val anchor =
-                        if (newIndex + 1 <= next.lastIndex) result[newIndex + 1]?.let(::firstDomOf) ?: suffixAnchor
+                        if (newIndex + 1 <= next.lastIndex) result[newIndex + 1]?.firstDom ?: suffixAnchor
                         else suffixAnchor
                     if (sourceOldIndex[middleIndex] < 0) {
                         result[newIndex] = mount(next[newIndex], parent, anchor, childPathOf(parentPath, newIndex))
@@ -1518,6 +1518,8 @@ public class BrowserKineticaApp(
 private sealed class Mounted {
     abstract val currentNode: Node
     abstract val containsControlledInputHost: Boolean
+    abstract val firstDom: DomNode?
+    abstract val lastDom: DomNode?
 }
 
 private class MountedHost(
@@ -1527,6 +1529,8 @@ private class MountedHost(
     val widget: HostWidget<Element>? = null,
 ) : Mounted() {
     override val currentNode: Node get() = hostNode
+    override val firstDom: DomNode get() = element
+    override val lastDom: DomNode get() = element
     override var containsControlledInputHost: Boolean = false
 }
 
@@ -1537,6 +1541,8 @@ private class MountedTemplate(
     override val containsControlledInputHost: Boolean,
 ) : Mounted() {
     override val currentNode: Node get() = templateNode
+    override val firstDom: DomNode get() = root
+    override val lastDom: DomNode get() = root
 }
 
 private class MountedTemplateEvents(
@@ -1556,6 +1562,8 @@ private class MountedText(
     val wrapped: Boolean,
 ) : Mounted() {
     override val currentNode: Node get() = textNode
+    override val firstDom: DomNode get() = dom
+    override val lastDom: DomNode get() = dom
     override val containsControlledInputHost: Boolean get() = false
 }
 
@@ -1564,6 +1572,10 @@ private class MountedFragment(
     val children: MutableList<Mounted>,
 ) : Mounted() {
     override val currentNode: Node get() = fragmentNode
+    override val firstDom: DomNode?
+        get() = children.firstNotNullOfOrNull { child -> child.firstDom }
+    override val lastDom: DomNode?
+        get() = children.asReversed().firstNotNullOfOrNull { child -> child.lastDom }
     override var containsControlledInputHost: Boolean = false
 }
 
@@ -1572,6 +1584,8 @@ private class MountedClientRef(
     val element: Element,
 ) : Mounted() {
     override val currentNode: Node get() = refNode
+    override val firstDom: DomNode get() = element
+    override val lastDom: DomNode get() = element
     override val containsControlledInputHost: Boolean get() = false
 }
 
@@ -1640,23 +1654,7 @@ private class KeyedPatchScratchFrame {
     }
 }
 
-private fun firstDomOf(mounted: Mounted): DomNode? = when (mounted) {
-    is MountedHost -> mounted.element
-    is MountedTemplate -> mounted.root
-    is MountedText -> mounted.dom
-    is MountedClientRef -> mounted.element
-    is MountedFragment -> mounted.children.firstNotNullOfOrNull(::firstDomOf)
-}
-
-private fun lastDomOf(mounted: Mounted): DomNode? = when (mounted) {
-    is MountedHost -> mounted.element
-    is MountedTemplate -> mounted.root
-    is MountedText -> mounted.dom
-    is MountedClientRef -> mounted.element
-    is MountedFragment -> mounted.children.asReversed().firstNotNullOfOrNull(::lastDomOf)
-}
-
-private fun domAfter(mounted: Mounted): DomNode? = lastDomOf(mounted)?.nextSibling
+private fun domAfter(mounted: Mounted): DomNode? = mounted.lastDom?.nextSibling
 
 private fun moveDom(mounted: Mounted, parent: Element, anchor: DomNode?) {
     when (mounted) {
