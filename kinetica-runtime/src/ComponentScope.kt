@@ -763,7 +763,6 @@ public class ComponentScope public constructor(
         var allCertified = true
         var reused = 0
         for (keyed in snapshot) {
-            val rowKey = keyed.key.toString()
             val rowFrame = currentFrame.enterKeyedChild(
                 ordinal,
                 keyedPassChildKey(pass, keyed.key),
@@ -780,6 +779,7 @@ public class ComponentScope public constructor(
                 reused += 1
                 rowCertified = hit.certifiedKeyedHost
             } else {
+                val rowKey = keyed.key.toString()
                 enterFrame(rowFrame)
                 val captured = try {
                     captureRender { collect { content(keyed.item) } }
