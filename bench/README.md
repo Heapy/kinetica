@@ -339,6 +339,13 @@ markdown SSR throughput over the real docs pages. Hand-rolled harness (nanoTime,
 medians, volatile blackhole) — coarser than JMH; treat cross-machine numbers as incomparable.
 Output: `results/jvm/results.json`. CI runs it as a smoke test only.
 
+Opt in to keyed-row scaling with `--row-sizes=10k,100k --filter=row_` when running the JVM
+module directly (or `--filter=jvm:row_` through `bench/run.mjs`). Each size adds four scenarios:
+unchanged rows and every-tenth-row updates, with memoization enabled and disabled. They render
+bare keyed `tr` nodes to isolate list bookkeeping; update timings also include copying the input
+list. These scenarios run only when `--row-sizes` is supplied. Sizes accept positive integers and
+`k`/`m` suffixes; start small before profiling larger lists.
+
 ### Bundle sizes (../scripts/size-report.mjs)
 
 `node scripts/size-report.mjs` from the repo root reports gzip/raw sizes of Kinetica's linked

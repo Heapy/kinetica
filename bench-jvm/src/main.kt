@@ -40,6 +40,7 @@ class Benchmark(
     val batch: Int = 1,
     val setup: () -> Unit = {},
     val op: () -> Any?,
+    val teardown: () -> Unit = {},
 )
 
 data class Stats(
@@ -61,7 +62,7 @@ fun stats(samples: List<Double>): Stats {
 
 data class Row(val id: Int, val label: String)
 
-private fun buildRows(count: Int, from: Int = 1): List<Row> =
+internal fun buildRows(count: Int, from: Int = 1): List<Row> =
     List(count) { Row(id = from + it, label = "row label ${from + it}") }
 
 // Mirrors the browser-bench table without DOM, measuring host-DSL traversal, node allocation,
@@ -116,6 +117,7 @@ fun main(args: Array<String>) {
         ?.map { it.trim() }
         ?.filter { it.isNotEmpty() }
         .orEmpty()
+    val rowSizes = options["row-sizes"]?.split(',')?.map(::parseRowCount)?.distinct().orEmpty()
     val repoRoot = findRepoRoot()
     val outPath = options["out"]?.let(Path::of)
         ?: repoRoot.resolve("bench/results/jvm/results.json")
@@ -307,7 +309,7 @@ fun main(args: Array<String>) {
                 runtime.render(scope) { markdownBlocks(docsBlocks) }.tree.toSafeHtml()
             },
         ),
-    ).filter { benchmark ->
+    ).plus(rowScaleBenchmarks(rowSizes)).filter { benchmark ->
         filters.isEmpty() || filters.any { filter -> benchmark.id.contains(filter) }
     }
 
@@ -316,21 +318,25 @@ fun main(args: Array<String>) {
 
     val results = linkedMapOf<String, Pair<Benchmark, Stats>>()
     for (bench in benchmarks) {
-        bench.setup()
-        repeat(warmup) { Blackhole.sink = bench.op() }
-        val timings = ArrayList<Double>(samples)
-        repeat(samples) {
-            val start = System.nanoTime()
-            Blackhole.sink = bench.op()
-            timings.add((System.nanoTime() - start) / 1e6 / bench.batch)
+        try {
+            bench.setup()
+            repeat(warmup) { Blackhole.sink = bench.op() }
+            val timings = ArrayList<Double>(samples)
+            repeat(samples) {
+                val start = System.nanoTime()
+                Blackhole.sink = bench.op()
+                timings.add((System.nanoTime() - start) / 1e6 / bench.batch)
+            }
+            val s = stats(timings)
+            results[bench.id] = bench to s
+            val opsPerSec = 1000.0 / s.medianMs
+            println(
+                "  %-24s median %8.3f ms  (mean %8.3f ± %6.3f, %,.0f ops/s)  %s"
+                    .format(bench.id, s.medianMs, s.meanMs, s.stddevMs, opsPerSec, bench.label),
+            )
+        } finally {
+            bench.teardown()
         }
-        val s = stats(timings)
-        results[bench.id] = bench to s
-        val opsPerSec = 1000.0 / s.medianMs
-        println(
-            "  %-24s median %8.3f ms  (mean %8.3f ± %6.3f, %,.0f ops/s)  %s"
-                .format(bench.id, s.medianMs, s.meanMs, s.stddevMs, opsPerSec, bench.label),
-        )
     }
 
     val json = buildJsonObject {
