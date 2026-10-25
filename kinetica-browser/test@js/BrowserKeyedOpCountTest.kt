@@ -1,6 +1,7 @@
 package io.heapy.kinetica.browser
 
 import io.heapy.kinetica.HostNode
+import io.heapy.kinetica.ChildRegion
 import io.heapy.kinetica.KineticaRuntime
 import io.heapy.kinetica.Node
 import io.heapy.kinetica.TextNode
@@ -13,6 +14,53 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class BrowserKeyedOpCountTest {
+    @Test
+    fun orderedSurvivorsNeedOnlyInsertsAndRemovesWithAndWithoutRegionNeighbors() {
+        for (withNeighbors in listOf(false, true)) {
+            installTestDocument()
+            val ops = installOpLog()
+            val root = testDocument().createElement("div").unsafeCast<Element>()
+            testDocument().body.insertBefore(root, null)
+            val initial = listOf("old", "a", "b", "gone", "c", "tail")
+            val next = listOf("new", "a", "x", "b", "c", "end")
+            fun tree(keys: List<String>): HostNode {
+                val list = keyedList(keys)
+                if (!withNeighbors) return list
+                return list.copy(
+                    children = listOf(HostNode("header")) + list.children + HostNode("footer"),
+                    regions = listOf(ChildRegion(ordinal = 0, start = 1, end = keys.size + 1)),
+                )
+            }
+            var current = tree(initial)
+            val app = mountKineticaApp(root, runtime = KineticaRuntime(debug = false)) { emit(current) }
+            try {
+                val parent = firstElement(root)
+                val offset = if (withNeighbors) 1 else 0
+                val before = initial.withIndex().associate { (index, key) -> key to childElement(parent, index + offset) }
+                val head = if (withNeighbors) childElement(parent, 0) else null
+                val tail = if (withNeighbors) childElement(parent, initial.size + 1) else null
+                clearOps(ops)
+
+                current = tree(next)
+                app.render()
+
+                assertEquals(next, next.indices.map { childElement(parent, it + offset).textContent })
+                assertEquals(next.size + 2 * offset, parent.childNodes.length)
+                assertOpCounts(ops, inserts = 3, removes = 3)
+                for (key in listOf("a", "b", "c")) {
+                    assertSame(before.getValue(key), childElement(parent, next.indexOf(key) + offset))
+                    assertFalse(hasOpChild(ops, before.getValue(key)))
+                }
+                if (withNeighbors) {
+                    assertSame(head, childElement(parent, 0))
+                    assertSame(tail, childElement(parent, next.size + 1))
+                }
+            } finally {
+                app.dispose()
+            }
+        }
+    }
+
     @Test
     fun appendAddsExactlyOneInsert() {
         installTestDocument()

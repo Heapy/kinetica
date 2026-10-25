@@ -1151,15 +1151,33 @@ public class BrowserKineticaApp(
             keyToNewIndex[next[index].reconcileKey!!] = index
         }
         val sourceOldIndex = IntArray(middleCount) { -1 }
+        var moved = false
+        var lastPatchedNewIndex = newStart - 1
         for (oldIndex in oldStart..oldEnd) {
             val child = mounted[oldIndex]
             val newIndex = keyToNewIndex[child.reconcileKey()]
             if (newIndex == null) {
                 unmount(child, parent)
             } else {
+                if (newIndex < lastPatchedNewIndex) {
+                    moved = true
+                } else {
+                    lastPatchedNewIndex = newIndex
+                }
                 sourceOldIndex[newIndex - newStart] = oldIndex
                 result[newIndex] = patch(child, next[newIndex], parent, childPathOf(parentPath, newIndex))
             }
+        }
+        // Surviving keys are already ordered; only new nodes need insertion.
+        if (!moved) {
+            for (middleIndex in middleCount - 1 downTo 0) {
+                if (sourceOldIndex[middleIndex] < 0) {
+                    val newIndex = newStart + middleIndex
+                    val anchor = firstDomInResult(result, newIndex + 1, newEnd, endAnchor)
+                    result[newIndex] = mount(next[newIndex], parent, anchor, childPathOf(parentPath, newIndex))
+                }
+            }
+            return
         }
         val lis = LongestIncreasingSubsequenceScratch()
         val stableSize = longestIncreasingSubsequenceIndices(sourceOldIndex, middleCount, lis)
@@ -1312,31 +1330,50 @@ public class BrowserKineticaApp(
                 keyToNewIndex[next[index].reconcileKey!!] = index
             }
             val sourceOldIndex = scratch.prepareSourceOldIndex(middleCount)
+            var moved = false
+            var lastPatchedNewIndex = newStart - 1
             for (oldIndex in oldStart..oldEnd) {
                 val child = mounted[oldIndex]
                 val newIndex = keyToNewIndex[child.reconcileKey()]
                 if (newIndex == null) {
                     unmount(child, parent)
                 } else {
+                    if (newIndex < lastPatchedNewIndex) {
+                        moved = true
+                    } else {
+                        lastPatchedNewIndex = newIndex
+                    }
                     sourceOldIndex[newIndex - newStart] = oldIndex
                     result[newIndex] = patch(child, next[newIndex], parent, childPathOf(parentPath, newIndex))
                 }
             }
-            val stableSize = longestIncreasingSubsequenceIndices(sourceOldIndex, middleCount, scratch.lis)
-            val stable = scratch.lis.result
-            val inStableRun = scratch.prepareStableRun(middleCount)
-            for (position in 0 until stableSize) {
-                inStableRun[stable[position]] = true
-            }
-            for (middleIndex in middleCount - 1 downTo 0) {
-                val newIndex = newStart + middleIndex
-                val anchor =
-                    if (newIndex + 1 <= next.lastIndex) result[newIndex + 1]?.let(::firstDomOf) ?: suffixAnchor
-                    else suffixAnchor
-                if (sourceOldIndex[middleIndex] < 0) {
-                    result[newIndex] = mount(next[newIndex], parent, anchor, childPathOf(parentPath, newIndex))
-                } else if (!inStableRun[middleIndex]) {
-                    moveDom(result[newIndex]!!, parent, anchor)
+            if (!moved) {
+                for (middleIndex in middleCount - 1 downTo 0) {
+                    if (sourceOldIndex[middleIndex] < 0) {
+                        val newIndex = newStart + middleIndex
+                        val anchor =
+                            if (newIndex + 1 <= next.lastIndex) result[newIndex + 1]?.let(::firstDomOf) ?: suffixAnchor
+                            else suffixAnchor
+                        result[newIndex] = mount(next[newIndex], parent, anchor, childPathOf(parentPath, newIndex))
+                    }
+                }
+            } else {
+                val stableSize = longestIncreasingSubsequenceIndices(sourceOldIndex, middleCount, scratch.lis)
+                val stable = scratch.lis.result
+                val inStableRun = scratch.prepareStableRun(middleCount)
+                for (position in 0 until stableSize) {
+                    inStableRun[stable[position]] = true
+                }
+                for (middleIndex in middleCount - 1 downTo 0) {
+                    val newIndex = newStart + middleIndex
+                    val anchor =
+                        if (newIndex + 1 <= next.lastIndex) result[newIndex + 1]?.let(::firstDomOf) ?: suffixAnchor
+                        else suffixAnchor
+                    if (sourceOldIndex[middleIndex] < 0) {
+                        result[newIndex] = mount(next[newIndex], parent, anchor, childPathOf(parentPath, newIndex))
+                    } else if (!inStableRun[middleIndex]) {
+                        moveDom(result[newIndex]!!, parent, anchor)
+                    }
                 }
             }
         }
