@@ -23,6 +23,11 @@ val html = tree.toSafeHtml()
 `toSafeHtml()` serializes a tree with escaping and URL-scheme sanitization built in. Every page
 of this documentation site is produced exactly this way.
 
+Host tag names must come from trusted application code. A tag that fails `isValidHtmlName`,
+such as `"div class=x"`, causes `toSafeHtml()` to throw `IllegalArgumentException` instead of
+silently substituting a `div`. This is a syntax check, not a list of permitted elements;
+names such as `script` still pass it.
+
 ## 2. Client islands & hydration
 
 <!-- code: kinetica-runtime/src/Node.kt (ClientRef), kinetica-runtime/src/ServerComponents.kt (hydrationPlan, encodeHydrationPlan), samples/server-components-client/src/main.kt -->

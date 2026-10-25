@@ -648,6 +648,25 @@ class RuntimeSmokeServerTest {
     }
 
     @Test
+    fun safeHtmlRejectsInvalidHostTags() {
+        for (tag in listOf("", "9bad", "script>", "div class=x", "div\"", "a/b", "a\n")) {
+            assertFailsWith<IllegalArgumentException>("tag=$tag") {
+                HostNode(tag = tag).toSafeHtml()
+            }
+        }
+        assertFailsWith<IllegalArgumentException> {
+            HostNode(tag = "main", children = listOf(HostNode(tag = "bad tag"))).toSafeHtml()
+        }
+    }
+
+    @Test
+    fun safeHtmlPreservesValidHostTagNames() {
+        for (tag in listOf("article", "h4", "my-widget", "MY-WIDGET", "script")) {
+            assertEquals("<$tag></$tag>", HostNode(tag = tag).toSafeHtml())
+        }
+    }
+
+    @Test
     fun safeHtmlEscapesTextAttributesKeysAndClientRefs() {
         val html = HostNode(
             tag = "section",
@@ -688,7 +707,7 @@ class RuntimeSmokeServerTest {
         assertFalse("<script>" in html)
 
         val unsafeHtml = HostNode(
-            tag = "9bad<tag",
+            tag = "div",
             props = linkedMapOf(
                 "" to "empty",
                 "9bad" to "bad",
@@ -698,7 +717,7 @@ class RuntimeSmokeServerTest {
             children = listOf(TextNode("Safe")),
         ).toSafeHtml()
 
-        assertTrue(unsafeHtml.startsWith("<div data-kinetica-tag=\"9bad&lt;tag\" aria-label=\"Kept\">"))
+        assertTrue(unsafeHtml.startsWith("<div aria-label=\"Kept\">"))
         assertTrue(unsafeHtml.endsWith(">Safe</div>"))
         assertFalse("=\"empty\"" in unsafeHtml)
         assertFalse("9bad=\"bad\"" in unsafeHtml)

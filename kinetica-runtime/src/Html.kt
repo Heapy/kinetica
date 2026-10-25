@@ -3,6 +3,11 @@ package io.heapy.kinetica
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonObject
 
+/**
+ * Renders HTML with escaped text and attributes. Host tag names must be chosen by trusted code;
+ * [isValidHtmlName] checks their syntax, not whether the named element is safe.
+ * @throws IllegalArgumentException if a host tag fails [isValidHtmlName].
+ */
 public fun Node.toSafeHtml(): String =
     buildString {
         appendSafeHtml(this@toSafeHtml)
@@ -45,8 +50,9 @@ private fun StringBuilder.appendSafeHtml(node: Node) {
 }
 
 private fun StringBuilder.appendHostNode(node: HostNode) {
+    require(isValidHtmlName(node.tag)) { "Invalid HostNode tag: \"${node.tag}\"." }
     val isTextInput = node.tag == "textInput"
-    val tagName = if (isTextInput) "input" else node.tag.takeIf(::isValidHtmlName) ?: "div"
+    val tagName = if (isTextInput) "input" else node.tag
     val inputType = if (isTextInput) {
         node.props.entries.firstOrNull { (name, _) -> name.equals("type", ignoreCase = true) }?.value ?: "text"
     } else {
@@ -55,9 +61,6 @@ private fun StringBuilder.appendHostNode(node: HostNode) {
     val isPassword = inputType.equals("password", ignoreCase = true)
     append('<')
     append(tagName)
-    if (tagName != node.tag && !isTextInput) {
-        appendAttribute("data-kinetica-tag", node.tag)
-    }
     inputType?.let { type -> appendAttribute("type", type) }
     node.props
         .filter { (name, value) ->
