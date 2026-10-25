@@ -11,6 +11,17 @@ private data class MemoItem(val id: Int, val label: String)
 private var memoItems: List<MemoItem> = emptyList()
 
 @UiComponent(skippable = false)
+private fun ComponentScope.MemoNullableListRows(items: List<List<String>?>) {
+    column {
+        each(items, key = { it?.first() ?: "null" }) { item ->
+            host("li", key = item?.first() ?: "null") {
+                text(item?.joinToString() ?: "null", semantics = null)
+            }
+        }
+    }
+}
+
+@UiComponent(skippable = false)
 private fun ComponentScope.MemoBasicRows() {
     column {
         each(memoItems, key = { it.id }) { item ->
@@ -179,6 +190,30 @@ private fun ComponentScope.MemoConditionalEffectRows() {
 }
 
 class EachMemoizationTest {
+    @Test
+    fun nullableAndListItemsUseValueEqualityForRowCacheHits() {
+        val runtime = KineticaRuntime()
+        val scope = ComponentScope(runtime)
+        var items: List<List<String>?> = listOf(null, listOf("id", "one"))
+        fun render(): List<HostNode> = runtime.render(scope) { MemoNullableListRows(items) }.tree.rows()
+        try {
+            val first = render()
+            items = listOf(null, listOf("id", "one"))
+            val equal = render()
+            assertSame(first[0], equal[0])
+            assertSame(first[1], equal[1])
+
+            items = listOf(null, listOf("id", "two"))
+            val changed = render()
+            assertSame(equal[0], changed[0])
+            assertNotSame(equal[1], changed[1])
+            assertEquals("id, two", changed[1].findText().value)
+        } finally {
+            scope.dispose()
+            runtime.dispose()
+        }
+    }
+
     private fun Node.rows(): List<HostNode> =
         (this as HostNode).children.filterIsInstance<HostNode>()
 

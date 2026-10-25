@@ -724,6 +724,16 @@ public class ComponentScope public constructor(
     private fun frameSkipHit(frame: Frame, inputs: List<Any?>): FrameSkipCache? {
         val cache = frame.skipCache ?: return null
         if (cache.inputs != inputs) return null
+        return currentSkipCache(cache)
+    }
+
+    private fun rowFrameSkipHit(frame: Frame, item: Any?): FrameSkipCache? {
+        val cache = frame.skipCache ?: return null
+        if (cache.inputs.size != 1 || cache.inputs[0] != item) return null
+        return currentSkipCache(cache)
+    }
+
+    private fun currentSkipCache(cache: FrameSkipCache): FrameSkipCache? {
         if (!cache.dependenciesUnchanged()) return null
         if (!contextReadsUnchanged(cache.contextReads)) return null
         return cache
@@ -760,7 +770,7 @@ public class ComponentScope public constructor(
                 table = rowTable,
                 generation = slotGeneration,
             )
-            val hit = if (memoize) frameSkipHit(rowFrame, listOf(keyed.item)) else null
+            val hit = if (memoize) rowFrameSkipHit(rowFrame, keyed.item) else null
             val rowCertified: Boolean
             if (hit != null) {
                 outFrame += hit.nodes
