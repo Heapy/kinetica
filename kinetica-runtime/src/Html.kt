@@ -46,7 +46,7 @@ private fun StringBuilder.appendSafeHtml(node: Node) {
 
 private fun StringBuilder.appendHostNode(node: HostNode) {
     val isTextInput = node.tag == "textInput"
-    val tagName = if (isTextInput) "input" else node.tag.takeIf(::isSafeHtmlName) ?: "div"
+    val tagName = if (isTextInput) "input" else node.tag.takeIf(::isValidHtmlName) ?: "div"
     val inputType = if (isTextInput) {
         node.props.entries.firstOrNull { (name, _) -> name.equals("type", ignoreCase = true) }?.value ?: "text"
     } else {
@@ -132,12 +132,18 @@ public fun isSafeHtmlAttributeValue(name: String, value: String): Boolean {
 }
 
 private fun isPublicHtmlAttributeName(name: String): Boolean =
-    isSafeHtmlName(name) &&
+    isValidHtmlName(name) &&
         !name.startsWith("event:") &&
         !name.startsWith("frame:") &&
         !name.startsWith("on", ignoreCase = true)
 
-private fun isSafeHtmlName(name: String): Boolean =
+/**
+ * Kinetica's shared syntax check for HTML tag and attribute names.
+ * Accepts a leading letter followed by letters, digits, `-`, `_`, `:`, or `.`.
+ * This does not classify tags as safe: names such as `script` also pass.
+ * Host tag names must come from trusted application code.
+ */
+public fun isValidHtmlName(name: String): Boolean =
     name.isNotEmpty() &&
         name.first().isLetter() &&
         name.all { character ->

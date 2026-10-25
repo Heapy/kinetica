@@ -2,6 +2,7 @@ package io.heapy.kinetica.browser
 
 import io.heapy.kinetica.Role
 import io.heapy.kinetica.isSafeHtmlAttributeValue
+import io.heapy.kinetica.isValidHtmlName
 
 public fun browserTagNameFor(tag: String): String =
     when (tag) {
@@ -91,7 +92,7 @@ private fun isPublicBrowserAttributeName(name: String): Boolean =
 private fun cachedBrowserTagNameFor(tag: String): String =
     browserTagNameCache[tag]?.let { cached ->
         cached
-    } ?: (tag.takeIf(::isSafeBrowserName) ?: "div").also { browserTagName ->
+    } ?: (tag.takeIf(::isValidHtmlName) ?: "div").also { browserTagName ->
         if (browserTagNameCache.size < BROWSER_TAG_NAME_CACHE_MAX_SIZE) {
             browserTagNameCache[tag] = browserTagName
         }
@@ -113,7 +114,7 @@ private val publicAttributeNameCache = mutableMapOf(
 )
 
 private fun isUncachedPublicBrowserAttributeName(name: String): Boolean =
-    isSafeBrowserName(name) &&
+    isValidHtmlName(name) &&
         !isKnownPrivateBrowserAttributeName(name)
 
 private fun isKnownValueSafePublicBrowserAttributeName(name: String): Boolean =
@@ -145,14 +146,3 @@ private fun isKnownPrivateBrowserAttributeName(name: String): Boolean =
                 name.startsWith("frame:") ||
                 name.startsWith("on", ignoreCase = true)
     }
-
-private fun isSafeBrowserName(name: String): Boolean =
-    name.isNotEmpty() &&
-        name.first().isLetter() &&
-        name.all { character ->
-            character.isLetterOrDigit() ||
-                character == '-' ||
-                character == '_' ||
-                character == ':' ||
-                character == '.'
-        }
