@@ -124,6 +124,7 @@ for (const target of targets) {
     target: "es2020",
     outfile: bundleFile,
     logLevel: "warning",
+    define: { KINETICA_DEBUG_DIAGNOSTICS: "false" },
   });
   writeBrotli(bundleFile);
 

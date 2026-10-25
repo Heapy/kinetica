@@ -36,6 +36,7 @@ await build({
   target: "es2020",
   outfile: bundleFile,
   logLevel: "warning",
+  define: { KINETICA_DEBUG_DIAGNOSTICS: "false" },
 });
 
 const bytes = readFileSync(bundleFile);

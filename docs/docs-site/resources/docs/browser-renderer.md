@@ -64,6 +64,14 @@ With `debug = true` (the default for `mountKineticaApp`), elements carry `data-k
 `data-kinetica-path` attributes for tooling, duplicate `each` keys throw, and the runtime
 journals every event and patch cause. Production mounts skip all of it.
 
+The docs and benchmark bundles additionally define `KINETICA_DEBUG_DIAGNOSTICS=false` to remove
+debug DOM-attribute writes during bundling, even if a runtime enables debug mode. Client-island
+metadata remains available. Unbundled builds retain the usual `runtime.debug` behavior; this flag
+does not disable the runtime's journal or duplicate-key checks.
+
+To verify both bundle modes, run `./kotlin task :kinetica-browser:linkJsTest` followed by
+`node scripts/verify-browser-debug.mjs` (requires the dependencies in `bench/package.json`).
+
 ## Testing hooks
 
 <!-- code: kinetica-browser/src@js/BrowserKineticaApp.kt (BrowserKineticaApp, BrowserUiSnapshot) -->

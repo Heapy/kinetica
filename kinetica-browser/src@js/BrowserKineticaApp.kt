@@ -54,6 +54,12 @@ public class BrowserKineticaApp(
 
     private val delegatedListener: (Event) -> Unit = { event -> handleDelegatedEvent(event) }
 
+    // Inline so production bundlers can remove guarded attribute writes at each call site.
+    // Unbundled builds keep diagnostics available; client-island metadata is never gated.
+    @Suppress("NOTHING_TO_INLINE")
+    private inline fun domDiagnosticsEnabled(): Boolean =
+        js("typeof KINETICA_DEBUG_DIAGNOSTICS === 'undefined' || KINETICA_DEBUG_DIAGNOSTICS") && runtime.debug
+
     init {
         DelegatedEventTypes.forEach { type -> rootElement.addEventListener(type, delegatedListener) }
     }
@@ -131,7 +137,7 @@ public class BrowserKineticaApp(
         } else {
             patch(existing, nextTree, rootElement, path = "")
         }
-        if (runtime.debug || clientRefCount > 0) {
+        if (domDiagnosticsEnabled() || clientRefCount > 0) {
             refreshGeneratedAttributes()
         }
         if (focus != null &&
@@ -281,7 +287,7 @@ public class BrowserKineticaApp(
             }
         }
         val element = browserDocument.createElement(browserTagNameFor(node.tag))
-        if (runtime.debug) {
+        if (domDiagnosticsEnabled()) {
             element.setAttribute(DATA_KINETICA_TAG, node.tag)
             element.setAttribute(DATA_KINETICA_PATH, path)
         }
@@ -340,7 +346,7 @@ public class BrowserKineticaApp(
         } else {
             root.removeAttribute(DATA_KINETICA_KEY)
         }
-        if (runtime.debug) {
+        if (domDiagnosticsEnabled()) {
             root.setAttribute(DATA_KINETICA_PATH, path)
         }
         val mounted = MountedTemplate(
@@ -362,7 +368,7 @@ public class BrowserKineticaApp(
         }
         val element = browserDocument.createElement("span")
         element.textContent = node.value
-        if (runtime.debug) {
+        if (domDiagnosticsEnabled()) {
             element.setAttribute(DATA_KINETICA_PATH, path)
         }
         if (node.strikethrough) {
@@ -619,7 +625,7 @@ public class BrowserKineticaApp(
                 mounted.root.removeAttribute(DATA_KINETICA_KEY)
             }
         }
-        if (runtime.debug) {
+        if (domDiagnosticsEnabled()) {
             mounted.root.setAttribute(DATA_KINETICA_PATH, path)
         }
         patchTemplateValues(mounted, previous.values, next.values)
@@ -1419,7 +1425,7 @@ public class BrowserKineticaApp(
     private fun refreshAttributes(mounted: Mounted, path: String) {
         when (mounted) {
             is MountedHost -> {
-                if (runtime.debug) {
+                if (domDiagnosticsEnabled()) {
                     mounted.element.setAttribute(DATA_KINETICA_PATH, path)
                 }
                 mounted.children.forEachIndexed { index, child ->
@@ -1427,11 +1433,11 @@ public class BrowserKineticaApp(
                 }
             }
             is MountedTemplate ->
-                if (runtime.debug) {
+                if (domDiagnosticsEnabled()) {
                     mounted.root.setAttribute(DATA_KINETICA_PATH, path)
                 }
             is MountedText ->
-                if (runtime.debug && mounted.wrapped) {
+                if (domDiagnosticsEnabled() && mounted.wrapped) {
                     (mounted.dom as Element).setAttribute(DATA_KINETICA_PATH, path)
                 }
             is MountedFragment ->
@@ -1443,7 +1449,7 @@ public class BrowserKineticaApp(
     }
 
     private fun childPathOf(parent: String, index: Int): String =
-        if (!runtime.debug) "" else refreshChildPath(parent, index)
+        if (!domDiagnosticsEnabled()) "" else refreshChildPath(parent, index)
 
     private fun Element.applyPublicProps(node: HostNode) {
         node.props.forEach { (name, value) ->
